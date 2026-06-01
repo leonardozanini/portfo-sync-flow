@@ -1,0 +1,339 @@
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+
+// ---------- Types ----------
+export type AssetClass =
+  | "stock" | "reit" | "etf" | "crypto" | "fixed_income" | "fund" | "cash" | "other";
+export type TxType = "buy" | "sell" | "dividend" | "deposit" | "withdraw";
+export type CurrencyCode = "BRL" | "USD" | "EUR" | "GBP" | "JPY";
+
+export type GroupedAsset = {
+  assetId: string;
+  symbol: string;
+  name: string | null;
+  assetClass: AssetClass;
+  currency: CurrencyCode;
+  qty: number;
+  avgPrice: number;         // native currency
+  currentPrice: number;     // native currency
+  balanceBRL: number;        // qty * currentPrice converted to BRL
+  investedBRL: number;       // total cost basis in BRL
+  variation: number;         // % vs avg
+  yieldPct: number;          // % gain/loss
+};
+
+export type AssetGroup = {
+  assetClass: AssetClass;
+  label: string;
+  assets: GroupedAsset[];
+  totalValueBRL: number;
+  totalInvestedBRL: number;
+  variation: number;
+  yieldPct: number;
+  pctWallet: number;
+};
+
+export type DashboardData = {
+  totalsBRL: {
+    patrimonio: number;
+    invested: number;
+    pnl: number;
+    yieldPct: number;
+    dayVariation: number;     // placeholder until daily snapshots
+    dividends12m: number;
+  };
+  allocation: { name: string; assetClass: AssetClass; valueBRL: number; pct: number }[];
+  equity: { date: string; aplicado: number; ganho: number }[];
+  groups: AssetGroup[];
+};
+
+const CLASS_LABEL: Record<AssetClass, string> = {
+  stock: "Ações",
+  reit: "FIIs",
+  etf: "ETFs",
+  crypto: "Criptomoedas",
+  fixed_income: "Renda Fixa",
+  fund: "Fundos",
+  cash: "Caixa",
+  other: "Outros",
+};
+
+// ---------- getDashboard ----------
+export const getDashboard = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<DashboardData> => {
+    const { supabase, userId } = context;
+
+    const [txRes, assetsRes, pricesRes, fxRes] = await Promise.all([
+      supabase.from("transactions").select("*").eq("user_id", userId).order("occurred_at", { ascending: true }),
+      supabase.from("assets").select("*"),
+      supabase.from("asset_prices").select("asset_id, close_price, price_date").order("price_date", { ascending: false }),
+      supabase.from("fx_rates").select("base, quote, rate, rate_date").order("rate_date", { ascending: false }),
+    ]);
+    if (txRes.error) throw new Error(txRes.error.message);
+
+    const txs = txRes.data ?? [];
+    const assets = assetsRes.data ?? [];
+    const prices = pricesRes.data ?? [];
+    const fxRows = fxRes.data ?? [];
+
+    const assetById = new Map(assets.map((a) => [a.id, a]));
+
+    // Latest price per asset
+    const latestPrice = new Map<string, number>();
+    for (const p of prices) {
+      if (!latestPrice.has(p.asset_id)) latestPrice.set(p.asset_id, Number(p.close_price));
+    }
+
+    // FX: latest rate per (base,quote). Convert from any currency -> BRL.
+    const fxKey = (b: string, q: string) => `${b}->${q}`;
+    const fxLatest = new Map<string, number>();
+    for (const f of fxRows) {
+      const k = fxKey(f.base, f.quote);
+      if (!fxLatest.has(k)) fxLatest.set(k, Number(f.rate));
+    }
+    const toBRL = (amount: number, cur: CurrencyCode): number => {
+      if (cur === "BRL") return amount;
+      const direct = fxLatest.get(fxKey(cur, "BRL"));
+      if (direct) return amount * direct;
+      const inverse = fxLatest.get(fxKey("BRL", cur));
+      if (inverse && inverse !== 0) return amount / inverse;
+      return amount; // fallback
+    };
+
+    // Aggregate per asset
+    type Agg = { qty: number; invested: number; lastPrice: number; currency: CurrencyCode };
+    const perAsset = new Map<string, Agg>();
+    let totalDividends12mBRL = 0;
+    const since12m = new Date();
+    since12m.setMonth(since12m.getMonth() - 12);
+
+    for (const t of txs) {
+      const cur = t.currency as CurrencyCode;
+      const qty = Number(t.quantity);
+      const price = Number(t.unit_price);
+      const fees = Number(t.fees ?? 0);
+      const occurredAt = new Date(t.occurred_at);
+
+      if (t.tx_type === "dividend") {
+        if (occurredAt >= since12m) totalDividends12mBRL += toBRL(qty * price, cur);
+        continue;
+      }
+      if (t.tx_type === "deposit" || t.tx_type === "withdraw") continue;
+
+      const agg = perAsset.get(t.asset_id) ?? { qty: 0, invested: 0, lastPrice: price, currency: cur };
+      if (t.tx_type === "buy") {
+        agg.qty += qty;
+        agg.invested += qty * price + fees;
+      } else if (t.tx_type === "sell") {
+        const avg = agg.qty > 0 ? agg.invested / agg.qty : price;
+        agg.qty -= qty;
+        agg.invested -= qty * avg;
+      }
+      agg.lastPrice = price;
+      agg.currency = cur;
+      perAsset.set(t.asset_id, agg);
+    }
+
+    // Build grouped assets
+    const groupsMap = new Map<AssetClass, AssetGroup>();
+    for (const [assetId, agg] of perAsset) {
+      if (agg.qty <= 0.0000001) continue;
+      const asset = assetById.get(assetId);
+      if (!asset) continue;
+      const klass = asset.asset_class as AssetClass;
+      const cur = (asset.currency ?? agg.currency) as CurrencyCode;
+      const currentPrice = latestPrice.get(assetId) ?? agg.lastPrice;
+      const avgPrice = agg.invested / agg.qty;
+      const balanceBRL = toBRL(agg.qty * currentPrice, cur);
+      const investedBRL = toBRL(agg.invested, cur);
+      const yieldPct = avgPrice > 0 ? ((currentPrice - avgPrice) / avgPrice) * 100 : 0;
+      const variation = yieldPct; // placeholder until intraday day-prior data
+
+      const ga: GroupedAsset = {
+        assetId,
+        symbol: asset.symbol,
+        name: asset.name,
+        assetClass: klass,
+        currency: cur,
+        qty: agg.qty,
+        avgPrice,
+        currentPrice,
+        balanceBRL,
+        investedBRL,
+        variation,
+        yieldPct,
+      };
+
+      const grp = groupsMap.get(klass) ?? {
+        assetClass: klass, label: CLASS_LABEL[klass], assets: [],
+        totalValueBRL: 0, totalInvestedBRL: 0, variation: 0, yieldPct: 0, pctWallet: 0,
+      };
+      grp.assets.push(ga);
+      grp.totalValueBRL += balanceBRL;
+      grp.totalInvestedBRL += investedBRL;
+      groupsMap.set(klass, grp);
+    }
+
+    const groups = Array.from(groupsMap.values());
+    const totalValueBRL = groups.reduce((a, g) => a + g.totalValueBRL, 0);
+    const totalInvestedBRL = groups.reduce((a, g) => a + g.totalInvestedBRL, 0);
+    for (const g of groups) {
+      g.assets.sort((a, b) => b.balanceBRL - a.balanceBRL);
+      g.pctWallet = totalValueBRL > 0 ? (g.totalValueBRL / totalValueBRL) * 100 : 0;
+      g.yieldPct = g.totalInvestedBRL > 0
+        ? ((g.totalValueBRL - g.totalInvestedBRL) / g.totalInvestedBRL) * 100
+        : 0;
+      g.variation = g.yieldPct;
+    }
+    groups.sort((a, b) => b.totalValueBRL - a.totalValueBRL);
+
+    const pnl = totalValueBRL - totalInvestedBRL;
+    const yieldPct = totalInvestedBRL > 0 ? (pnl / totalInvestedBRL) * 100 : 0;
+
+    // Allocation
+    const allocation = groups.map((g) => ({
+      name: g.label,
+      assetClass: g.assetClass,
+      valueBRL: g.totalValueBRL,
+      pct: totalValueBRL > 0 ? (g.totalValueBRL / totalValueBRL) * 100 : 0,
+    }));
+
+    // Equity history: cumulative invested + value-at-month-end from snapshots if present,
+    // otherwise derive monthly cumulative invested from transactions.
+    const equity = buildEquityHistory(txs, toBRL);
+
+    return {
+      totalsBRL: {
+        patrimonio: totalValueBRL,
+        invested: totalInvestedBRL,
+        pnl,
+        yieldPct,
+        dayVariation: 0,
+        dividends12m: totalDividends12mBRL,
+      },
+      allocation,
+      equity,
+      groups,
+    };
+  });
+
+function buildEquityHistory(
+  txs: Array<{ occurred_at: string; tx_type: string; quantity: number | string; unit_price: number | string; fees: number | string | null; currency: string }>,
+  toBRL: (amount: number, cur: CurrencyCode) => number,
+) {
+  const months = new Map<string, { aplicado: number; ganho: number }>();
+  let cumInvested = 0;
+  // Last 12 months window
+  const start = new Date();
+  start.setMonth(start.getMonth() - 11);
+  start.setDate(1);
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
+    const key = `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getFullYear()).slice(2)}`;
+    months.set(key, { aplicado: 0, ganho: 0 });
+  }
+  for (const t of txs) {
+    const d = new Date(t.occurred_at);
+    const cur = t.currency as CurrencyCode;
+    const qty = Number(t.quantity);
+    const price = Number(t.unit_price);
+    const fees = Number(t.fees ?? 0);
+    if (t.tx_type === "buy") cumInvested += toBRL(qty * price + fees, cur);
+    else if (t.tx_type === "sell") cumInvested -= toBRL(qty * price - fees, cur);
+    const key = `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getFullYear()).slice(2)}`;
+    if (months.has(key)) months.set(key, { aplicado: cumInvested, ganho: 0 });
+  }
+  // Propagate cum forward
+  let last = 0;
+  const out: { date: string; aplicado: number; ganho: number }[] = [];
+  for (const [date, v] of months) {
+    const aplicado = v.aplicado || last;
+    last = aplicado;
+    out.push({ date, aplicado, ganho: 0 });
+  }
+  return out;
+}
+
+// ---------- createTransaction ----------
+const createTxSchema = z.object({
+  symbol: z.string().min(1).max(32).regex(/^[A-Za-z0-9._-]+$/),
+  name: z.string().max(120).optional(),
+  assetClass: z.enum(["stock","reit","etf","crypto","fixed_income","fund","cash","other"]),
+  txType: z.enum(["buy","sell","dividend","deposit","withdraw"]),
+  occurredAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  quantity: z.number().positive().max(1e12),
+  unitPrice: z.number().min(0).max(1e12),
+  fees: z.number().min(0).max(1e9).default(0),
+  currency: z.enum(["BRL","USD","EUR","GBP","JPY"]),
+});
+
+export const createTransaction = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => createTxSchema.parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+
+    // Upsert asset by (symbol, currency)
+    const symbol = data.symbol.toUpperCase();
+    let { data: asset, error: aErr } = await supabase
+      .from("assets")
+      .select("id")
+      .eq("symbol", symbol)
+      .eq("currency", data.currency)
+      .maybeSingle();
+    if (aErr) throw new Error(aErr.message);
+
+    if (!asset) {
+      const ins = await supabase.from("assets").insert({
+        symbol,
+        name: data.name ?? symbol,
+        asset_class: data.assetClass,
+        currency: data.currency,
+      }).select("id").single();
+      if (ins.error) throw new Error(ins.error.message);
+      asset = ins.data;
+    }
+
+    const { error: tErr } = await supabase.from("transactions").insert({
+      user_id: userId,
+      asset_id: asset.id,
+      tx_type: data.txType,
+      occurred_at: data.occurredAt,
+      quantity: data.quantity,
+      unit_price: data.unitPrice,
+      fees: data.fees ?? 0,
+      currency: data.currency,
+    });
+    if (tErr) throw new Error(tErr.message);
+    return { ok: true as const };
+  });
+
+// ---------- listTransactions ----------
+export const listTransactions = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    const [txRes, assetsRes] = await Promise.all([
+      supabase.from("transactions").select("*").eq("user_id", userId).order("occurred_at", { ascending: false }),
+      supabase.from("assets").select("id, symbol, name, asset_class, currency"),
+    ]);
+    if (txRes.error) throw new Error(txRes.error.message);
+    const assetById = new Map((assetsRes.data ?? []).map((a) => [a.id, a]));
+    return (txRes.data ?? []).map((t) => {
+      const a = assetById.get(t.asset_id);
+      return {
+        id: t.id,
+        symbol: a?.symbol ?? "?",
+        assetClass: (a?.asset_class ?? "other") as AssetClass,
+        classLabel: CLASS_LABEL[(a?.asset_class ?? "other") as AssetClass],
+        txType: t.tx_type as TxType,
+        occurredAt: t.occurred_at,
+        quantity: Number(t.quantity),
+        unitPrice: Number(t.unit_price),
+        fees: Number(t.fees ?? 0),
+        currency: t.currency as CurrencyCode,
+      };
+    });
+  });

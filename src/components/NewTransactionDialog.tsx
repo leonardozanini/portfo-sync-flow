@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -9,24 +11,22 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, ArrowDownToLine, ArrowUpFromLine, CalendarDays } from "lucide-react";
+import { Plus, ArrowDownToLine, ArrowUpFromLine, CalendarDays, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { createTransaction, type AssetClass, type CurrencyCode } from "@/lib/portfolio.functions";
 
-const ASSET_CLASSES = [
-  "Ações", "FIIs", "Stocks", "ETFs", "Criptomoedas",
-  "Renda Fixa", "Tesouro Direto", "Fundos", "Reits",
-] as const;
+const ASSET_CLASSES: { value: AssetClass; label: string }[] = [
+  { value: "stock", label: "Ações" },
+  { value: "reit", label: "FIIs" },
+  { value: "etf", label: "ETFs" },
+  { value: "crypto", label: "Criptomoedas" },
+  { value: "fixed_income", label: "Renda Fixa" },
+  { value: "fund", label: "Fundos" },
+  { value: "cash", label: "Caixa" },
+  { value: "other", label: "Outros" },
+];
 
-const ASSET_OPTIONS: Record<string, string[]> = {
-  "Ações": ["BBSE3", "BBAS3", "ITSA4", "BRBI11", "LAVV3", "PETR4", "VALE3"],
-  "FIIs": ["HGLG11", "KNRI11", "MXRF11", "XPLG11"],
-  "Criptomoedas": ["BTC", "ETH", "SOL", "ADA"],
-  "Stocks": ["AAPL", "MSFT", "GOOGL", "AMZN"],
-  "ETFs": ["IVVB11", "BOVA11", "SPY"],
-  "Renda Fixa": ["CDB BB 110%", "LCI Itaú"],
-  "Tesouro Direto": ["Tesouro Selic 2029", "Tesouro IPCA+ 2035"],
-  "Fundos": ["Fundo XP Macro", "Fundo Verde"],
-  "Reits": ["O", "VNQ", "MAIN"],
-};
+const CURRENCIES: CurrencyCode[] = ["BRL", "USD", "EUR", "GBP", "JPY"];
 
 export function NewTransactionDialog({
   open, onOpenChange,
@@ -37,22 +37,22 @@ export function NewTransactionDialog({
         <DialogHeader>
           <DialogTitle className="text-xl">Adicionar Lançamento</DialogTitle>
         </DialogHeader>
-        <Tabs defaultValue="compra" className="w-full">
+        <Tabs defaultValue="buy" className="w-full">
           <TabsList className="grid w-full grid-cols-2 h-12 p-1 bg-muted/60">
-            <TabsTrigger value="compra" className="gap-2 data-[state=active]:bg-background data-[state=active]:shadow-sm">
+            <TabsTrigger value="buy" className="gap-2 data-[state=active]:bg-background data-[state=active]:shadow-sm">
               <ArrowDownToLine className="h-4 w-4 text-success" />
               <span className="font-medium">Compra</span>
             </TabsTrigger>
-            <TabsTrigger value="venda" className="gap-2 data-[state=active]:bg-background data-[state=active]:shadow-sm">
+            <TabsTrigger value="sell" className="gap-2 data-[state=active]:bg-background data-[state=active]:shadow-sm">
               <ArrowUpFromLine className="h-4 w-4 text-destructive" />
               <span className="font-medium">Venda</span>
             </TabsTrigger>
           </TabsList>
-          <TabsContent value="compra" className="mt-4">
-            <TxForm kind="compra" onClose={() => onOpenChange(false)} />
+          <TabsContent value="buy" className="mt-4">
+            <TxForm txType="buy" onClose={() => onOpenChange(false)} />
           </TabsContent>
-          <TabsContent value="venda" className="mt-4">
-            <TxForm kind="venda" onClose={() => onOpenChange(false)} />
+          <TabsContent value="sell" className="mt-4">
+            <TxForm txType="sell" onClose={() => onOpenChange(false)} />
           </TabsContent>
         </Tabs>
       </DialogContent>
@@ -60,36 +60,64 @@ export function NewTransactionDialog({
   );
 }
 
-function TxForm({ kind, onClose }: { kind: "compra" | "venda"; onClose: () => void }) {
-  const [klass, setKlass] = useState<string>("Ações");
-  const [asset, setAsset] = useState<string>("");
+function TxForm({ txType, onClose }: { txType: "buy" | "sell"; onClose: () => void }) {
+  const [assetClass, setAssetClass] = useState<AssetClass>("stock");
+  const [symbol, setSymbol] = useState("");
+  const [currency, setCurrency] = useState<CurrencyCode>("BRL");
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [qty, setQty] = useState<number>(1);
   const [price, setPrice] = useState<number>(0);
   const [fees, setFees] = useState<number>(0);
 
   const total = qty * price + fees;
+  const qc = useQueryClient();
+  const createTx = useServerFn(createTransaction);
+
+  const mutation = useMutation({
+    mutationFn: createTx,
+    onSuccess: () => {
+      toast.success("Lançamento adicionado");
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      onClose();
+    },
+    onError: (err: Error) => toast.error(err.message ?? "Erro ao salvar"),
+  });
+
   const fmt = (v: number) =>
-    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(v);
+
+  const submit = () => {
+    if (!symbol.trim()) { toast.error("Informe o ativo (símbolo)"); return; }
+    if (qty <= 0) { toast.error("Quantidade deve ser maior que zero"); return; }
+    mutation.mutate({
+      data: {
+        symbol: symbol.trim().toUpperCase(),
+        assetClass,
+        txType,
+        occurredAt: date,
+        quantity: qty,
+        unitPrice: price,
+        fees,
+        currency,
+      },
+    });
+  };
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <Field label="Tipo de ativo">
-          <Select value={klass} onValueChange={(v) => { setKlass(v); setAsset(""); }}>
+          <Select value={assetClass} onValueChange={(v) => setAssetClass(v as AssetClass)}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              {ASSET_CLASSES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              {ASSET_CLASSES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
             </SelectContent>
           </Select>
         </Field>
-        <Field label="Ativo">
-          <Select value={asset} onValueChange={setAsset}>
-            <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
-            <SelectContent>
-              {(ASSET_OPTIONS[klass] ?? []).map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-            </SelectContent>
-          </Select>
+        <Field label="Ativo (símbolo)">
+          <Input value={symbol} placeholder="Ex.: PETR4, BTC, AAPL"
+            onChange={(e) => setSymbol(e.target.value.toUpperCase())} />
         </Field>
 
         <Field label="Data da transação">
@@ -99,16 +127,25 @@ function TxForm({ kind, onClose }: { kind: "compra" | "venda"; onClose: () => vo
           </div>
         </Field>
         <Field label="Quantidade">
-          <Input type="number" step="0.0001" value={qty}
+          <Input type="number" step="0.0001" min="0" value={qty}
             onChange={(e) => setQty(parseFloat(e.target.value) || 0)} />
         </Field>
 
-        <Field label={<>Preço <span className="font-normal text-muted-foreground">em R$</span></>}>
-          <Input type="number" step="0.01" value={price}
+        <Field label={<>Preço <span className="font-normal text-muted-foreground">em {currency}</span></>}>
+          <Input type="number" step="0.01" min="0" value={price}
             onChange={(e) => setPrice(parseFloat(e.target.value) || 0)} placeholder="0,00" />
         </Field>
+        <Field label="Moeda">
+          <Select value={currency} onValueChange={(v) => setCurrency(v as CurrencyCode)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </Field>
+
         <Field label={<>Outros custos <span className="float-right text-xs text-muted-foreground">(Opcional)</span></>}>
-          <Input type="number" step="0.01" value={fees}
+          <Input type="number" step="0.01" min="0" value={fees}
             onChange={(e) => setFees(parseFloat(e.target.value) || 0)} placeholder="0,00" />
         </Field>
       </div>
@@ -119,9 +156,14 @@ function TxForm({ kind, onClose }: { kind: "compra" | "venda"; onClose: () => vo
       </div>
 
       <div className="flex items-center justify-between pt-2">
-        <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-        <Button onClick={onClose} className={kind === "venda" ? "bg-destructive hover:bg-destructive/90" : ""}>
-          <Plus className="mr-2 h-4 w-4" />Adicionar Lançamento
+        <Button variant="ghost" onClick={onClose} disabled={mutation.isPending}>Cancelar</Button>
+        <Button onClick={submit} disabled={mutation.isPending}
+          className={txType === "sell" ? "bg-destructive hover:bg-destructive/90" : ""}>
+          {mutation.isPending ? (
+            <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando…</>
+          ) : (
+            <><Plus className="mr-2 h-4 w-4" />Adicionar Lançamento</>
+          )}
         </Button>
       </div>
     </div>

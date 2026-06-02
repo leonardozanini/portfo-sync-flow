@@ -70,8 +70,13 @@ const PIE_COLORS = [
 function Dashboard() {
   const { currency } = useDisplayCurrency();
   const [open, setOpen] = useState(false);
+  const [preset, setPreset] = useState<TxPreset | undefined>(undefined);
+  const [lotsAsset, setLotsAsset] = useState<{ id: string; symbol: string } | null>(null);
   const { data } = useSuspenseQuery(dashboardQueryOptions);
   const qc = useQueryClient();
+
+  const openNew = (p?: TxPreset) => { setPreset(p); setOpen(true); };
+  const openLots = (a: { id: string; symbol: string }) => setLotsAsset(a);
 
   // Realtime: invalidate dashboard whenever transactions/prices change for any client
   useEffect(() => {

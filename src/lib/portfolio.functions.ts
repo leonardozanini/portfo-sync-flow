@@ -405,3 +405,109 @@ export const listTransactions = createServerFn({ method: "GET" })
       };
     });
   });
+
+// ---------- getAssetLots ----------
+export type AssetLot = {
+  id: string;
+  txType: TxType;
+  occurredAt: string;
+  quantity: number;
+  unitPrice: number;
+  fees: number;
+  currency: CurrencyCode;
+  costBasis: number;       // qty*unitPrice + fees (compra), proceeds (venda)
+  currentValue: number;    // qty * currentPrice (somente compras)
+  pnl: number;             // currentValue - costBasis (compras); proceeds - avgAtTime (vendas) — simplificado
+  pnlPct: number;
+};
+
+export type AssetLotsResult = {
+  asset: {
+    id: string;
+    symbol: string;
+    name: string | null;
+    assetClass: AssetClass;
+    currency: CurrencyCode;
+    currentPrice: number;
+  };
+  lots: AssetLot[];
+  totals: { qty: number; invested: number; currentValue: number; pnl: number; pnlPct: number };
+};
+
+export const getAssetLots = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({ assetId: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data, context }): Promise<AssetLotsResult> => {
+    const { supabase, userId } = context;
+    const [txRes, assetRes, priceRes] = await Promise.all([
+      supabase.from("transactions").select("*")
+        .eq("user_id", userId).eq("asset_id", data.assetId)
+        .order("occurred_at", { ascending: false }),
+      supabase.from("assets").select("*").eq("id", data.assetId).single(),
+      supabase.from("asset_prices").select("close_price, fetched_at")
+        .eq("asset_id", data.assetId)
+        .order("fetched_at", { ascending: false }).limit(1),
+    ]);
+    if (txRes.error) throw new Error(txRes.error.message);
+    if (assetRes.error) throw new Error(assetRes.error.message);
+
+    const asset = assetRes.data;
+    const txs = txRes.data ?? [];
+    const currentPrice = priceRes.data?.[0]?.close_price
+      ? Number(priceRes.data[0].close_price)
+      : Number(txs.find((t) => t.tx_type === "buy")?.unit_price ?? 0);
+
+    const lots: AssetLot[] = txs.map((t) => {
+      const qty = Number(t.quantity);
+      const price = Number(t.unit_price);
+      const fees = Number(t.fees ?? 0);
+      const costBasis = qty * price + fees;
+      const currentValue = t.tx_type === "buy" ? qty * currentPrice : 0;
+      const pnl = t.tx_type === "buy" ? currentValue - costBasis : 0;
+      const pnlPct = costBasis > 0 && t.tx_type === "buy" ? (pnl / costBasis) * 100 : 0;
+      return {
+        id: t.id,
+        txType: t.tx_type as TxType,
+        occurredAt: t.occurred_at,
+        quantity: qty,
+        unitPrice: price,
+        fees,
+        currency: t.currency as CurrencyCode,
+        costBasis,
+        currentValue,
+        pnl,
+        pnlPct,
+      };
+    });
+
+    // Totals (apenas compras abertas — simplificado: soma todas as compras menos vendas em qty)
+    let qty = 0, invested = 0;
+    for (const t of txs) {
+      const q = Number(t.quantity);
+      const p = Number(t.unit_price);
+      const f = Number(t.fees ?? 0);
+      if (t.tx_type === "buy") { qty += q; invested += q * p + f; }
+      else if (t.tx_type === "sell") {
+        const avg = qty > 0 ? invested / qty : p;
+        qty -= q; invested -= q * avg;
+      }
+    }
+    const currentValue = qty * currentPrice;
+    const pnl = currentValue - invested;
+    const pnlPct = invested > 0 ? (pnl / invested) * 100 : 0;
+
+    return {
+      asset: {
+        id: asset.id,
+        symbol: asset.symbol,
+        name: asset.name,
+        assetClass: asset.asset_class as AssetClass,
+        currency: asset.currency as CurrencyCode,
+        currentPrice,
+      },
+      lots,
+      totals: { qty, invested, currentValue, pnl, pnlPct },
+    };
+  });

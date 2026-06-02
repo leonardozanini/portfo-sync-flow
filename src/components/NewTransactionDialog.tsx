@@ -117,7 +117,7 @@ function TxForm({ txType, onClose, preset }: { txType: "buy" | "sell"; onClose: 
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <Field label="Tipo de ativo">
-          <Select value={assetClass} onValueChange={(v) => setAssetClass(v as AssetClass)}>
+          <Select value={assetClass} onValueChange={(v) => setAssetClass(v as AssetClass)} disabled={preset?.lockAsset}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               {ASSET_CLASSES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
@@ -126,7 +126,8 @@ function TxForm({ txType, onClose, preset }: { txType: "buy" | "sell"; onClose: 
         </Field>
         <Field label="Ativo (símbolo)">
           <Input value={symbol} placeholder="Ex.: PETR4, BTC, AAPL"
-            onChange={(e) => setSymbol(e.target.value.toUpperCase())} />
+            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+            disabled={preset?.lockAsset} />
         </Field>
 
         <Field label="Data da transação">
@@ -145,7 +146,7 @@ function TxForm({ txType, onClose, preset }: { txType: "buy" | "sell"; onClose: 
             onChange={(e) => setPrice(parseFloat(e.target.value) || 0)} placeholder="0,00" />
         </Field>
         <Field label="Moeda">
-          <Select value={currency} onValueChange={(v) => setCurrency(v as CurrencyCode)}>
+          <Select value={currency} onValueChange={(v) => setCurrency(v as CurrencyCode)} disabled={preset?.lockAsset}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               {CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}

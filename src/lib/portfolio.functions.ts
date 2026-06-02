@@ -93,13 +93,22 @@ export const getDashboard = createServerFn({ method: "GET" })
       const k = fxKey(f.base, f.quote);
       if (!fxLatest.has(k)) fxLatest.set(k, Number(f.rate));
     }
+    // Fallback FX (BRL units per 1 unit of foreign currency).
+    // Used when fx_rates table has no entry yet (MVP / pre-Forex sync).
+    const FALLBACK_TO_BRL: Record<CurrencyCode, number> = {
+      BRL: 1,
+      USD: 5.25,
+      EUR: 5.85,
+      GBP: 6.70,
+      JPY: 0.035,
+    };
     const toBRL = (amount: number, cur: CurrencyCode): number => {
       if (cur === "BRL") return amount;
       const direct = fxLatest.get(fxKey(cur, "BRL"));
       if (direct) return amount * direct;
       const inverse = fxLatest.get(fxKey("BRL", cur));
       if (inverse && inverse !== 0) return amount / inverse;
-      return amount; // fallback
+      return amount * (FALLBACK_TO_BRL[cur] ?? 1);
     };
 
     // Aggregate per asset

@@ -28,14 +28,23 @@ const ASSET_CLASSES: { value: AssetClass; label: string }[] = [
 
 const CURRENCIES: CurrencyCode[] = ["BRL", "USD", "EUR", "GBP", "JPY"];
 
+export type TxPreset = {
+  symbol?: string;
+  assetClass?: AssetClass;
+  currency?: CurrencyCode;
+  lockAsset?: boolean; // bloqueia edição de símbolo/classe/moeda
+};
+
 export function NewTransactionDialog({
-  open, onOpenChange,
-}: { open: boolean; onOpenChange: (v: boolean) => void }) {
+  open, onOpenChange, preset,
+}: { open: boolean; onOpenChange: (v: boolean) => void; preset?: TxPreset }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle className="text-xl">Adicionar Lançamento</DialogTitle>
+          <DialogTitle className="text-xl">
+            Adicionar Lançamento{preset?.symbol ? ` — ${preset.symbol}` : ""}
+          </DialogTitle>
         </DialogHeader>
         <Tabs defaultValue="buy" className="w-full">
           <TabsList className="grid w-full grid-cols-2 h-12 p-1 bg-muted/60">
@@ -49,10 +58,10 @@ export function NewTransactionDialog({
             </TabsTrigger>
           </TabsList>
           <TabsContent value="buy" className="mt-4">
-            <TxForm txType="buy" onClose={() => onOpenChange(false)} />
+            <TxForm txType="buy" onClose={() => onOpenChange(false)} preset={preset} />
           </TabsContent>
           <TabsContent value="sell" className="mt-4">
-            <TxForm txType="sell" onClose={() => onOpenChange(false)} />
+            <TxForm txType="sell" onClose={() => onOpenChange(false)} preset={preset} />
           </TabsContent>
         </Tabs>
       </DialogContent>
@@ -60,10 +69,10 @@ export function NewTransactionDialog({
   );
 }
 
-function TxForm({ txType, onClose }: { txType: "buy" | "sell"; onClose: () => void }) {
-  const [assetClass, setAssetClass] = useState<AssetClass>("stock");
-  const [symbol, setSymbol] = useState("");
-  const [currency, setCurrency] = useState<CurrencyCode>("BRL");
+function TxForm({ txType, onClose, preset }: { txType: "buy" | "sell"; onClose: () => void; preset?: TxPreset }) {
+  const [assetClass, setAssetClass] = useState<AssetClass>(preset?.assetClass ?? "stock");
+  const [symbol, setSymbol] = useState(preset?.symbol ?? "");
+  const [currency, setCurrency] = useState<CurrencyCode>(preset?.currency ?? "BRL");
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [qty, setQty] = useState<number>(1);
   const [price, setPrice] = useState<number>(0);

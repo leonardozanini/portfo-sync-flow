@@ -1,0 +1,2 @@
+ALTER TABLE public.asset_prices ADD COLUMN IF NOT EXISTS fetched_at timestamptz NOT NULL DEFAULT now();
+CREATE INDEX IF NOT EXISTS idx_asset_prices_asset_fetched ON public.asset_prices(asset_id, fetched_at DESC);

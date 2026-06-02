@@ -414,7 +414,9 @@ function AssetGroupCard({
                 </TableHeader>
                 <TableBody>
                   {group.assets.map((a) => (
-                    <AssetRow key={a.assetId} a={a} currency={currency} groupValue={group.totalValueBRL} />
+                    <AssetRow key={a.assetId} a={a} currency={currency}
+                      groupValue={group.totalValueBRL}
+                      onAdd={onAdd} onShowLots={onShowLots} />
                   ))}
                 </TableBody>
               </Table>

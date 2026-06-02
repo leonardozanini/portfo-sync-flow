@@ -59,17 +59,41 @@ const CLASS_LABEL: Record<AssetClass, string> = {
   other: "Outros",
 };
 
+// ---------- Price refresh helpers ----------
+// Yahoo Finance chart endpoint (sem chave). Para cripto usamos SYMBOL-CURRENCY (e.g. BTC-EUR).
+function yahooSymbolFor(symbol: string, currency: CurrencyCode, klass: AssetClass): string {
+  const s = symbol.toUpperCase();
+  if (klass === "crypto") return `${s}-${currency}`;
+  return s;
+}
+
+async function fetchYahooPrice(ySymbol: string): Promise<number | null> {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ySymbol)}?interval=1d&range=1d`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; Folio/1.0)" },
+    });
+    if (!res.ok) return null;
+    const json = await res.json() as { chart?: { result?: Array<{ meta?: { regularMarketPrice?: number } }> } };
+    const p = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
+    return typeof p === "number" && p > 0 ? p : null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------- getDashboard ----------
 export const getDashboard = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<DashboardData> => {
     const { supabase, userId } = context;
 
-    const [txRes, assetsRes, pricesRes, fxRes] = await Promise.all([
+    const [txRes, assetsRes, pricesRes, fxRes, rolesRes] = await Promise.all([
       supabase.from("transactions").select("*").eq("user_id", userId).order("occurred_at", { ascending: true }),
       supabase.from("assets").select("*"),
-      supabase.from("asset_prices").select("asset_id, close_price, price_date").order("price_date", { ascending: false }),
+      supabase.from("asset_prices").select("asset_id, close_price, price_date, fetched_at").order("fetched_at", { ascending: false }),
       supabase.from("fx_rates").select("base, quote, rate, rate_date").order("rate_date", { ascending: false }),
+      supabase.from("user_roles").select("role").eq("user_id", userId),
     ]);
     if (txRes.error) throw new Error(txRes.error.message);
 
@@ -77,13 +101,46 @@ export const getDashboard = createServerFn({ method: "GET" })
     const assets = assetsRes.data ?? [];
     const prices = pricesRes.data ?? [];
     const fxRows = fxRes.data ?? [];
+    const isAdmin = (rolesRes.data ?? []).some((r) => r.role === "admin");
 
     const assetById = new Map(assets.map((a) => [a.id, a]));
 
-    // Latest price per asset
+    // Última cotação + frescor por ativo
     const latestPrice = new Map<string, number>();
+    const latestFetchedAt = new Map<string, number>();
     for (const p of prices) {
-      if (!latestPrice.has(p.asset_id)) latestPrice.set(p.asset_id, Number(p.close_price));
+      if (!latestPrice.has(p.asset_id)) {
+        latestPrice.set(p.asset_id, Number(p.close_price));
+        const ts = p.fetched_at ? new Date(p.fetched_at as unknown as string).getTime() : 0;
+        latestFetchedAt.set(p.asset_id, ts);
+      }
+    }
+
+    // Refresh com TTL: admin 15min, usuário padrão 60min. Só para ativos da carteira.
+    const ttlMs = (isAdmin ? 15 : 60) * 60 * 1000;
+    const nowMs = Date.now();
+    const heldAssetIds = new Set(txs.map((t) => t.asset_id));
+    const toRefresh = assets.filter((a) =>
+      heldAssetIds.has(a.id) && (nowMs - (latestFetchedAt.get(a.id) ?? 0) > ttlMs),
+    );
+    if (toRefresh.length > 0) {
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const today = new Date().toISOString().slice(0, 10);
+      await Promise.all(toRefresh.map(async (a) => {
+        const ySym = yahooSymbolFor(a.symbol, a.currency as CurrencyCode, a.asset_class as AssetClass);
+        const price = await fetchYahooPrice(ySym);
+        if (price == null) {
+          await supabaseAdmin.from("price_fetch_failures").insert({
+            asset_id: a.id, symbol: a.symbol, reason: `yahoo:${ySym}:no-data`,
+          });
+          return;
+        }
+        await supabaseAdmin.from("asset_prices").insert({
+          asset_id: a.id, price_date: today, source: "yahoo", close_price: price,
+        });
+        latestPrice.set(a.id, price);
+        latestFetchedAt.set(a.id, nowMs);
+      }));
     }
 
     // FX: latest rate per (base,quote). Convert from any currency -> BRL.

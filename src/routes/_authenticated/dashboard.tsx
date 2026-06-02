@@ -360,8 +360,13 @@ function LegendDot({ color, label }: { color: string; label: string }) {
 
 // ---------- Asset group card ----------
 function AssetGroupCard({
-  group, currency, onAdd,
-}: { group: AssetGroup; currency: Currency; onAdd: () => void }) {
+  group, currency, onAdd, onShowLots,
+}: {
+  group: AssetGroup;
+  currency: Currency;
+  onAdd: (preset?: TxPreset) => void;
+  onShowLots: (a: { id: string; symbol: string }) => void;
+}) {
   const [open, setOpen] = useState(true);
   const Icon = CLASS_ICONS[group.assetClass] ?? Layers;
 

@@ -210,21 +210,23 @@ function Dashboard() {
           <CardHeader>
             <CardTitle className="text-base">Ativos na Carteira</CardTitle>
           </CardHeader>
-          <CardContent className="h-[320px]">
+          <CardContent className="h-auto min-h-[320px]">
             {data.allocation.length === 0 ? (
               <EmptyChart label="Sem ativos ainda." />
             ) : (
-              <div className="flex h-full items-center gap-4">
-                <ResponsiveContainer width="55%" height="100%">
-                  <PieChart>
-                    <Pie data={data.allocation} dataKey="pct" nameKey="name"
-                      innerRadius={55} outerRadius={95} paddingAngle={2} strokeWidth={0}>
-                      {data.allocation.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                    </Pie>
-                    <Tooltip formatter={(v: number) => `${v.toFixed(2)}%`} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <ul className="flex-1 space-y-1.5 text-sm">
+              <div className="flex h-full flex-col items-center gap-4 sm:flex-row">
+                <div className="h-[220px] w-full sm:h-[260px] sm:w-1/2 shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+                      <Pie data={data.allocation} dataKey="pct" nameKey="name"
+                        innerRadius="55%" outerRadius="90%" paddingAngle={2} strokeWidth={0}>
+                        {data.allocation.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip formatter={(v: number) => `${v.toFixed(2)}%`} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <ul className="w-full flex-1 space-y-1.5 text-sm">
                   {data.allocation.map((a, i) => (
                     <li key={a.assetClass} className="flex items-center justify-between gap-3">
                       <span className="flex items-center gap-2 min-w-0">
@@ -239,6 +241,7 @@ function Dashboard() {
             )}
           </CardContent>
         </Card>
+
       </div>
 
       {/* Meus Ativos */}

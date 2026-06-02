@@ -18,18 +18,21 @@ export type Database = {
         Row: {
           asset_id: string
           close_price: number
+          fetched_at: string
           price_date: string
           source: string | null
         }
         Insert: {
           asset_id: string
           close_price: number
+          fetched_at?: string
           price_date: string
           source?: string | null
         }
         Update: {
           asset_id?: string
           close_price?: number
+          fetched_at?: string
           price_date?: string
           source?: string | null
         }

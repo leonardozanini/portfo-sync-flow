@@ -428,7 +428,7 @@ function AssetGroupCard({
               <Button variant="outline" size="sm">
                 <Settings2 className="mr-2 h-4 w-4" />Editar colunas
               </Button>
-              <Button size="sm" onClick={onAdd}>
+              <Button size="sm" onClick={() => onAdd()}>
                 <Plus className="mr-2 h-4 w-4" />Adicionar Lançamento
               </Button>
             </div>

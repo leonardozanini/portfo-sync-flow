@@ -14,10 +14,13 @@ import {
   Collapsible, CollapsibleContent, CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import {
   Plus, TrendingUp, TrendingDown, Wallet, PiggyBank, Coins, LineChart as LineIcon,
   ChevronDown, ChevronUp, BarChart3, Settings2, ArrowUpRight, ArrowDownRight,
   CheckCircle2, XCircle, MoreHorizontal, GripVertical, Landmark, Building2, Bitcoin,
-  Layers,
+  Layers, ListOrdered,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -25,7 +28,8 @@ import {
 } from "recharts";
 import { useDisplayCurrency } from "@/components/CurrencySwitcher";
 import { convert, formatMoney, type Currency } from "@/lib/currency";
-import { NewTransactionDialog } from "@/components/NewTransactionDialog";
+import { NewTransactionDialog, type TxPreset } from "@/components/NewTransactionDialog";
+import { AssetLotsDialog } from "@/components/AssetLotsDialog";
 import { getDashboard, type AssetClass, type AssetGroup, type GroupedAsset } from "@/lib/portfolio.functions";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -66,8 +70,13 @@ const PIE_COLORS = [
 function Dashboard() {
   const { currency } = useDisplayCurrency();
   const [open, setOpen] = useState(false);
+  const [preset, setPreset] = useState<TxPreset | undefined>(undefined);
+  const [lotsAsset, setLotsAsset] = useState<{ id: string; symbol: string } | null>(null);
   const { data } = useSuspenseQuery(dashboardQueryOptions);
   const qc = useQueryClient();
+
+  const openNew = (p?: TxPreset) => { setPreset(p); setOpen(true); };
+  const openLots = (a: { id: string; symbol: string }) => setLotsAsset(a);
 
   // Realtime: invalidate dashboard whenever transactions/prices change for any client
   useEffect(() => {
@@ -106,10 +115,16 @@ function Dashboard() {
           ))}
           <Badge variant="outline" className="ml-2 border-amber-500/40 text-amber-600 dark:text-amber-400">PRO</Badge>
         </nav>
-        <Button onClick={() => setOpen(true)} size="lg" className="rounded-xl">
+        <Button onClick={() => openNew()} size="lg" className="rounded-xl">
           <Plus className="mr-2 h-4 w-4" />Adicionar Lançamento
         </Button>
-        <NewTransactionDialog open={open} onOpenChange={setOpen} />
+        <NewTransactionDialog open={open} onOpenChange={setOpen} preset={preset} />
+        <AssetLotsDialog
+          open={!!lotsAsset}
+          onOpenChange={(v) => !v && setLotsAsset(null)}
+          assetId={lotsAsset?.id ?? null}
+          symbol={lotsAsset?.symbol}
+        />
       </div>
 
       {/* KPIs */}
@@ -252,12 +267,13 @@ function Dashboard() {
         {data.groups.length === 0 ? (
           <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">
             Nenhum ativo na carteira ainda.{" "}
-            <button className="underline text-foreground" onClick={() => setOpen(true)}>Adicionar lançamento</button>.
+            <button className="underline text-foreground" onClick={() => openNew()}>Adicionar lançamento</button>.
           </CardContent></Card>
         ) : (
           <div className="space-y-3">
             {data.groups.map((g) => (
-              <AssetGroupCard key={g.assetClass} group={g} currency={currency} onAdd={() => setOpen(true)} />
+              <AssetGroupCard key={g.assetClass} group={g} currency={currency}
+                onAdd={(p) => openNew(p)} onShowLots={openLots} />
             ))}
           </div>
         )}
@@ -344,8 +360,13 @@ function LegendDot({ color, label }: { color: string; label: string }) {
 
 // ---------- Asset group card ----------
 function AssetGroupCard({
-  group, currency, onAdd,
-}: { group: AssetGroup; currency: Currency; onAdd: () => void }) {
+  group, currency, onAdd, onShowLots,
+}: {
+  group: AssetGroup;
+  currency: Currency;
+  onAdd: (preset?: TxPreset) => void;
+  onShowLots: (a: { id: string; symbol: string }) => void;
+}) {
   const [open, setOpen] = useState(true);
   const Icon = CLASS_ICONS[group.assetClass] ?? Layers;
 
@@ -393,7 +414,9 @@ function AssetGroupCard({
                 </TableHeader>
                 <TableBody>
                   {group.assets.map((a) => (
-                    <AssetRow key={a.assetId} a={a} currency={currency} groupValue={group.totalValueBRL} />
+                    <AssetRow key={a.assetId} a={a} currency={currency}
+                      groupValue={group.totalValueBRL}
+                      onAdd={onAdd} onShowLots={onShowLots} />
                   ))}
                 </TableBody>
               </Table>
@@ -405,7 +428,7 @@ function AssetGroupCard({
               <Button variant="outline" size="sm">
                 <Settings2 className="mr-2 h-4 w-4" />Editar colunas
               </Button>
-              <Button size="sm" onClick={onAdd}>
+              <Button size="sm" onClick={() => onAdd()}>
                 <Plus className="mr-2 h-4 w-4" />Adicionar Lançamento
               </Button>
             </div>
@@ -416,7 +439,13 @@ function AssetGroupCard({
   );
 }
 
-function AssetRow({ a, currency, groupValue }: { a: GroupedAsset; currency: Currency; groupValue: number }) {
+function AssetRow({
+  a, currency, groupValue, onAdd, onShowLots,
+}: {
+  a: GroupedAsset; currency: Currency; groupValue: number;
+  onAdd: (preset?: TxPreset) => void;
+  onShowLots: (a: { id: string; symbol: string }) => void;
+}) {
   const pctInGroup = groupValue > 0 ? (a.balanceBRL / groupValue) * 100 : 0;
   const initials = a.symbol.slice(0, 2);
   return (
@@ -426,7 +455,13 @@ function AssetRow({ a, currency, groupValue }: { a: GroupedAsset; currency: Curr
           <span className="grid h-7 w-7 place-items-center rounded bg-foreground/10 text-[10px] font-bold">
             {initials}
           </span>
-          <span className="font-medium">{a.symbol}</span>
+          <button
+            type="button"
+            className="font-medium hover:underline"
+            onClick={() => onShowLots({ id: a.assetId, symbol: a.symbol })}
+          >
+            {a.symbol}
+          </button>
         </div>
       </TableCell>
       <TableCell className="text-right tabular-nums">{a.qty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</TableCell>
@@ -448,7 +483,26 @@ function AssetRow({ a, currency, groupValue }: { a: GroupedAsset; currency: Curr
         )}
       </TableCell>
       <TableCell className="text-right">
-        <Button variant="ghost" size="icon" className="h-7 w-7"><MoreHorizontal className="h-4 w-4" /></Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-7 w-7">
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem onClick={() => onAdd({
+              symbol: a.symbol, assetClass: a.assetClass, currency: a.currency, lockAsset: true,
+            })}>
+              <Plus className="mr-2 h-4 w-4" />
+              Adicionar lançamento de {a.symbol}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => onShowLots({ id: a.assetId, symbol: a.symbol })}>
+              <ListOrdered className="mr-2 h-4 w-4" />
+              Ver lançamentos detalhados
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </TableCell>
     </TableRow>
   );

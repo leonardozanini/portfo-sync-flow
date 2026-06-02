@@ -267,12 +267,13 @@ function Dashboard() {
         {data.groups.length === 0 ? (
           <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">
             Nenhum ativo na carteira ainda.{" "}
-            <button className="underline text-foreground" onClick={() => setOpen(true)}>Adicionar lançamento</button>.
+            <button className="underline text-foreground" onClick={() => openNew()}>Adicionar lançamento</button>.
           </CardContent></Card>
         ) : (
           <div className="space-y-3">
             {data.groups.map((g) => (
-              <AssetGroupCard key={g.assetClass} group={g} currency={currency} onAdd={() => setOpen(true)} />
+              <AssetGroupCard key={g.assetClass} group={g} currency={currency}
+                onAdd={(p) => openNew(p)} onShowLots={openLots} />
             ))}
           </div>
         )}

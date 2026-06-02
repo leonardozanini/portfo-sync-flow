@@ -14,10 +14,13 @@ import {
   Collapsible, CollapsibleContent, CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import {
   Plus, TrendingUp, TrendingDown, Wallet, PiggyBank, Coins, LineChart as LineIcon,
   ChevronDown, ChevronUp, BarChart3, Settings2, ArrowUpRight, ArrowDownRight,
   CheckCircle2, XCircle, MoreHorizontal, GripVertical, Landmark, Building2, Bitcoin,
-  Layers,
+  Layers, ListOrdered,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -25,7 +28,8 @@ import {
 } from "recharts";
 import { useDisplayCurrency } from "@/components/CurrencySwitcher";
 import { convert, formatMoney, type Currency } from "@/lib/currency";
-import { NewTransactionDialog } from "@/components/NewTransactionDialog";
+import { NewTransactionDialog, type TxPreset } from "@/components/NewTransactionDialog";
+import { AssetLotsDialog } from "@/components/AssetLotsDialog";
 import { getDashboard, type AssetClass, type AssetGroup, type GroupedAsset } from "@/lib/portfolio.functions";
 import { supabase } from "@/integrations/supabase/client";
 

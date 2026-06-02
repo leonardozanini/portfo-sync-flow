@@ -439,7 +439,13 @@ function AssetGroupCard({
   );
 }
 
-function AssetRow({ a, currency, groupValue }: { a: GroupedAsset; currency: Currency; groupValue: number }) {
+function AssetRow({
+  a, currency, groupValue, onAdd, onShowLots,
+}: {
+  a: GroupedAsset; currency: Currency; groupValue: number;
+  onAdd: (preset?: TxPreset) => void;
+  onShowLots: (a: { id: string; symbol: string }) => void;
+}) {
   const pctInGroup = groupValue > 0 ? (a.balanceBRL / groupValue) * 100 : 0;
   const initials = a.symbol.slice(0, 2);
   return (
@@ -449,7 +455,13 @@ function AssetRow({ a, currency, groupValue }: { a: GroupedAsset; currency: Curr
           <span className="grid h-7 w-7 place-items-center rounded bg-foreground/10 text-[10px] font-bold">
             {initials}
           </span>
-          <span className="font-medium">{a.symbol}</span>
+          <button
+            type="button"
+            className="font-medium hover:underline"
+            onClick={() => onShowLots({ id: a.assetId, symbol: a.symbol })}
+          >
+            {a.symbol}
+          </button>
         </div>
       </TableCell>
       <TableCell className="text-right tabular-nums">{a.qty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</TableCell>
@@ -471,7 +483,26 @@ function AssetRow({ a, currency, groupValue }: { a: GroupedAsset; currency: Curr
         )}
       </TableCell>
       <TableCell className="text-right">
-        <Button variant="ghost" size="icon" className="h-7 w-7"><MoreHorizontal className="h-4 w-4" /></Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-7 w-7">
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem onClick={() => onAdd({
+              symbol: a.symbol, assetClass: a.assetClass, currency: a.currency, lockAsset: true,
+            })}>
+              <Plus className="mr-2 h-4 w-4" />
+              Adicionar lançamento de {a.symbol}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => onShowLots({ id: a.assetId, symbol: a.symbol })}>
+              <ListOrdered className="mr-2 h-4 w-4" />
+              Ver lançamentos detalhados
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </TableCell>
     </TableRow>
   );

@@ -115,10 +115,16 @@ function Dashboard() {
           ))}
           <Badge variant="outline" className="ml-2 border-amber-500/40 text-amber-600 dark:text-amber-400">PRO</Badge>
         </nav>
-        <Button onClick={() => setOpen(true)} size="lg" className="rounded-xl">
+        <Button onClick={() => openNew()} size="lg" className="rounded-xl">
           <Plus className="mr-2 h-4 w-4" />Adicionar Lançamento
         </Button>
-        <NewTransactionDialog open={open} onOpenChange={setOpen} />
+        <NewTransactionDialog open={open} onOpenChange={setOpen} preset={preset} />
+        <AssetLotsDialog
+          open={!!lotsAsset}
+          onOpenChange={(v) => !v && setLotsAsset(null)}
+          assetId={lotsAsset?.id ?? null}
+          symbol={lotsAsset?.symbol}
+        />
       </div>
 
       {/* KPIs */}

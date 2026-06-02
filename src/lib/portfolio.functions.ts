@@ -286,7 +286,9 @@ export const createTransaction = createServerFn({ method: "POST" })
     if (aErr) throw new Error(aErr.message);
 
     if (!asset) {
-      const ins = await supabase.from("assets").insert({
+      // Asset catalog é global; usar client admin para criar (RLS de assets é só admin).
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const ins = await supabaseAdmin.from("assets").insert({
         symbol,
         name: data.name ?? symbol,
         asset_class: data.assetClass,

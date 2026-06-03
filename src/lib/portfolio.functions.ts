@@ -511,3 +511,139 @@ export const getAssetLots = createServerFn({ method: "GET" })
       totals: { qty, invested, currentValue, pnl, pnlPct },
     };
   });
+
+// ---------- searchAssets (autocomplete) ----------
+export type CatalogAsset = {
+  id: string;
+  symbol: string;
+  name: string | null;
+  assetClass: AssetClass;
+  currency: CurrencyCode;
+};
+
+export const searchAssets = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({
+      q: z.string().min(1).max(32),
+      assetClass: z.enum(["stock","reit","etf","crypto","fixed_income","fund","cash","other"]).optional(),
+    }).parse(input),
+  )
+  .handler(async ({ data, context }): Promise<CatalogAsset[]> => {
+    const { supabase } = context;
+    const q = data.q.trim().toUpperCase();
+    let query = supabase.from("assets")
+      .select("id, symbol, name, asset_class, currency")
+      .or(`symbol.ilike.${q}%,name.ilike.%${q}%`)
+      .order("symbol", { ascending: true })
+      .limit(20);
+    if (data.assetClass) query = query.eq("asset_class", data.assetClass);
+    const { data: rows, error } = await query;
+    if (error) throw new Error(error.message);
+    return (rows ?? []).map((r) => ({
+      id: r.id, symbol: r.symbol, name: r.name,
+      assetClass: r.asset_class as AssetClass, currency: r.currency as CurrencyCode,
+    }));
+  });
+
+// ---------- listCatalog (admin) ----------
+export type CatalogPage = {
+  rows: (CatalogAsset & { lastPrice: number | null; fetchedAt: string | null })[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+export const listCatalog = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({
+      q: z.string().max(64).optional(),
+      assetClass: z.string().max(32).optional(),
+      page: z.number().int().min(1).default(1),
+      pageSize: z.number().int().min(1).max(200).default(50),
+    }).parse(input),
+  )
+  .handler(async ({ data, context }): Promise<CatalogPage> => {
+    const { supabase, userId } = context;
+    // gate admin
+    const { data: roles } = await supabase.from("user_roles").select("role").eq("user_id", userId);
+    if (!roles?.some((r) => r.role === "admin")) throw new Error("Acesso restrito.");
+
+    const from = (data.page - 1) * data.pageSize;
+    const to = from + data.pageSize - 1;
+    let q = supabase.from("assets").select("*", { count: "exact" })
+      .order("symbol", { ascending: true })
+      .range(from, to);
+    if (data.assetClass && data.assetClass !== "all") q = q.eq("asset_class", data.assetClass as AssetClass);
+    if (data.q && data.q.trim().length > 0) {
+      const term = data.q.trim().toUpperCase();
+      q = q.or(`symbol.ilike.%${term}%,name.ilike.%${term}%`);
+    }
+    const { data: rows, error, count } = await q;
+    if (error) throw new Error(error.message);
+
+    const ids = (rows ?? []).map((r) => r.id);
+    const priceMap = new Map<string, { price: number; fetchedAt: string | null }>();
+    if (ids.length > 0) {
+      const { data: prices } = await supabase
+        .from("asset_prices")
+        .select("asset_id, close_price, fetched_at")
+        .in("asset_id", ids)
+        .order("fetched_at", { ascending: false });
+      for (const p of prices ?? []) {
+        if (!priceMap.has(p.asset_id)) {
+          priceMap.set(p.asset_id, {
+            price: Number(p.close_price),
+            fetchedAt: (p.fetched_at as unknown as string) ?? null,
+          });
+        }
+      }
+    }
+
+    return {
+      rows: (rows ?? []).map((r) => ({
+        id: r.id, symbol: r.symbol, name: r.name,
+        assetClass: r.asset_class as AssetClass, currency: r.currency as CurrencyCode,
+        lastPrice: priceMap.get(r.id)?.price ?? null,
+        fetchedAt: priceMap.get(r.id)?.fetchedAt ?? null,
+      })),
+      total: count ?? 0,
+      page: data.page,
+      pageSize: data.pageSize,
+    };
+  });
+
+// ---------- refreshAllPrices (called by cron) ----------
+// Atualiza cotações de TODOS os ativos com transações registradas (qualquer usuário).
+export async function refreshAllPricesInternal(): Promise<{ updated: number; failed: number }> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: txAssetIds } = await supabaseAdmin
+    .from("transactions").select("asset_id");
+  const heldIds = Array.from(new Set((txAssetIds ?? []).map((t) => t.asset_id)));
+  if (heldIds.length === 0) return { updated: 0, failed: 0 };
+
+  const { data: assets } = await supabaseAdmin
+    .from("assets").select("id, symbol, asset_class, currency")
+    .in("id", heldIds);
+
+  const today = new Date().toISOString().slice(0, 10);
+  let updated = 0, failed = 0;
+  await Promise.all((assets ?? []).map(async (a) => {
+    const ySym = yahooSymbolFor(a.symbol, a.currency as CurrencyCode, a.asset_class as AssetClass);
+    const price = await fetchYahooPrice(ySym);
+    if (price == null) {
+      failed++;
+      await supabaseAdmin.from("price_fetch_failures").insert({
+        asset_id: a.id, symbol: a.symbol, reason: `cron:yahoo:${ySym}:no-data`,
+      });
+      return;
+    }
+    await supabaseAdmin.from("asset_prices").insert({
+      asset_id: a.id, price_date: today, source: "yahoo", close_price: price,
+    });
+    updated++;
+  }));
+  return { updated, failed };
+}
+

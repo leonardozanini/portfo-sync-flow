@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -10,10 +10,15 @@ import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
+} from "@/components/ui/command";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, ArrowDownToLine, ArrowUpFromLine, CalendarDays, Loader2 } from "lucide-react";
+import { Plus, ArrowDownToLine, ArrowUpFromLine, CalendarDays, Loader2, ChevronsUpDown, Check } from "lucide-react";
 import { toast } from "sonner";
-import { createTransaction, type AssetClass, type CurrencyCode } from "@/lib/portfolio.functions";
+import { cn } from "@/lib/utils";
+import { createTransaction, searchAssets, type AssetClass, type CurrencyCode } from "@/lib/portfolio.functions";
 
 const ASSET_CLASSES: { value: AssetClass; label: string }[] = [
   { value: "stock", label: "Ações" },
@@ -32,7 +37,7 @@ export type TxPreset = {
   symbol?: string;
   assetClass?: AssetClass;
   currency?: CurrencyCode;
-  lockAsset?: boolean; // bloqueia edição de símbolo/classe/moeda
+  lockAsset?: boolean;
 };
 
 export function NewTransactionDialog({
@@ -66,6 +71,101 @@ export function NewTransactionDialog({
         </Tabs>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function AssetCombobox({
+  value, onChange, assetClass, onPickCurrency, disabled,
+}: {
+  value: string;
+  onChange: (symbol: string) => void;
+  assetClass: AssetClass;
+  onPickCurrency?: (c: CurrencyCode) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const search = useServerFn(searchAssets);
+
+  // Debounce
+  const [debounced, setDebounced] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(query.trim().toUpperCase()), 200);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const { data: results, isFetching } = useQuery({
+    queryKey: ["catalog-search", debounced, assetClass],
+    queryFn: () => search({ data: { q: debounced, assetClass } }),
+    enabled: debounced.length >= 2,
+    staleTime: 60_000,
+  });
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className="w-full justify-between font-normal"
+        >
+          {value ? <span className="font-mono font-semibold">{value}</span> : <span className="text-muted-foreground">Selecionar</span>}
+          <ChevronsUpDown className="h-4 w-4 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder="Digite 2+ caracteres…"
+            value={query}
+            onValueChange={setQuery}
+          />
+          <CommandList>
+            {debounced.length < 2 && (
+              <div className="py-6 text-center text-sm text-muted-foreground">
+                Digite 2 ou mais caracteres
+              </div>
+            )}
+            {debounced.length >= 2 && isFetching && (
+              <div className="py-6 text-center text-sm text-muted-foreground">Buscando…</div>
+            )}
+            {debounced.length >= 2 && !isFetching && (results?.length ?? 0) === 0 && (
+              <CommandEmpty>
+                Nenhum no catálogo. Você pode digitar livre.
+                <Button
+                  type="button" variant="ghost" size="sm" className="mt-2 w-full"
+                  onClick={() => { onChange(debounced); setOpen(false); }}
+                >
+                  Usar “{debounced}”
+                </Button>
+              </CommandEmpty>
+            )}
+            {(results?.length ?? 0) > 0 && (
+              <CommandGroup>
+                {results!.map((r) => (
+                  <CommandItem
+                    key={r.id}
+                    value={r.symbol}
+                    onSelect={() => {
+                      onChange(r.symbol);
+                      onPickCurrency?.(r.currency);
+                      setOpen(false);
+                    }}
+                  >
+                    <Check className={cn("mr-2 h-4 w-4", value === r.symbol ? "opacity-100" : "opacity-0")} />
+                    <span className="font-mono font-semibold w-20">{r.symbol}</span>
+                    <span className="text-muted-foreground truncate">{r.name ?? ""}</span>
+                    <span className="ml-auto text-xs text-muted-foreground">{r.currency}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -117,17 +217,21 @@ function TxForm({ txType, onClose, preset }: { txType: "buy" | "sell"; onClose: 
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <Field label="Tipo de ativo">
-          <Select value={assetClass} onValueChange={(v) => setAssetClass(v as AssetClass)} disabled={preset?.lockAsset}>
+          <Select value={assetClass} onValueChange={(v) => { setAssetClass(v as AssetClass); setSymbol(""); }} disabled={preset?.lockAsset}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               {ASSET_CLASSES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
             </SelectContent>
           </Select>
         </Field>
-        <Field label="Ativo (símbolo)">
-          <Input value={symbol} placeholder="Ex.: PETR4, BTC, AAPL"
-            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-            disabled={preset?.lockAsset} />
+        <Field label="Ativo">
+          <AssetCombobox
+            value={symbol}
+            onChange={setSymbol}
+            assetClass={assetClass}
+            onPickCurrency={(c) => setCurrency(c)}
+            disabled={preset?.lockAsset}
+          />
         </Field>
 
         <Field label="Data da transação">

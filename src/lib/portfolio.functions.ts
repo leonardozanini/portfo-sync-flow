@@ -575,7 +575,7 @@ export const listCatalog = createServerFn({ method: "GET" })
     let q = supabase.from("assets").select("*", { count: "exact" })
       .order("symbol", { ascending: true })
       .range(from, to);
-    if (data.assetClass && data.assetClass !== "all") q = q.eq("asset_class", data.assetClass);
+    if (data.assetClass && data.assetClass !== "all") q = q.eq("asset_class", data.assetClass as AssetClass);
     if (data.q && data.q.trim().length > 0) {
       const term = data.q.trim().toUpperCase();
       q = q.or(`symbol.ilike.%${term}%,name.ilike.%${term}%`);

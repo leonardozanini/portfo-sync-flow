@@ -133,13 +133,16 @@ function AssetCombobox({
             )}
             {debounced.length >= 2 && !isFetching && (results?.length ?? 0) === 0 && (
               <CommandEmpty>
-                Nenhum no catálogo. Você pode digitar livre.
+                <div className="text-sm">Não está no catálogo.</div>
                 <Button
                   type="button" variant="ghost" size="sm" className="mt-2 w-full"
                   onClick={() => { onChange(debounced); setOpen(false); }}
                 >
-                  Usar “{debounced}”
+                  Solicitar inclusão de “{debounced}”
                 </Button>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Ao salvar, o ativo entra como pendente de aprovação.
+                </p>
               </CommandEmpty>
             )}
             {(results?.length ?? 0) > 0 && (

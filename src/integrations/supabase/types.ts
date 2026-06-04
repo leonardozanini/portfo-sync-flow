@@ -55,7 +55,11 @@ export type Database = {
           external_id: string | null
           id: string
           name: string | null
+          quote_url: string | null
+          requested_by: string | null
+          status: Database["public"]["Enums"]["asset_status"]
           symbol: string
+          updated_at: string
         }
         Insert: {
           asset_class: Database["public"]["Enums"]["asset_class"]
@@ -65,7 +69,11 @@ export type Database = {
           external_id?: string | null
           id?: string
           name?: string | null
+          quote_url?: string | null
+          requested_by?: string | null
+          status?: Database["public"]["Enums"]["asset_status"]
           symbol: string
+          updated_at?: string
         }
         Update: {
           asset_class?: Database["public"]["Enums"]["asset_class"]
@@ -75,7 +83,11 @@ export type Database = {
           external_id?: string | null
           id?: string
           name?: string | null
+          quote_url?: string | null
+          requested_by?: string | null
+          status?: Database["public"]["Enums"]["asset_status"]
           symbol?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -284,6 +296,7 @@ export type Database = {
         | "fund"
         | "cash"
         | "other"
+      asset_status: "pending" | "approved"
       currency_code: "BRL" | "USD" | "EUR" | "GBP" | "JPY"
       tx_type: "buy" | "sell" | "dividend" | "deposit" | "withdraw"
     }
@@ -424,6 +437,7 @@ export const Constants = {
         "cash",
         "other",
       ],
+      asset_status: ["pending", "approved"],
       currency_code: ["BRL", "USD", "EUR", "GBP", "JPY"],
       tx_type: ["buy", "sell", "dividend", "deposit", "withdraw"],
     },

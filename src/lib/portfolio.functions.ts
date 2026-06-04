@@ -417,13 +417,16 @@ export const createTransaction = createServerFn({ method: "POST" })
     if (aErr) throw new Error(aErr.message);
 
     if (!asset) {
-      // Asset catalog é global; usar client admin para criar (RLS de assets é só admin).
+      // Ativo não existe: cria como PENDENTE de aprovação pelo admin.
+      // O lançamento ainda é registrado normalmente — assim o usuário não perde o trabalho.
       const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
       const ins = await supabaseAdmin.from("assets").insert({
         symbol,
         name: data.name ?? symbol,
         asset_class: data.assetClass,
         currency: data.currency,
+        status: "pending",
+        requested_by: userId,
       }).select("id").single();
       if (ins.error) throw new Error(ins.error.message);
       asset = ins.data;

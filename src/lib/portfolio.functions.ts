@@ -189,16 +189,19 @@ export const getDashboard = createServerFn({ method: "GET" })
       const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
       const today = new Date().toISOString().slice(0, 10);
       await Promise.all(toRefresh.map(async (a) => {
-        const ySym = yahooSymbolFor(a.symbol, a.currency as CurrencyCode, a.asset_class as AssetClass);
-        const price = await fetchYahooPrice(ySym);
+        const neverFetched = !latestFetchedAt.get(a.id);
+        const { price, source } = await fetchPriceFor(
+          { symbol: a.symbol, asset_class: a.asset_class, currency: a.currency, quote_url: (a as { quote_url?: string | null }).quote_url },
+          neverFetched,
+        );
         if (price == null) {
           await supabaseAdmin.from("price_fetch_failures").insert({
-            asset_id: a.id, symbol: a.symbol, reason: `yahoo:${ySym}:no-data`,
+            asset_id: a.id, symbol: a.symbol, reason: `refresh:${source}:no-data`,
           });
           return;
         }
         await supabaseAdmin.from("asset_prices").insert({
-          asset_id: a.id, price_date: today, source: "yahoo", close_price: price,
+          asset_id: a.id, price_date: today, source, close_price: price,
         });
         latestPrice.set(a.id, price);
         latestFetchedAt.set(a.id, nowMs);

@@ -783,7 +783,10 @@ export const adminUpdateAsset = createServerFn({ method: "POST" })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await assertAdmin(context.supabase as any, context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const patch: Record<string, unknown> = {};
+    const patch: {
+      name?: string; asset_class?: AssetClass; currency?: CurrencyCode;
+      data_source?: string | null; quote_url?: string | null;
+    } = {};
     if (data.name !== undefined) patch.name = data.name;
     if (data.assetClass) patch.asset_class = data.assetClass;
     if (data.currency) patch.currency = data.currency;

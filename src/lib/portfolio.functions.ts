@@ -60,7 +60,6 @@ const CLASS_LABEL: Record<AssetClass, string> = {
 };
 
 // ---------- Price refresh helpers ----------
-// Yahoo Finance chart endpoint (sem chave). Para cripto usamos SYMBOL-CURRENCY (e.g. BTC-EUR).
 function yahooSymbolFor(symbol: string, currency: CurrencyCode, klass: AssetClass): string {
   const s = symbol.toUpperCase();
   if (klass === "crypto") return `${s}-${currency}`;
@@ -80,6 +79,69 @@ async function fetchYahooPrice(ySymbol: string): Promise<number | null> {
   } catch {
     return null;
   }
+}
+
+// Fallback: faz scraping leve da página configurada em quote_url.
+// Usado quando o ativo nunca teve cotação (campo "Atualizado" = Nunca).
+async function fetchPriceFromUrl(url: string): Promise<number | null> {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; Folio/1.0)",
+        "Accept": "text/html,application/xhtml+xml",
+      },
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const patterns: RegExp[] = [
+      /"regularMarketPrice"\s*:\s*\{?\s*"raw"\s*:\s*([\d.]+)/i,
+      /"price"\s*:\s*"?([\d.,]+)"?/i,
+      /data-symbol-last="([\d.,]+)"/i,
+      /data-test=["']qsp-price["'][^>]*>\s*([\d.,]+)/i,
+      /(?:R\$|US\$|\$|€|£|¥)\s*([\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2,6})?)/,
+    ];
+    for (const re of patterns) {
+      const m = html.match(re);
+      if (m && m[1]) {
+        let raw = m[1].trim();
+        const hasComma = raw.includes(",");
+        const hasDot = raw.includes(".");
+        if (hasComma && hasDot) {
+          if (raw.lastIndexOf(",") > raw.lastIndexOf(".")) {
+            raw = raw.replace(/\./g, "").replace(",", ".");
+          } else {
+            raw = raw.replace(/,/g, "");
+          }
+        } else if (hasComma) {
+          raw = raw.replace(",", ".");
+        }
+        const n = parseFloat(raw);
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Tenta cotar um ativo. Se nunca foi cotado e tem quote_url, usa o site primeiro.
+async function fetchPriceFor(
+  a: { symbol: string; asset_class: string; currency: string; quote_url?: string | null },
+  neverFetched: boolean,
+): Promise<{ price: number | null; source: string }> {
+  if (neverFetched && a.quote_url) {
+    const p = await fetchPriceFromUrl(a.quote_url);
+    if (p != null) return { price: p, source: "url" };
+  }
+  const ySym = yahooSymbolFor(a.symbol, a.currency as CurrencyCode, a.asset_class as AssetClass);
+  const py = await fetchYahooPrice(ySym);
+  if (py != null) return { price: py, source: "yahoo" };
+  if (!neverFetched && a.quote_url) {
+    const pu = await fetchPriceFromUrl(a.quote_url);
+    if (pu != null) return { price: pu, source: "url" };
+  }
+  return { price: null, source: "none" };
 }
 
 // ---------- getDashboard ----------

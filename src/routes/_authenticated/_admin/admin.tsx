@@ -10,7 +10,7 @@ export const Route = createFileRoute("/_authenticated/_admin/admin")({
 function AdminHome() {
   const sections = [
     { icon: Users, title: "Usuários e papéis", desc: "Atribuir Premium / Admin, ver assinaturas.", to: null },
-    { icon: Database, title: "Catálogo de ativos", desc: "Lista completa de ativos disponíveis para lançamento. Refresh automático a cada 15 min.", to: "/admin/catalog" as const },
+    { icon: Database, title: "Catálogo de ativos", desc: "Lista completa de ativos disponíveis para lançamento. Refresh automático a cada 15 min.", to: "/catalog" as const },
     { icon: AlertTriangle, title: "Falhas de cotação", desc: "Fila de ativos sem preço — defina fonte ou valor manual.", to: null },
     { icon: SlidersHorizontal, title: "Limites Free vs Premium", desc: "Configure quotas e funcionalidades por plano.", to: null },
   ];

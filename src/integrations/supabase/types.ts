@@ -296,6 +296,9 @@ export type Database = {
         | "fund"
         | "cash"
         | "other"
+        | "stock_intl"
+        | "reit_intl"
+        | "etf_intl"
       asset_status: "pending" | "approved"
       currency_code: "BRL" | "USD" | "EUR" | "GBP" | "JPY"
       tx_type: "buy" | "sell" | "dividend" | "deposit" | "withdraw"
@@ -436,6 +439,9 @@ export const Constants = {
         "fund",
         "cash",
         "other",
+        "stock_intl",
+        "reit_intl",
+        "etf_intl",
       ],
       asset_status: ["pending", "approved"],
       currency_code: ["BRL", "USD", "EUR", "GBP", "JPY"],

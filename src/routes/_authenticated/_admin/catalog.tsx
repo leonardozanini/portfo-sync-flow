@@ -39,6 +39,9 @@ const CLASS_OPTIONS: { value: string; label: string }[] = [
   { value: "stock", label: "Ações" },
   { value: "reit", label: "FIIs" },
   { value: "etf", label: "ETFs" },
+  { value: "stock_intl", label: "Stocks" },
+  { value: "reit_intl", label: "REITs" },
+  { value: "etf_intl", label: "ETFs Internacionais" },
   { value: "crypto", label: "Criptomoedas" },
   { value: "fixed_income", label: "Renda Fixa" },
   { value: "fund", label: "Fundos" },
@@ -48,7 +51,10 @@ const CLASS_OPTIONS: { value: string; label: string }[] = [
 
 const ASSET_CLASSES: { value: AssetClass; label: string }[] = [
   { value: "stock", label: "Ações" }, { value: "reit", label: "FIIs" },
-  { value: "etf", label: "ETFs" }, { value: "crypto", label: "Criptomoedas" },
+  { value: "etf", label: "ETFs" },
+  { value: "stock_intl", label: "Stocks" }, { value: "reit_intl", label: "REITs" },
+  { value: "etf_intl", label: "ETFs Internacionais" },
+  { value: "crypto", label: "Criptomoedas" },
   { value: "fixed_income", label: "Renda Fixa" }, { value: "fund", label: "Fundos" },
   { value: "cash", label: "Caixa" }, { value: "other", label: "Outros" },
 ];
@@ -56,7 +62,9 @@ const ASSET_CLASSES: { value: AssetClass; label: string }[] = [
 const CURRENCIES: CurrencyCode[] = ["BRL", "USD", "EUR", "GBP", "JPY"];
 
 const CLASS_LABEL: Record<AssetClass, string> = {
-  stock: "Ação", reit: "FII", etf: "ETF", crypto: "Cripto",
+  stock: "Ação", reit: "FII", etf: "ETF",
+  stock_intl: "Stock", reit_intl: "REIT", etf_intl: "ETF Intl",
+  crypto: "Cripto",
   fixed_income: "Renda Fixa", fund: "Fundo", cash: "Caixa", other: "Outro",
 };
 

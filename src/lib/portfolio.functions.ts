@@ -4,7 +4,9 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 // ---------- Types ----------
 export type AssetClass =
-  | "stock" | "reit" | "etf" | "crypto" | "fixed_income" | "fund" | "cash" | "other";
+  | "stock" | "reit" | "etf"
+  | "stock_intl" | "reit_intl" | "etf_intl"
+  | "crypto" | "fixed_income" | "fund" | "cash" | "other";
 export type TxType = "buy" | "sell" | "dividend" | "deposit" | "withdraw";
 export type CurrencyCode = "BRL" | "USD" | "EUR" | "GBP" | "JPY";
 
@@ -52,6 +54,9 @@ const CLASS_LABEL: Record<AssetClass, string> = {
   stock: "Ações",
   reit: "FIIs",
   etf: "ETFs",
+  stock_intl: "Stocks",
+  reit_intl: "REITs",
+  etf_intl: "ETFs Internacionais",
   crypto: "Criptomoedas",
   fixed_income: "Renda Fixa",
   fund: "Fundos",
@@ -472,6 +477,53 @@ export const listTransactions = createServerFn({ method: "GET" })
         currency: t.currency as CurrencyCode,
       };
     });
+  });
+
+// ---------- updateTransaction ----------
+const updateTxSchema = z.object({
+  id: z.string().uuid(),
+  occurredAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  txType: z.enum(["buy","sell","dividend","deposit","withdraw"]),
+  quantity: z.number().positive().max(1e12),
+  unitPrice: z.number().min(0).max(1e12),
+  fees: z.number().min(0).max(1e9).default(0),
+  currency: z.enum(["BRL","USD","EUR","GBP","JPY"]),
+});
+
+export const updateTransaction = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => updateTxSchema.parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { error } = await supabase
+      .from("transactions")
+      .update({
+        occurred_at: data.occurredAt,
+        tx_type: data.txType,
+        quantity: data.quantity,
+        unit_price: data.unitPrice,
+        fees: data.fees ?? 0,
+        currency: data.currency,
+      })
+      .eq("id", data.id)
+      .eq("user_id", userId);
+    if (error) throw new Error(error.message);
+    return { ok: true as const };
+  });
+
+// ---------- deleteTransaction ----------
+export const deleteTransaction = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { error } = await supabase
+      .from("transactions")
+      .delete()
+      .eq("id", data.id)
+      .eq("user_id", userId);
+    if (error) throw new Error(error.message);
+    return { ok: true as const };
   });
 
 // ---------- getAssetLots ----------

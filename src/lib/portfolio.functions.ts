@@ -476,7 +476,54 @@ export const listTransactions = createServerFn({ method: "GET" })
         fees: Number(t.fees ?? 0),
         currency: t.currency as CurrencyCode,
       };
-    });
+  });
+
+// ---------- updateTransaction ----------
+const updateTxSchema = z.object({
+  id: z.string().uuid(),
+  occurredAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  txType: z.enum(["buy","sell","dividend","deposit","withdraw"]),
+  quantity: z.number().positive().max(1e12),
+  unitPrice: z.number().min(0).max(1e12),
+  fees: z.number().min(0).max(1e9).default(0),
+  currency: z.enum(["BRL","USD","EUR","GBP","JPY"]),
+});
+
+export const updateTransaction = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => updateTxSchema.parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { error } = await supabase
+      .from("transactions")
+      .update({
+        occurred_at: data.occurredAt,
+        tx_type: data.txType,
+        quantity: data.quantity,
+        unit_price: data.unitPrice,
+        fees: data.fees ?? 0,
+        currency: data.currency,
+      })
+      .eq("id", data.id)
+      .eq("user_id", userId);
+    if (error) throw new Error(error.message);
+    return { ok: true as const };
+  });
+
+// ---------- deleteTransaction ----------
+export const deleteTransaction = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { error } = await supabase
+      .from("transactions")
+      .delete()
+      .eq("id", data.id)
+      .eq("user_id", userId);
+    if (error) throw new Error(error.message);
+    return { ok: true as const };
+  });
   });
 
 // ---------- getAssetLots ----------

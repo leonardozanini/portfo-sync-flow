@@ -476,6 +476,7 @@ export const listTransactions = createServerFn({ method: "GET" })
         fees: Number(t.fees ?? 0),
         currency: t.currency as CurrencyCode,
       };
+    });
   });
 
 // ---------- updateTransaction ----------

@@ -4,7 +4,9 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 // ---------- Types ----------
 export type AssetClass =
-  | "stock" | "reit" | "etf" | "crypto" | "fixed_income" | "fund" | "cash" | "other";
+  | "stock" | "reit" | "etf"
+  | "stock_intl" | "reit_intl" | "etf_intl"
+  | "crypto" | "fixed_income" | "fund" | "cash" | "other";
 export type TxType = "buy" | "sell" | "dividend" | "deposit" | "withdraw";
 export type CurrencyCode = "BRL" | "USD" | "EUR" | "GBP" | "JPY";
 

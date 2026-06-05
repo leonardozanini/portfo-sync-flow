@@ -525,7 +525,6 @@ export const deleteTransaction = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true as const };
   });
-  });
 
 // ---------- getAssetLots ----------
 export type AssetLot = {

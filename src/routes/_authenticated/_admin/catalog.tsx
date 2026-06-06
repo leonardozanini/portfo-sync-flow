@@ -21,12 +21,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Database, Plus, Check, X,
-  MoreHorizontal, Link as LinkIcon, Loader2,
+  MoreHorizontal, Link as LinkIcon, Loader2, Activity, AlertTriangle, CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   listCatalog, adminCreateAsset, adminUpdateAsset, adminApproveAsset, adminRejectAsset,
-  type AssetClass, type CurrencyCode, type CatalogRow,
+  adminTestPriceSource,
+  type AssetClass, type CurrencyCode, type CatalogRow, type MarketCode, type PriceSourceTest,
 } from "@/lib/portfolio.functions";
 
 export const Route = createFileRoute("/_authenticated/_admin/catalog")({
@@ -61,12 +62,29 @@ const ASSET_CLASSES: { value: AssetClass; label: string }[] = [
 
 const CURRENCIES: CurrencyCode[] = ["BRL", "USD", "EUR", "GBP", "JPY"];
 
+const MARKETS: { value: MarketCode; label: string }[] = [
+  { value: "B3", label: "B3 (Brasil)" },
+  { value: "NYSE", label: "NYSE" },
+  { value: "NASDAQ", label: "NASDAQ" },
+  { value: "LSE", label: "LSE (Londres)" },
+  { value: "TSE", label: "TSE (Tóquio)" },
+  { value: "CRYPTO", label: "Cripto (24/7)" },
+  { value: "OTHER", label: "Outro" },
+];
+
 const CLASS_LABEL: Record<AssetClass, string> = {
   stock: "Ação", reit: "FII", etf: "ETF",
   stock_intl: "Stock", reit_intl: "REIT", etf_intl: "ETF Intl",
   crypto: "Cripto",
   fixed_income: "Renda Fixa", fund: "Fundo", cash: "Caixa", other: "Outro",
 };
+
+const STALE_THRESHOLD_HOURS = 48;
+
+function isStale(fetchedAt: string | null): boolean {
+  if (!fetchedAt) return true;
+  return Date.now() - new Date(fetchedAt).getTime() > STALE_THRESHOLD_HOURS * 60 * 60 * 1000;
+}
 
 function CatalogPage() {
   const [q, setQ] = useState("");
@@ -86,6 +104,8 @@ function CatalogPage() {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const refresh = () => qc.invalidateQueries({ queryKey: ["catalog"] });
 
+  const staleCount = (data?.rows ?? []).filter((r) => r.status === "approved" && isStale(r.fetchedAt)).length;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -98,11 +118,18 @@ function CatalogPage() {
               <Database className="h-5 w-5" />Catálogo de ativos
             </h1>
             <p className="text-sm text-muted-foreground">
-              {total} ativos {data?.pendingCount ? <Badge variant="destructive" className="ml-2">{data.pendingCount} pendente(s)</Badge> : null}
+              {total} ativos
+              {data?.pendingCount ? <Badge variant="destructive" className="ml-2">{data.pendingCount} pendente(s)</Badge> : null}
+              {staleCount > 0 ? <Badge variant="outline" className="ml-2 border-warning/40 text-warning">
+                <AlertTriangle className="h-3 w-3 mr-1" />{staleCount} sem atualização &gt;{STALE_THRESHOLD_HOURS}h
+              </Badge> : null}
             </p>
           </div>
         </div>
-        <NewAssetButton onCreated={refresh} />
+        <div className="flex gap-2">
+          <TestConnectionButton />
+          <NewAssetButton onCreated={refresh} />
+        </div>
       </div>
 
       <Card>
@@ -139,11 +166,11 @@ function CatalogPage() {
                 <TableHead>Símbolo</TableHead>
                 <TableHead>Nome</TableHead>
                 <TableHead>Classe</TableHead>
+                <TableHead>Mercado</TableHead>
                 <TableHead>Moeda</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Último preço</TableHead>
                 <TableHead>Atualizado</TableHead>
-                <TableHead>URL cotação</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
@@ -195,11 +222,21 @@ function CatalogRowItem({ a, onChanged }: { a: CatalogRow; onChanged: () => void
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const stale = a.status === "approved" && isStale(a.fetchedAt);
+
   return (
     <TableRow className={a.status === "pending" ? "bg-warning/5" : ""}>
       <TableCell className="font-mono font-semibold">{a.symbol}</TableCell>
       <TableCell className="text-muted-foreground">{a.name ?? "—"}</TableCell>
       <TableCell><Badge variant="secondary">{CLASS_LABEL[a.assetClass]}</Badge></TableCell>
+      <TableCell>
+        <div className="flex items-center gap-1">
+          <Badge variant="outline">{a.market}</Badge>
+          {a.marketOpen
+            ? <span className="h-2 w-2 rounded-full bg-success" title="Mercado aberto" />
+            : <span className="h-2 w-2 rounded-full bg-muted-foreground/40" title="Mercado fechado" />}
+        </div>
+      </TableCell>
       <TableCell><Badge variant="outline">{a.currency}</Badge></TableCell>
       <TableCell>
         {a.status === "pending"
@@ -211,15 +248,13 @@ function CatalogRowItem({ a, onChanged }: { a: CatalogRow; onChanged: () => void
           ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: a.currency }).format(a.lastPrice)
           : <span className="text-muted-foreground">—</span>}
       </TableCell>
-      <TableCell className="text-xs text-muted-foreground">
-        {a.fetchedAt ? new Date(a.fetchedAt).toLocaleString("pt-BR") : <span className="text-destructive">Nunca</span>}
-      </TableCell>
-      <TableCell className="max-w-[160px] truncate text-xs">
-        {a.quoteUrl ? (
-          <a href={a.quoteUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
-            <LinkIcon className="h-3 w-3" />{new URL(a.quoteUrl).hostname}
-          </a>
-        ) : <span className="text-muted-foreground">—</span>}
+      <TableCell className="text-xs">
+        {a.fetchedAt
+          ? <span className={stale ? "text-warning" : "text-muted-foreground"}>
+              {stale && <AlertTriangle className="h-3 w-3 inline mr-1" />}
+              {new Date(a.fetchedAt).toLocaleString("pt-BR")}
+            </span>
+          : <span className="text-destructive">Nunca</span>}
       </TableCell>
       <TableCell>
         <DropdownMenu>
@@ -233,7 +268,7 @@ function CatalogRowItem({ a, onChanged }: { a: CatalogRow; onChanged: () => void
               </DropdownMenuItem>
             )}
             <DropdownMenuItem onClick={() => setEditOpen(true)}>
-              <LinkIcon className="h-4 w-4 mr-2" /> Editar / URL cotação
+              <LinkIcon className="h-4 w-4 mr-2" /> Editar
             </DropdownMenuItem>
             {a.status === "pending" && (
               <DropdownMenuItem className="text-destructive" onClick={() => reject.mutate({ data: { id: a.id } })}>
@@ -248,12 +283,97 @@ function CatalogRowItem({ a, onChanged }: { a: CatalogRow; onChanged: () => void
   );
 }
 
+function TestConnectionButton() {
+  const [open, setOpen] = useState(false);
+  const [result, setResult] = useState<PriceSourceTest | null>(null);
+  const testFn = useServerFn(adminTestPriceSource);
+
+  const mutation = useMutation({
+    mutationFn: () => testFn(),
+    onSuccess: (r) => {
+      setResult(r); setOpen(true);
+      if (r.ok) toast.success("Conexão OK");
+      else toast.error("Falha na conexão");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <>
+      <Button variant="outline" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+        {mutation.isPending
+          ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Testando…</>
+          : <><Activity className="h-4 w-4 mr-2" />Testar Conexão</>}
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {result?.ok
+                ? <><CheckCircle2 className="h-5 w-5 text-success" />Conexão OK</>
+                : <><X className="h-5 w-5 text-destructive" />Falha na Conexão</>}
+            </DialogTitle>
+            <DialogDescription>
+              {result?.ok
+                ? "A conexão com a fonte de preços está funcionando corretamente."
+                : "Não foi possível acessar a fonte de preços. Verifique a integração ou atualize as configurações."}
+            </DialogDescription>
+          </DialogHeader>
+          {result && (
+            <div className="space-y-3 text-sm">
+              <SourceStatus title="Yahoo Finance (PETR4.SA)" s={result.yahoo} />
+              <SourceStatus title={`URL scraping${result.url.sampleHost ? ` — ${result.url.sampleHost}` : ""}`} s={result.url} />
+              <div className="rounded-md border p-3 bg-muted/30 space-y-1">
+                <div className="font-medium">Saúde do catálogo</div>
+                <div className="text-muted-foreground">
+                  {result.totalApproved} ativos aprovados ·{" "}
+                  <span className={result.staleAssets > 0 ? "text-warning" : ""}>
+                    {result.staleAssets} sem atualização &gt;{STALE_THRESHOLD_HOURS}h
+                  </span>{" "}
+                  · <span className={result.neverFetched > 0 ? "text-destructive" : ""}>
+                    {result.neverFetched} nunca atualizados
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setOpen(false)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function SourceStatus({ title, s }: {
+  title: string;
+  s: { ok: boolean; latencyMs: number; price: number | null; error?: string };
+}) {
+  return (
+    <div className="rounded-md border p-3 flex items-start gap-3">
+      {s.ok
+        ? <CheckCircle2 className="h-5 w-5 text-success shrink-0 mt-0.5" />
+        : <X className="h-5 w-5 text-destructive shrink-0 mt-0.5" />}
+      <div className="flex-1 min-w-0">
+        <div className="font-medium">{title}</div>
+        <div className="text-xs text-muted-foreground">
+          {s.ok ? "OK" : "Falha"} · {s.latencyMs}ms
+          {s.price != null && <> · preço retornado: <span className="font-mono">{s.price.toFixed(2)}</span></>}
+        </div>
+        {s.error && <div className="text-xs text-destructive mt-1">{s.error}</div>}
+      </div>
+    </div>
+  );
+}
+
 function NewAssetButton({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
   const [symbol, setSymbol] = useState("");
   const [name, setName] = useState("");
   const [klass, setKlass] = useState<AssetClass>("stock");
   const [currency, setCurrency] = useState<CurrencyCode>("BRL");
+  const [market, setMarket] = useState<MarketCode>("B3");
   const [dataSource, setDataSource] = useState("yahoo");
   const [quoteUrl, setQuoteUrl] = useState("");
 
@@ -304,6 +424,15 @@ function NewAssetButton({ onCreated }: { onCreated: () => void }) {
             </Select>
           </div>
           <div className="space-y-1.5">
+            <Label>Mercado</Label>
+            <Select value={market} onValueChange={(v) => setMarket(v as MarketCode)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {MARKETS.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
             <Label>Fonte de cotação</Label>
             <Select value={dataSource} onValueChange={setDataSource}>
               <SelectTrigger><SelectValue /></SelectTrigger>
@@ -325,7 +454,7 @@ function NewAssetButton({ onCreated }: { onCreated: () => void }) {
           <Button
             onClick={() => {
               if (!symbol.trim() || !name.trim()) { toast.error("Código e nome são obrigatórios"); return; }
-              mutation.mutate({ data: { symbol, name, assetClass: klass, currency, dataSource, quoteUrl } });
+              mutation.mutate({ data: { symbol, name, assetClass: klass, currency, market, dataSource, quoteUrl } });
             }}
             disabled={mutation.isPending}
           >
@@ -343,6 +472,7 @@ function EditAssetDialog({
   const [name, setName] = useState(asset.name ?? "");
   const [quoteUrl, setQuoteUrl] = useState(asset.quoteUrl ?? "");
   const [dataSource, setDataSource] = useState(asset.dataSource ?? "yahoo");
+  const [market, setMarket] = useState<MarketCode>(asset.market);
 
   const updateFn = useServerFn(adminUpdateAsset);
   const mutation = useMutation({
@@ -357,13 +487,22 @@ function EditAssetDialog({
         <DialogHeader>
           <DialogTitle>Editar — {asset.symbol}</DialogTitle>
           <DialogDescription>
-            Atualize o nome e vincule um site para coleta de cotação (usado quando "Atualizado" = Nunca).
+            Atualize o nome, mercado e a URL de cotação (usada quando "Atualizado" = Nunca).
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label>Nome</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Mercado</Label>
+            <Select value={market} onValueChange={(v) => setMarket(v as MarketCode)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {MARKETS.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1.5">
             <Label>Fonte de cotação</Label>
@@ -384,7 +523,7 @@ function EditAssetDialog({
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
           <Button
-            onClick={() => mutation.mutate({ data: { id: asset.id, name, quoteUrl, dataSource } })}
+            onClick={() => mutation.mutate({ data: { id: asset.id, name, market, quoteUrl, dataSource } })}
             disabled={mutation.isPending}
           >
             {mutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Salvando…</> : "Salvar"}

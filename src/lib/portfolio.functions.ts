@@ -741,6 +741,8 @@ export type CatalogRow = CatalogAsset & {
   dataSource: string | null;
   quoteUrl: string | null;
   requestedBy: string | null;
+  market: MarketCode;
+  marketOpen: boolean;
 };
 
 export type CatalogPage = {
@@ -770,7 +772,7 @@ export const listCatalog = createServerFn({ method: "GET" })
     const from = (data.page - 1) * data.pageSize;
     const to = from + data.pageSize - 1;
     let q = supabase.from("assets").select("*", { count: "exact" })
-      .order("status", { ascending: true })  // pending primeiro (asc: 'approved' depois)
+      .order("status", { ascending: true })
       .order("symbol", { ascending: true })
       .range(from, to);
     if (data.assetClass && data.assetClass !== "all") q = q.eq("asset_class", data.assetClass as AssetClass);
@@ -804,16 +806,21 @@ export const listCatalog = createServerFn({ method: "GET" })
       .select("id", { count: "exact", head: true }).eq("status", "pending");
 
     return {
-      rows: (rows ?? []).map((r) => ({
-        id: r.id, symbol: r.symbol, name: r.name,
-        assetClass: r.asset_class as AssetClass, currency: r.currency as CurrencyCode,
-        lastPrice: priceMap.get(r.id)?.price ?? null,
-        fetchedAt: priceMap.get(r.id)?.fetchedAt ?? null,
-        status: (r as { status: "pending" | "approved" }).status,
-        dataSource: (r as { data_source: string | null }).data_source ?? null,
-        quoteUrl: (r as { quote_url: string | null }).quote_url ?? null,
-        requestedBy: (r as { requested_by: string | null }).requested_by ?? null,
-      })),
+      rows: (rows ?? []).map((r) => {
+        const market = ((r as { market?: MarketCode }).market ?? "OTHER") as MarketCode;
+        return {
+          id: r.id, symbol: r.symbol, name: r.name,
+          assetClass: r.asset_class as AssetClass, currency: r.currency as CurrencyCode,
+          lastPrice: priceMap.get(r.id)?.price ?? null,
+          fetchedAt: priceMap.get(r.id)?.fetchedAt ?? null,
+          status: (r as { status: "pending" | "approved" }).status,
+          dataSource: (r as { data_source: string | null }).data_source ?? null,
+          quoteUrl: (r as { quote_url: string | null }).quote_url ?? null,
+          requestedBy: (r as { requested_by: string | null }).requested_by ?? null,
+          market,
+          marketOpen: isMarketOpen(market),
+        };
+      }),
       total: count ?? 0,
       page: data.page,
       pageSize: data.pageSize,

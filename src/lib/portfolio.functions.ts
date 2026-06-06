@@ -834,11 +834,18 @@ async function assertAdmin(supabase: ReturnType<typeof import("@supabase/supabas
   if (!roles?.some((r: { role: string }) => r.role === "admin")) throw new Error("Acesso restrito.");
 }
 
+const ASSET_CLASS_ENUM = z.enum([
+  "stock","reit","etf","stock_intl","reit_intl","etf_intl",
+  "crypto","fixed_income","fund","cash","other",
+]);
+const MARKET_ENUM = z.enum(["B3","NYSE","NASDAQ","LSE","TSE","CRYPTO","OTHER"]);
+
 const adminCreateSchema = z.object({
   symbol: z.string().min(1).max(32).regex(/^[A-Za-z0-9._-]+$/),
   name: z.string().min(1).max(120),
-  assetClass: z.enum(["stock","reit","etf","crypto","fixed_income","fund","cash","other"]),
+  assetClass: ASSET_CLASS_ENUM,
   currency: z.enum(["BRL","USD","EUR","GBP","JPY"]),
+  market: MARKET_ENUM.optional(),
   dataSource: z.string().max(40).optional(),
   quoteUrl: z.string().url().max(500).optional().or(z.literal("")),
 });
@@ -850,11 +857,13 @@ export const adminCreateAsset = createServerFn({ method: "POST" })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await assertAdmin(context.supabase as any, context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const market = data.market ?? defaultMarketFor(data.currency, data.assetClass);
     const ins = await supabaseAdmin.from("assets").insert({
       symbol: data.symbol.toUpperCase(),
       name: data.name,
       asset_class: data.assetClass,
       currency: data.currency,
+      market,
       data_source: data.dataSource || "yahoo",
       quote_url: data.quoteUrl || null,
       status: "approved",
@@ -866,8 +875,9 @@ export const adminCreateAsset = createServerFn({ method: "POST" })
 const adminUpdateSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1).max(120).optional(),
-  assetClass: z.enum(["stock","reit","etf","crypto","fixed_income","fund","cash","other"]).optional(),
+  assetClass: ASSET_CLASS_ENUM.optional(),
   currency: z.enum(["BRL","USD","EUR","GBP","JPY"]).optional(),
+  market: MARKET_ENUM.optional(),
   dataSource: z.string().max(40).optional(),
   quoteUrl: z.string().max(500).optional(),
 });
@@ -881,11 +891,13 @@ export const adminUpdateAsset = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const patch: {
       name?: string; asset_class?: AssetClass; currency?: CurrencyCode;
+      market?: MarketCode;
       data_source?: string | null; quote_url?: string | null;
     } = {};
     if (data.name !== undefined) patch.name = data.name;
     if (data.assetClass) patch.asset_class = data.assetClass;
     if (data.currency) patch.currency = data.currency;
+    if (data.market) patch.market = data.market;
     if (data.dataSource !== undefined) patch.data_source = data.dataSource || null;
     if (data.quoteUrl !== undefined) patch.quote_url = data.quoteUrl || null;
     const upd = await supabaseAdmin.from("assets").update(patch).eq("id", data.id);
@@ -912,7 +924,6 @@ export const adminRejectAsset = createServerFn({ method: "POST" })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await assertAdmin(context.supabase as any, context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    // Não deleta se tem transações — apenas mantém pending
     const hasTx = await supabaseAdmin.from("transactions").select("id", { head: true, count: "exact" }).eq("asset_id", data.id);
     if ((hasTx.count ?? 0) > 0) {
       throw new Error("Ativo possui lançamentos. Aprove ou apague-os antes.");
@@ -922,28 +933,104 @@ export const adminRejectAsset = createServerFn({ method: "POST" })
     return { ok: true as const };
   });
 
+// ---------- Admin: testar conexão com fontes de preço ----------
+export type PriceSourceTest = {
+  ok: boolean;
+  yahoo: { ok: boolean; latencyMs: number; price: number | null; error?: string };
+  url: { ok: boolean; latencyMs: number; price: number | null; sampleHost?: string; error?: string };
+  staleAssets: number;        // ativos com fetch > 48h
+  neverFetched: number;
+  totalApproved: number;
+};
+
+export const adminTestPriceSource = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<PriceSourceTest> => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await assertAdmin(context.supabase as any, context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // 1) Yahoo: testa com símbolo conhecido (PETR4.SA)
+    const t0 = Date.now();
+    const yPrice = await fetchYahooPrice("PETR4.SA");
+    const yahoo = {
+      ok: yPrice != null,
+      latencyMs: Date.now() - t0,
+      price: yPrice,
+      error: yPrice == null ? "Yahoo Finance não respondeu ou bloqueou a requisição." : undefined,
+    };
+
+    // 2) URL: tenta primeiro ativo aprovado com quote_url
+    let url: PriceSourceTest["url"] = { ok: false, latencyMs: 0, price: null };
+    const { data: sample } = await supabaseAdmin.from("assets")
+      .select("quote_url").eq("status", "approved").not("quote_url", "is", null).limit(1).maybeSingle();
+    if (sample?.quote_url) {
+      const u0 = Date.now();
+      const p = await fetchPriceFromUrl(sample.quote_url);
+      url = {
+        ok: p != null, latencyMs: Date.now() - u0, price: p,
+        sampleHost: (() => { try { return new URL(sample.quote_url!).hostname; } catch { return undefined; } })(),
+        error: p == null ? "Não foi possível extrair preço da URL configurada." : undefined,
+      };
+    } else {
+      url = { ok: true, latencyMs: 0, price: null, error: "Nenhum ativo com URL configurada para testar." };
+    }
+
+    // 3) Saúde geral: stale (>48h) + nunca atualizados
+    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const { data: approved } = await supabaseAdmin.from("assets")
+      .select("id").eq("status", "approved");
+    const totalApproved = approved?.length ?? 0;
+    const ids = (approved ?? []).map((a) => a.id);
+    let neverFetched = 0, staleAssets = 0;
+    if (ids.length > 0) {
+      const { data: latest } = await supabaseAdmin
+        .from("asset_prices").select("asset_id, fetched_at")
+        .in("asset_id", ids).order("fetched_at", { ascending: false });
+      const last = new Map<string, string>();
+      for (const p of latest ?? []) {
+        if (!last.has(p.asset_id)) last.set(p.asset_id, p.fetched_at as unknown as string);
+      }
+      for (const id of ids) {
+        const f = last.get(id);
+        if (!f) neverFetched++;
+        else if (f < cutoff) staleAssets++;
+      }
+    }
+
+    return { ok: yahoo.ok, yahoo, url, staleAssets, neverFetched, totalApproved };
+  });
+
 // ---------- refreshAllPrices (called by cron) ----------
-export async function refreshAllPricesInternal(): Promise<{ updated: number; failed: number }> {
+export async function refreshAllPricesInternal(): Promise<{
+  updated: number; failed: number; skippedClosed: number;
+}> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: txAssetIds } = await supabaseAdmin
     .from("transactions").select("asset_id");
   const heldIds = Array.from(new Set((txAssetIds ?? []).map((t) => t.asset_id)));
-  if (heldIds.length === 0) return { updated: 0, failed: 0 };
+  if (heldIds.length === 0) return { updated: 0, failed: 0, skippedClosed: 0 };
 
   const { data: assets } = await supabaseAdmin
-    .from("assets").select("id, symbol, asset_class, currency, quote_url")
+    .from("assets").select("id, symbol, asset_class, currency, quote_url, market")
     .in("id", heldIds)
     .eq("status", "approved");
 
-  // Identifica ativos sem nenhum preço (Atualizado = "Nunca")
   const { data: priceRows } = await supabaseAdmin
     .from("asset_prices").select("asset_id").in("asset_id", (assets ?? []).map((a) => a.id));
   const everFetched = new Set((priceRows ?? []).map((p) => p.asset_id));
 
   const today = new Date().toISOString().slice(0, 10);
-  let updated = 0, failed = 0;
+  const now = new Date();
+  let updated = 0, failed = 0, skippedClosed = 0;
   await Promise.all((assets ?? []).map(async (a) => {
+    const market = ((a as { market?: MarketCode }).market ?? "OTHER") as MarketCode;
     const neverFetched = !everFetched.has(a.id);
+    // Mercado fechado: pula, exceto se nunca foi atualizado (primeira carga)
+    if (!neverFetched && !isMarketOpen(market, now)) {
+      skippedClosed++;
+      return;
+    }
     const { price, source } = await fetchPriceFor(
       { symbol: a.symbol, asset_class: a.asset_class, currency: a.currency, quote_url: a.quote_url },
       neverFetched,
@@ -951,7 +1038,7 @@ export async function refreshAllPricesInternal(): Promise<{ updated: number; fai
     if (price == null) {
       failed++;
       await supabaseAdmin.from("price_fetch_failures").insert({
-        asset_id: a.id, symbol: a.symbol, reason: `cron:${source}:no-data`,
+        asset_id: a.id, symbol: a.symbol, reason: `cron:${market}:${source}:no-data`,
       });
       return;
     }
@@ -960,7 +1047,7 @@ export async function refreshAllPricesInternal(): Promise<{ updated: number; fai
     });
     updated++;
   }));
-  return { updated, failed };
+  return { updated, failed, skippedClosed };
 }
 
 

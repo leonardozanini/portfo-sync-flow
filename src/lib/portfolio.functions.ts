@@ -9,6 +9,43 @@ export type AssetClass =
   | "crypto" | "fixed_income" | "fund" | "cash" | "other";
 export type TxType = "buy" | "sell" | "dividend" | "deposit" | "withdraw";
 export type CurrencyCode = "BRL" | "USD" | "EUR" | "GBP" | "JPY";
+export type MarketCode = "B3" | "NYSE" | "NASDAQ" | "LSE" | "TSE" | "CRYPTO" | "OTHER";
+
+// Horários de pregão (UTC, aproximados, sem ajuste DST). Seg-Sex.
+// Crypto: 24/7. OTHER: sempre considerado fechado para refresh automático.
+const MARKET_HOURS_UTC: Record<MarketCode, { open: number; close: number } | "always" | "never"> = {
+  B3:     { open: 13 * 60,        close: 20 * 60 + 30 }, // 10:00-17:30 BRT
+  NYSE:   { open: 14 * 60 + 30,   close: 21 * 60 },      // 09:30-16:00 EST
+  NASDAQ: { open: 14 * 60 + 30,   close: 21 * 60 },
+  LSE:    { open: 8 * 60,         close: 16 * 60 + 30 }, // 08:00-16:30 GMT
+  TSE:    { open: 0,              close: 6 * 60 },       // 09:00-15:00 JST
+  CRYPTO: "always",
+  OTHER:  "never",
+};
+
+export const MARKET_LABEL: Record<MarketCode, string> = {
+  B3: "B3 (Brasil)", NYSE: "NYSE", NASDAQ: "NASDAQ",
+  LSE: "LSE (Londres)", TSE: "TSE (Tóquio)", CRYPTO: "Cripto (24/7)", OTHER: "Outro",
+};
+
+export function isMarketOpen(market: MarketCode, when: Date = new Date()): boolean {
+  const cfg = MARKET_HOURS_UTC[market];
+  if (cfg === "always") return true;
+  if (cfg === "never") return false;
+  const day = when.getUTCDay(); // 0=Sun, 6=Sat
+  if (day === 0 || day === 6) return false;
+  const minutes = when.getUTCHours() * 60 + when.getUTCMinutes();
+  return minutes >= cfg.open && minutes <= cfg.close;
+}
+
+export function defaultMarketFor(currency: CurrencyCode, klass: AssetClass): MarketCode {
+  if (klass === "crypto") return "CRYPTO";
+  if (currency === "BRL") return "B3";
+  if (currency === "USD") return "NYSE";
+  if (currency === "EUR" || currency === "GBP") return "LSE";
+  if (currency === "JPY") return "TSE";
+  return "OTHER";
+}
 
 export type GroupedAsset = {
   assetId: string;

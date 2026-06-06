@@ -54,6 +54,7 @@ export type Database = {
           data_source: string | null
           external_id: string | null
           id: string
+          market: Database["public"]["Enums"]["market_code"]
           name: string | null
           quote_url: string | null
           requested_by: string | null
@@ -68,6 +69,7 @@ export type Database = {
           data_source?: string | null
           external_id?: string | null
           id?: string
+          market?: Database["public"]["Enums"]["market_code"]
           name?: string | null
           quote_url?: string | null
           requested_by?: string | null
@@ -82,6 +84,7 @@ export type Database = {
           data_source?: string | null
           external_id?: string | null
           id?: string
+          market?: Database["public"]["Enums"]["market_code"]
           name?: string | null
           quote_url?: string | null
           requested_by?: string | null
@@ -301,6 +304,7 @@ export type Database = {
         | "etf_intl"
       asset_status: "pending" | "approved"
       currency_code: "BRL" | "USD" | "EUR" | "GBP" | "JPY"
+      market_code: "B3" | "NYSE" | "NASDAQ" | "LSE" | "TSE" | "CRYPTO" | "OTHER"
       tx_type: "buy" | "sell" | "dividend" | "deposit" | "withdraw"
     }
     CompositeTypes: {
@@ -445,6 +449,7 @@ export const Constants = {
       ],
       asset_status: ["pending", "approved"],
       currency_code: ["BRL", "USD", "EUR", "GBP", "JPY"],
+      market_code: ["B3", "NYSE", "NASDAQ", "LSE", "TSE", "CRYPTO", "OTHER"],
       tx_type: ["buy", "sell", "dividend", "deposit", "withdraw"],
     },
   },

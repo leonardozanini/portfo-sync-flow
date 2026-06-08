@@ -69,18 +69,19 @@ function Lots({ data }: { data: NonNullable<ReturnType<typeof useQuery<Awaited<R
           tone={t.pnlPct >= 0 ? "success" : "destructive"} />
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-border">
+      <div className="overflow-auto rounded-lg border border-border max-h-[420px]">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead>Data</TableHead>
+              <TableHead className="sticky top-0 bg-background z-10">Data</TableHead>
               <TableHead>Tipo</TableHead>
-              <TableHead className="text-right">Quant.</TableHead>
-              <TableHead className="text-right">Preço unit.</TableHead>
-              <TableHead className="text-right">Custo total</TableHead>
-              <TableHead className="text-right">Valor atual</TableHead>
-              <TableHead className="text-right">L/P</TableHead>
-              <TableHead className="text-right">Rentab.</TableHead>
+              <TableHead className="sticky top-0 bg-background z-10">Tipo</TableHead>
+              <TableHead className="sticky top-0 bg-background z-10 text-right">Quant.</TableHead>
+              <TableHead className="sticky top-0 bg-background z-10 text-right">Preço unit.</TableHead>
+              <TableHead className="sticky top-0 bg-background z-10 text-right">Custo total</TableHead>
+              <TableHead className="sticky top-0 bg-background z-10 text-right">Valor atual</TableHead>
+              <TableHead className="sticky top-0 bg-background z-10 text-right">L/P</TableHead>
+              <TableHead className="sticky top-0 bg-background z-10 text-right">Rentab.</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

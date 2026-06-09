@@ -31,6 +31,9 @@ import {
   type AssetClass, type CurrencyCode, type TxType,
 } from "@/lib/portfolio.functions";
 import { formatMoney, type Currency } from "@/lib/currency";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, ReferenceLine,
+} from "recharts";
 
 export const Route = createFileRoute("/_authenticated/transactions")({
   head: () => ({ meta: [{ title: "Lançamentos — Folio" }] }),
@@ -55,8 +58,26 @@ const TX_LABEL: Record<TxType, string> = {
   deposit: "Aporte", withdraw: "Retirada",
 };
 
+function buildChartData(txs: TxRow[]) {
+  const map = new Map<string, { month: string; compras: number; vendas: number }>();
+  for (const t of txs) {
+    if (t.txType !== "buy" && t.txType !== "sell") continue;
+    const d = new Date(t.occurredAt);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getFullYear()).slice(2)}`;
+    if (!map.has(key)) map.set(key, { month: label, compras: 0, vendas: 0 });
+    const total = t.quantity * t.unitPrice + (t.fees ?? 0);
+    if (t.txType === "buy") map.get(key)!.compras += total;
+    else map.get(key)!.vendas += total;
+  }
+  return Array.from(map.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, v]) => ({ ...v, vendas: -v.vendas }));
+}
+
 function TransactionsPage() {
-  const [filter, setFilter] = useState<string>("all");
+  const [filterClass, setFilterClass] = useState<string>("all");
+  const [filterSymbol, setFilterSymbol] = useState<string>("all");
   const [openNew, setOpenNew] = useState(false);
   const [editing, setEditing] = useState<TxRow | null>(null);
   const [deleting, setDeleting] = useState<TxRow | null>(null);
@@ -71,9 +92,19 @@ function TransactionsPage() {
     () => Array.from(new Set((txs as TxRow[]).map((t) => t.classLabel))),
     [txs],
   );
-  const visible = filter === "all"
-    ? (txs as TxRow[])
-    : (txs as TxRow[]).filter((t) => t.classLabel === filter);
+
+  // Symbols filtered by selected class
+  const symbols = useMemo(() => {
+    const base = filterClass === "all" ? (txs as TxRow[]) : (txs as TxRow[]).filter((t) => t.classLabel === filterClass);
+    return Array.from(new Set(base.map((t) => t.symbol))).sort();
+  }, [txs, filterClass]);
+
+  const visible = useMemo(() => {
+    let rows = txs as TxRow[];
+    if (filterClass !== "all") rows = rows.filter((t) => t.classLabel === filterClass);
+    if (filterSymbol !== "all") rows = rows.filter((t) => t.symbol === filterSymbol);
+    return rows;
+  }, [txs, filterClass, filterSymbol]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, TxRow[]>();
@@ -84,6 +115,13 @@ function TransactionsPage() {
     return Array.from(map.entries());
   }, [visible]);
 
+  const chartData = useMemo(() => buildChartData(visible), [visible]);
+
+  const hasChart = chartData.some((d) => d.compras !== 0 || d.vendas !== 0);
+
+  const fmtTooltip = (value: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "decimal", minimumFractionDigits: 2 }).format(Math.abs(value));
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -93,12 +131,21 @@ function TransactionsPage() {
             Histórico de operações, agrupado por classe.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Select value={filter} onValueChange={setFilter}>
-            <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Filter by class */}
+          <Select value={filterClass} onValueChange={(v) => { setFilterClass(v); setFilterSymbol("all"); }}>
+            <SelectTrigger className="w-[180px]"><SelectValue placeholder="Todas as classes" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas as classes</SelectItem>
               {classes.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {/* Filter by symbol */}
+          <Select value={filterSymbol} onValueChange={setFilterSymbol}>
+            <SelectTrigger className="w-[150px]"><SelectValue placeholder="Todos os ativos" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos os ativos</SelectItem>
+              {symbols.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
             </SelectContent>
           </Select>
           <Button onClick={() => setOpenNew(true)}>
@@ -106,6 +153,42 @@ function TransactionsPage() {
           </Button>
         </div>
       </div>
+
+      {/* Chart */}
+      {hasChart && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Consolidação de aportes</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={chartData} barCategoryGap="30%" margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#888" }} axisLine={false} tickLine={false} />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "#888" }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v) => {
+                    const abs = Math.abs(v);
+                    return abs >= 1000 ? `${(abs / 1000).toFixed(0)}k` : `${abs}`;
+                  }}
+                />
+                <Tooltip
+                  formatter={(value: number, name: string) => [fmtTooltip(value), name]}
+                  contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                  labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 500 }}
+                />
+                <Legend
+                  formatter={(v) => <span style={{ fontSize: 12, color: "hsl(var(--muted-foreground))" }}>{v}</span>}
+                />
+                <ReferenceLine y={0} stroke="hsl(var(--border))" />
+                <Bar dataKey="compras" name="Compras" fill="#22c55e" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="vendas" name="Vendas" fill="#f43f5e" radius={[0, 0, 3, 3]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
 
       {isLoading && (
         <Card><CardContent className="flex items-center justify-center py-12 text-muted-foreground">

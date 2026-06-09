@@ -375,7 +375,7 @@ export const getDashboard = createServerFn({ method: "GET" })
 
     // Equity history: cumulative invested + value-at-month-end from snapshots if present,
     // otherwise derive monthly cumulative invested from transactions.
-    const equity = buildEquityHistory(txs, toBRL);
+    const equity = buildEquityHistory(txs, toBRL, totalValueBRL);
 
     return {
       totalsBRL: {
@@ -395,6 +395,7 @@ export const getDashboard = createServerFn({ method: "GET" })
 function buildEquityHistory(
   txs: Array<{ occurred_at: string; tx_type: string; quantity: number | string; unit_price: number | string; fees: number | string | null; currency: string }>,
   toBRL: (amount: number, cur: CurrencyCode) => number,
+  totalCurrentValueBRL: number,
 ) {
   const months = new Map<string, { aplicado: number; ganho: number }>();
   let cumInvested = 0;
@@ -418,13 +419,17 @@ function buildEquityHistory(
     const key = `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getFullYear()).slice(2)}`;
     if (months.has(key)) months.set(key, { aplicado: cumInvested, ganho: 0 });
   }
-  // Propagate cum forward
+  // Propagate cum forward and distribute current PnL proportionally
+  const currentPnL = totalCurrentValueBRL - cumInvested;
   let last = 0;
   const out: { date: string; aplicado: number; ganho: number }[] = [];
   for (const [date, v] of months) {
     const aplicado = v.aplicado || last;
     last = aplicado;
-    out.push({ date, aplicado, ganho: 0 });
+    const ganho = cumInvested > 0 && aplicado > 0
+      ? currentPnL * (aplicado / cumInvested)
+      : 0;
+    out.push({ date, aplicado, ganho });
   }
   return out;
 }
@@ -1049,5 +1054,3 @@ export async function refreshAllPricesInternal(): Promise<{
   }));
   return { updated, failed, skippedClosed };
 }
-
-

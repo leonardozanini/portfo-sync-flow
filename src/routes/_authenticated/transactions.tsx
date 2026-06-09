@@ -213,7 +213,7 @@ function TransactionsPage() {
                   axisLine={false}
                   tickLine={false}
                 />
-                <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="0" strokeOpacity={0.6} />
+                <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="4 4" strokeOpacity={0.8} />
                 <YAxis
                   tick={{ fontSize: 11, fill: "#888" }}
                   axisLine={false}

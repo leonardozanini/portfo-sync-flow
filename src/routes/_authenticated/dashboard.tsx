@@ -23,7 +23,7 @@ import {
   Layers, ListOrdered,
 } from "lucide-react";
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
   PieChart, Pie, Cell,
 } from "recharts";
 import { useDisplayCurrency } from "@/components/CurrencySwitcher";
@@ -196,31 +196,66 @@ function Dashboard() {
           <CardContent className="h-[320px]">
             {data.equity.length === 0 || data.equity.every((e) => e.aplicado === 0) ? (
               <EmptyChart label="Adicione lançamentos para ver a evolução." />
-            ) : (
-              <>
-                <div className="mb-2 flex items-center gap-4 text-xs">
-                  <LegendDot color="hsl(142 71% 45%)" label="Valor aplicado" />
-                  <LegendDot color="hsl(142 71% 75%)" label="Ganho de Capital" />
-                </div>
-                <ResponsiveContainer width="100%" height="90%">
-                  <BarChart data={data.equity.map(d => ({
-                    date: d.date,
-                    aplicado: convert(d.aplicado, currency),
-                    ganho: convert(d.ganho, currency),
-                  }))} barCategoryGap={10}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
-                    <XAxis dataKey="date" fontSize={11} stroke="var(--color-muted-foreground)" />
-                    <YAxis fontSize={11} stroke="var(--color-muted-foreground)"
-                      tickFormatter={(v) => formatMoney(Number(v), currency).replace(/[,.]00$/, "")} />
-                    <Tooltip
-                      contentStyle={{ background: "var(--color-popover)", border: "1px solid var(--color-border)", borderRadius: 8 }}
-                      formatter={(v: number) => formatMoney(v, currency)} />
-                    <Bar dataKey="aplicado" stackId="a" fill="hsl(142 71% 45%)" />
-                    <Bar dataKey="ganho" stackId="a" fill="hsl(142 71% 75%)" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </>
-            )}
+            ) : (() => {
+              const equityData = data.equity.map(d => ({
+                date: d.date,
+                aplicado: convert(d.aplicado, currency),
+                ganho: convert(d.ganho, currency),
+                patrimonio: convert(d.aplicado + d.ganho, currency),
+              }));
+              const CustomTooltip = ({ active, payload, label }: any) => {
+                if (!active || !payload?.length) return null;
+                const aplicado = payload.find((p: any) => p.dataKey === "aplicado")?.value ?? 0;
+                const ganho = payload.find((p: any) => p.dataKey === "ganho")?.value ?? 0;
+                const patrimonio = aplicado + ganho;
+                return (
+                  <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: "10px 14px", minWidth: 210, boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
+                    <p style={{ color: "#374151", fontSize: 12, marginBottom: 8, fontWeight: 700 }}>{label}</p>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 2, background: "#3b82f6", display: "inline-block", flexShrink: 0 }} />
+                      <span style={{ color: "#6b7280", fontSize: 12 }}>Patrimônio</span>
+                      <span style={{ color: "#111827", fontSize: 12, fontWeight: 600, marginLeft: "auto" }}>{formatMoney(patrimonio, currency)}</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 2, background: "hsl(142 71% 45%)", display: "inline-block", flexShrink: 0 }} />
+                      <span style={{ color: "#6b7280", fontSize: 12 }}>Valor aplicado</span>
+                      <span style={{ color: "#111827", fontSize: 12, fontWeight: 600, marginLeft: "auto" }}>{formatMoney(aplicado, currency)}</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 2, background: ganho >= 0 ? "hsl(142 71% 75%)" : "#fca5a5", display: "inline-block", flexShrink: 0 }} />
+                      <span style={{ color: "#6b7280", fontSize: 12 }}>Ganho de Capital</span>
+                      <span style={{ color: ganho >= 0 ? "#111827" : "#ef4444", fontSize: 12, fontWeight: 600, marginLeft: "auto" }}>{formatMoney(ganho, currency)}</span>
+                    </div>
+                  </div>
+                );
+              };
+              return (
+                <>
+                  <div className="mb-2 flex items-center gap-4 text-xs">
+                    <LegendDot color="hsl(142 71% 45%)" label="Valor aplicado" />
+                    <LegendDot color="hsl(142 71% 75%)" label="Ganho de Capital" />
+                  </div>
+                  <ResponsiveContainer width="100%" height="90%">
+                    <BarChart data={equityData} barCategoryGap={10}>
+                      <CartesianGrid strokeDasharray="4 4" stroke="var(--color-border)" vertical={false} />
+                      <XAxis dataKey="date" fontSize={11} stroke="var(--color-muted-foreground)" />
+                      <YAxis fontSize={11} stroke="var(--color-muted-foreground)"
+                        tickFormatter={(v) => formatMoney(Number(v), currency).replace(/[,.]00$/, "")} />
+                      <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
+                      <ReferenceLine y={0} stroke="var(--color-border)" />
+                      <Bar dataKey="aplicado" stackId="a" fill="hsl(142 71% 45%)" />
+                      <Bar dataKey="ganho" stackId="a" radius={[4, 4, 0, 0]}
+                        shape={(props: any) => {
+                          const { x, y, width, height, value } = props;
+                          const isNeg = value < 0;
+                          return <rect x={x} y={y} width={width} height={Math.abs(height)} fill={isNeg ? "#fca5a5" : "hsl(142 71% 75%)"} rx={isNeg ? 0 : 4} />;
+                        }}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </>
+              );
+            })()}
           </CardContent>
         </Card>
 

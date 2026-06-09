@@ -33,7 +33,7 @@ import {
 import { convert, formatMoney, type Currency } from "@/lib/currency";
 import { useDisplayCurrency } from "@/components/CurrencySwitcher";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, ReferenceLine,
+  BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, ReferenceLine, CartesianGrid,
 } from "recharts";
 
 export const Route = createFileRoute("/_authenticated/transactions")({
@@ -213,6 +213,7 @@ function TransactionsPage() {
                   axisLine={false}
                   tickLine={false}
                 />
+                <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="0" strokeOpacity={0.6} />
                 <YAxis
                   tick={{ fontSize: 11, fill: "#888" }}
                   axisLine={false}

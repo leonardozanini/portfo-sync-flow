@@ -30,7 +30,8 @@ import {
   listTransactions, updateTransaction, deleteTransaction,
   type AssetClass, type CurrencyCode, type TxType,
 } from "@/lib/portfolio.functions";
-import { formatMoney, type Currency } from "@/lib/currency";
+import { convert, formatMoney, type Currency } from "@/lib/currency";
+import { useDisplayCurrency } from "@/components/CurrencySwitcher";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, ReferenceLine,
 } from "recharts";
@@ -58,7 +59,7 @@ const TX_LABEL: Record<TxType, string> = {
   deposit: "Aporte", withdraw: "Retirada",
 };
 
-function buildChartData(txs: TxRow[]) {
+function buildChartData(txs: TxRow[], currency: Currency) {
   const map = new Map<string, { month: string; compras: number; vendas: number }>();
   for (const t of txs) {
     if (t.txType !== "buy" && t.txType !== "sell") continue;
@@ -66,7 +67,8 @@ function buildChartData(txs: TxRow[]) {
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     const label = `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getFullYear()).slice(2)}`;
     if (!map.has(key)) map.set(key, { month: label, compras: 0, vendas: 0 });
-    const total = t.quantity * t.unitPrice + (t.fees ?? 0);
+    const totalBRL = t.quantity * t.unitPrice + (t.fees ?? 0);
+    const total = convert(totalBRL, currency);
     if (t.txType === "buy") map.get(key)!.compras += total;
     else map.get(key)!.vendas += total;
   }
@@ -81,6 +83,8 @@ function TransactionsPage() {
   const [openNew, setOpenNew] = useState(false);
   const [editing, setEditing] = useState<TxRow | null>(null);
   const [deleting, setDeleting] = useState<TxRow | null>(null);
+
+  const { currency } = useDisplayCurrency();
 
   const listFn = useServerFn(listTransactions);
   const { data: txs = [], isLoading } = useQuery({
@@ -115,12 +119,52 @@ function TransactionsPage() {
     return Array.from(map.entries());
   }, [visible]);
 
-  const chartData = useMemo(() => buildChartData(visible), [visible]);
+  const chartData = useMemo(() => buildChartData(visible, currency), [visible, currency]);
 
   const hasChart = chartData.some((d) => d.compras !== 0 || d.vendas !== 0);
 
-  const fmtTooltip = (value: number) =>
-    new Intl.NumberFormat("pt-BR", { style: "decimal", minimumFractionDigits: 2 }).format(Math.abs(value));
+  const currencySymbol: Record<Currency, string> = {
+    BRL: "R$", USD: "US$", EUR: "€", GBP: "£", JPY: "¥",
+  };
+
+  const fmtAxis = (v: number) => {
+    const abs = Math.abs(v);
+    if (abs >= 1000000) return `${currencySymbol[currency]} ${(abs / 1000000).toFixed(1)}M`;
+    if (abs >= 1000) return `${currencySymbol[currency]} ${(abs / 1000).toFixed(0)}k`;
+    return `${currencySymbol[currency]} ${abs.toFixed(0)}`;
+  };
+
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload?.length) return null;
+    const compras = payload.find((p: any) => p.dataKey === "compras")?.value ?? 0;
+    const vendas = payload.find((p: any) => p.dataKey === "vendas")?.value ?? 0;
+    return (
+      <div style={{
+        background: "#1a1a2e", border: "1px solid #333", borderRadius: 8,
+        padding: "10px 14px", minWidth: 160,
+      }}>
+        <p style={{ color: "#aaa", fontSize: 12, marginBottom: 8, fontWeight: 600 }}>{label}</p>
+        {compras !== 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: "#22c55e", display: "inline-block" }} />
+            <span style={{ color: "#ccc", fontSize: 12 }}>Compras</span>
+            <span style={{ color: "#22c55e", fontSize: 12, fontWeight: 600, marginLeft: "auto" }}>
+              {formatMoney(compras, currency)}
+            </span>
+          </div>
+        )}
+        {vendas !== 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: "#f43f5e", display: "inline-block" }} />
+            <span style={{ color: "#ccc", fontSize: 12 }}>Vendas</span>
+            <span style={{ color: "#f43f5e", fontSize: 12, fontWeight: 600, marginLeft: "auto" }}>
+              {formatMoney(Math.abs(vendas), currency)}
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -161,29 +205,30 @@ function TransactionsPage() {
             <CardTitle className="text-base">Consolidação de aportes</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={chartData} barCategoryGap="30%" margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#888" }} axisLine={false} tickLine={false} />
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={chartData} barCategoryGap="35%" margin={{ top: 4, right: 12, left: 8, bottom: 0 }}>
+                <XAxis
+                  dataKey="month"
+                  tick={{ fontSize: 11, fill: "#888" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
                 <YAxis
                   tick={{ fontSize: 11, fill: "#888" }}
                   axisLine={false}
                   tickLine={false}
-                  tickFormatter={(v) => {
-                    const abs = Math.abs(v);
-                    return abs >= 1000 ? `${(abs / 1000).toFixed(0)}k` : `${abs}`;
-                  }}
+                  tickFormatter={fmtAxis}
+                  width={70}
                 />
-                <Tooltip
-                  formatter={(value: number, name: string) => [fmtTooltip(value), name]}
-                  contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
-                  labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 500 }}
-                />
+                <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(255,255,255,0.04)" }} />
                 <Legend
-                  formatter={(v) => <span style={{ fontSize: 12, color: "hsl(var(--muted-foreground))" }}>{v}</span>}
+                  formatter={(v) => (
+                    <span style={{ fontSize: 12, color: "hsl(var(--muted-foreground))" }}>{v}</span>
+                  )}
                 />
-                <ReferenceLine y={0} stroke="hsl(var(--border))" />
-                <Bar dataKey="compras" name="Compras" fill="#22c55e" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="vendas" name="Vendas" fill="#f43f5e" radius={[0, 0, 3, 3]} />
+                <ReferenceLine y={0} stroke="hsl(var(--border))" strokeWidth={1} />
+                <Bar dataKey="compras" name="Compras" fill="#22c55e" radius={[3, 3, 0, 0]} maxBarSize={40} />
+                <Bar dataKey="vendas" name="Vendas" fill="#f43f5e" radius={[0, 0, 3, 3]} maxBarSize={40} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

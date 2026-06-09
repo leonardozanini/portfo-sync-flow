@@ -140,24 +140,24 @@ function TransactionsPage() {
     const vendas = payload.find((p: any) => p.dataKey === "vendas")?.value ?? 0;
     return (
       <div style={{
-        background: "#1a1a2e", border: "1px solid #333", borderRadius: 8,
-        padding: "10px 14px", minWidth: 160,
+        background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8,
+        padding: "10px 14px", minWidth: 170, boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
       }}>
-        <p style={{ color: "#aaa", fontSize: 12, marginBottom: 8, fontWeight: 600 }}>{label}</p>
+        <p style={{ color: "#374151", fontSize: 12, marginBottom: 8, fontWeight: 700 }}>{label}</p>
         {compras !== 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: "#22c55e", display: "inline-block" }} />
-            <span style={{ color: "#ccc", fontSize: 12 }}>Compras</span>
-            <span style={{ color: "#22c55e", fontSize: 12, fontWeight: 600, marginLeft: "auto" }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: "#22c55e", display: "inline-block", flexShrink: 0 }} />
+            <span style={{ color: "#6b7280", fontSize: 12 }}>Compras</span>
+            <span style={{ color: "#111827", fontSize: 12, fontWeight: 600, marginLeft: "auto" }}>
               {formatMoney(compras, currency)}
             </span>
           </div>
         )}
         {vendas !== 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: "#f43f5e", display: "inline-block" }} />
-            <span style={{ color: "#ccc", fontSize: 12 }}>Vendas</span>
-            <span style={{ color: "#f43f5e", fontSize: 12, fontWeight: 600, marginLeft: "auto" }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: "#f43f5e", display: "inline-block", flexShrink: 0 }} />
+            <span style={{ color: "#6b7280", fontSize: 12 }}>Vendas</span>
+            <span style={{ color: "#111827", fontSize: 12, fontWeight: 600, marginLeft: "auto" }}>
               {formatMoney(Math.abs(vendas), currency)}
             </span>
           </div>

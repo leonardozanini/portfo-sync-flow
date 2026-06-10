@@ -30,7 +30,7 @@ import {
 import { toast } from "sonner";
 import {
   listCatalog, adminCreateAsset, adminUpdateAsset, adminApproveAsset, adminRejectAsset,
-  adminTestPriceSource, deleteAsset,
+  adminTestPriceSource, deleteAsset, forceRefreshPrice,
   type AssetClass, type CurrencyCode, type CatalogRow, type MarketCode, type PriceSourceTest,
 } from "@/lib/portfolio.functions";
 
@@ -215,6 +215,7 @@ function CatalogRowItem({ a, onChanged }: { a: CatalogRow; onChanged: () => void
   const [deleteOpen, setDeleteOpen] = useState(false);
   const approveFn = useServerFn(adminApproveAsset);
   const rejectFn = useServerFn(adminRejectAsset);
+  const forceRefreshFn = useServerFn(forceRefreshPrice);
 
   const approve = useMutation({
     mutationFn: approveFn,
@@ -224,6 +225,14 @@ function CatalogRowItem({ a, onChanged }: { a: CatalogRow; onChanged: () => void
   const reject = useMutation({
     mutationFn: rejectFn,
     onSuccess: () => { toast.success("Ativo removido"); onChanged(); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const forceRefresh = useMutation({
+    mutationFn: forceRefreshFn,
+    onSuccess: (result) => {
+      toast.success(`Cotação atualizada: ${result.price.toLocaleString("pt-BR", { minimumFractionDigits: 2 })} (${result.source})`);
+      onChanged();
+    },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -274,6 +283,15 @@ function CatalogRowItem({ a, onChanged }: { a: CatalogRow; onChanged: () => void
             )}
             <DropdownMenuItem onClick={() => setEditOpen(true)}>
               <LinkIcon className="h-4 w-4 mr-2" /> Editar
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => forceRefresh.mutate({ data: { assetId: a.id } })}
+              disabled={forceRefresh.isPending}
+            >
+              {forceRefresh.isPending
+                ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                : <Activity className="h-4 w-4 mr-2" />}
+              Forçar cotação
             </DropdownMenuItem>
             {a.status === "pending" && (
               <DropdownMenuItem className="text-destructive" onClick={() => reject.mutate({ data: { id: a.id } })}>

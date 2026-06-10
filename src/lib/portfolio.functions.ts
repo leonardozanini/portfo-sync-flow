@@ -438,7 +438,7 @@ function buildEquityHistory(
 const createTxSchema = z.object({
   symbol: z.string().min(1).max(32).regex(/^[A-Za-z0-9._-]+$/),
   name: z.string().max(120).optional(),
-  assetClass: z.enum(["stock","reit","etf","crypto","fixed_income","fund","cash","other"]),
+  assetClass: z.enum(["stock","reit","etf","stock_intl","reit_intl","etf_intl","crypto","fixed_income","fund","cash","other"]),
   txType: z.enum(["buy","sell","dividend","deposit","withdraw"]),
   occurredAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   quantity: z.number().positive().max(1e12),
@@ -688,7 +688,7 @@ export const searchAssets = createServerFn({ method: "GET" })
   .inputValidator((input: unknown) =>
     z.object({
       q: z.string().min(1).max(32),
-      assetClass: z.enum(["stock","reit","etf","crypto","fixed_income","fund","cash","other"]).optional(),
+      assetClass: z.enum(["stock","reit","etf","stock_intl","reit_intl","etf_intl","crypto","fixed_income","fund","cash","other"]).optional(),
     }).parse(input),
   )
   .handler(async ({ data, context }): Promise<CatalogAsset[]> => {
@@ -696,7 +696,6 @@ export const searchAssets = createServerFn({ method: "GET" })
     const q = data.q.trim().toUpperCase();
     let query = supabase.from("assets")
       .select("id, symbol, name, asset_class, currency, status")
-      .eq("status", "approved")
       .or(`symbol.ilike.${q}%,name.ilike.%${q}%`)
       .order("symbol", { ascending: true })
       .limit(20);
@@ -713,7 +712,7 @@ export const searchAssets = createServerFn({ method: "GET" })
 const requestAssetSchema = z.object({
   symbol: z.string().min(1).max(32).regex(/^[A-Za-z0-9._-]+$/),
   name: z.string().max(120).optional(),
-  assetClass: z.enum(["stock","reit","etf","crypto","fixed_income","fund","cash","other"]),
+  assetClass: z.enum(["stock","reit","etf","stock_intl","reit_intl","etf_intl","crypto","fixed_income","fund","cash","other"]),
   currency: z.enum(["BRL","USD","EUR","GBP","JPY"]),
 });
 
@@ -1054,3 +1053,18 @@ export async function refreshAllPricesInternal(): Promise<{
   }));
   return { updated, failed, skippedClosed };
 }
+
+
+
+// ---------- deleteAsset (admin only) ----------
+export const deleteAsset = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase } = context;
+    const userId = (await supabase.auth.getUser()).data.user?.id;
+    if (!userId || !await hasRole(supabase, userId, "admin")) throw new Error("Forbidden");
+    const { error } = await supabase.from("assets").delete().eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });

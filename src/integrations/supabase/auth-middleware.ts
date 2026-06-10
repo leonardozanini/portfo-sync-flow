@@ -4,7 +4,35 @@ import { getRequest } from '@tanstack/react-start/server'
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from './types'
 
+function parseCookies(cookieHeader: string): Record<string, string> {
+  return cookieHeader.split(';').reduce((acc, pair) => {
+    const idx = pair.indexOf('=');
+    if (idx < 0) return acc;
+    const key = pair.slice(0, idx).trim();
+    const val = pair.slice(idx + 1).trim();
+    acc[key] = val;
+    return acc;
+  }, {} as Record<string, string>);
+}
 
+function extractTokenFromCookies(cookies: Record<string, string>, supabaseUrl: string): string | null {
+  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)/)?.[1] ?? '';
+  // Try exact name first, then pattern match
+  const candidates = [
+    `sb-${projectRef}-auth-token`,
+    ...Object.keys(cookies).filter(k => k.startsWith('sb-') && k.endsWith('-auth-token')),
+  ];
+  for (const name of candidates) {
+    const raw = cookies[name];
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(decodeURIComponent(raw));
+      const token = Array.isArray(parsed) ? parsed[0]?.access_token : parsed?.access_token;
+      if (token) return token;
+    } catch { continue; }
+  }
+  return null;
+}
 
 export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server(
   async ({ next }) => {
@@ -29,18 +57,20 @@ export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server
     }
 
     const authHeader = request.headers.get('authorization');
+    let token: string | null = null;
 
-    if (!authHeader) {
-      throw new Error('Unauthorized: No authorization header provided');
+    if (authHeader?.startsWith('Bearer ')) {
+      // Normal flow: token from client-side attachSupabaseAuth middleware
+      token = authHeader.replace('Bearer ', '');
+    } else {
+      // Hard refresh fallback: extract token from Supabase session cookie
+      const cookieHeader = request.headers.get('cookie') ?? '';
+      const cookies = parseCookies(cookieHeader);
+      token = extractTokenFromCookies(cookies, SUPABASE_URL);
     }
 
-    if (!authHeader.startsWith('Bearer ')) {
-      throw new Error('Unauthorized: Only Bearer tokens are supported');
-    }
-
-    const token = authHeader.replace('Bearer ', '');
     if (!token) {
-      throw new Error('Unauthorized: No token provided');
+      throw new Error('Unauthorized: No authorization header provided');
     }
 
     const supabase = createClient<Database>(

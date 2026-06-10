@@ -102,7 +102,12 @@ const CLASS_LABEL: Record<AssetClass, string> = {
 };
 
 // ---------- Price refresh helpers ----------
-function yahooSymbolFor(symbol: string, currency: CurrencyCode, klass: AssetClass): string {
+function yahooSymbolFor(symbol: string, currency: CurrencyCode, klass: AssetClass, quoteUrl?: string | null): string {
+  // If quote_url points to Yahoo Finance, extract the ticker from it (e.g. VUAA.DE from /quote/VUAA.DE/)
+  if (quoteUrl) {
+    const match = quoteUrl.match(/\/quote\/([^/?#]+)/i);
+    if (match) return match[1].toUpperCase();
+  }
   const s = symbol.toUpperCase();
   if (klass === "crypto") return `${s}-${currency}`;
   return s;
@@ -176,7 +181,7 @@ async function fetchPriceFor(
     const p = await fetchPriceFromUrl(a.quote_url);
     if (p != null) return { price: p, source: "url" };
   }
-  const ySym = yahooSymbolFor(a.symbol, a.currency as CurrencyCode, a.asset_class as AssetClass);
+  const ySym = yahooSymbolFor(a.symbol, a.currency as CurrencyCode, a.asset_class as AssetClass, a.quote_url);
   const py = await fetchYahooPrice(ySym);
   if (py != null) return { price: py, source: "yahoo" };
   if (!neverFetched && a.quote_url) {

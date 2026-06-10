@@ -197,16 +197,23 @@ function Dashboard() {
             {data.equity.length === 0 || data.equity.every((e) => e.aplicado === 0) ? (
               <EmptyChart label="Adicione lançamentos para ver a evolução." />
             ) : (() => {
-              const equityData = data.equity.map(d => ({
-                date: d.date,
-                aplicado: convert(d.aplicado, currency),
-                ganho: convert(d.ganho, currency),
-                patrimonio: convert(d.aplicado + d.ganho, currency),
-              }));
+              const equityData = data.equity.map(d => {
+                const aplicado = convert(d.aplicado, currency);
+                const ganho = convert(d.ganho, currency);
+                return {
+                  date: d.date,
+                  aplicado: ganho >= 0 ? aplicado : aplicado,
+                  ganhoPos: ganho >= 0 ? ganho : 0,
+                  ganhoNeg: ganho < 0 ? ganho : 0,
+                  _ganho: ganho,
+                };
+              });
               const CustomTooltip = ({ active, payload, label }: any) => {
                 if (!active || !payload?.length) return null;
                 const aplicado = payload.find((p: any) => p.dataKey === "aplicado")?.value ?? 0;
-                const ganho = payload.find((p: any) => p.dataKey === "ganho")?.value ?? 0;
+                const ganhoPos = payload.find((p: any) => p.dataKey === "ganhoPos")?.value ?? 0;
+                const ganhoNeg = payload.find((p: any) => p.dataKey === "ganhoNeg")?.value ?? 0;
+                const ganho = ganhoPos + ganhoNeg;
                 const patrimonio = aplicado + ganho;
                 return (
                   <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: "10px 14px", minWidth: 210, boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
@@ -224,7 +231,7 @@ function Dashboard() {
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ width: 10, height: 10, borderRadius: 2, background: ganho >= 0 ? "hsl(142 71% 75%)" : "#fca5a5", display: "inline-block", flexShrink: 0 }} />
                       <span style={{ color: "#6b7280", fontSize: 12 }}>Ganho de Capital</span>
-                      <span style={{ color: ganho >= 0 ? "#111827" : "#ef4444", fontSize: 12, fontWeight: 600, marginLeft: "auto" }}>{formatMoney(ganho, currency)}</span>
+                      <span style={{ color: ganho >= 0 ? "#16a34a" : "#ef4444", fontSize: 12, fontWeight: 600, marginLeft: "auto" }}>{formatMoney(ganho, currency)}</span>
                     </div>
                   </div>
                 );
@@ -242,15 +249,10 @@ function Dashboard() {
                       <YAxis fontSize={11} stroke="var(--color-muted-foreground)"
                         tickFormatter={(v) => formatMoney(Number(v), currency).replace(/[,.]00$/, "")} />
                       <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
-                      <ReferenceLine y={0} stroke="var(--color-border)" />
+                      <ReferenceLine y={0} stroke="#9ca3af" strokeWidth={1} />
                       <Bar dataKey="aplicado" stackId="a" fill="hsl(142 71% 45%)" />
-                      <Bar dataKey="ganho" stackId="a" radius={[4, 4, 0, 0]}
-                        shape={(props: any) => {
-                          const { x, y, width, height, value } = props;
-                          const isNeg = value < 0;
-                          return <rect x={x} y={y} width={width} height={Math.abs(height)} fill={isNeg ? "#fca5a5" : "hsl(142 71% 75%)"} rx={isNeg ? 0 : 4} />;
-                        }}
-                      />
+                      <Bar dataKey="ganhoPos" stackId="a" fill="hsl(142 71% 75%)" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="ganhoNeg" fill="#fca5a5" radius={[0, 0, 4, 4]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </>

@@ -114,18 +114,40 @@ function yahooSymbolFor(symbol: string, currency: CurrencyCode, klass: AssetClas
 }
 
 async function fetchYahooPrice(ySymbol: string): Promise<number | null> {
+  // Try v8 API first
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ySymbol)}?interval=1d&range=1d`;
     const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; Folio/1.0)" },
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+      },
     });
-    if (!res.ok) return null;
-    const json = await res.json() as { chart?: { result?: Array<{ meta?: { regularMarketPrice?: number } }> } };
-    const p = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
-    return typeof p === "number" && p > 0 ? p : null;
-  } catch {
-    return null;
-  }
+    if (res.ok) {
+      const json = await res.json() as { chart?: { result?: Array<{ meta?: { regularMarketPrice?: number; currency?: string } }> } };
+      const meta = json?.chart?.result?.[0]?.meta;
+      const p = meta?.regularMarketPrice;
+      if (typeof p === "number" && p > 0 && p < 10_000_000) return p;
+    }
+  } catch { /* fallthrough */ }
+
+  // Try v7 quote API as backup
+  try {
+    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(ySymbol)}`;
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
+      },
+    });
+    if (res.ok) {
+      const json = await res.json() as { quoteResponse?: { result?: Array<{ regularMarketPrice?: number }> } };
+      const p = json?.quoteResponse?.result?.[0]?.regularMarketPrice;
+      if (typeof p === "number" && p > 0 && p < 10_000_000) return p;
+    }
+  } catch { /* fallthrough */ }
+
+  return null;
 }
 
 // Fallback: faz scraping leve da página configurada em quote_url.
@@ -163,7 +185,7 @@ async function fetchPriceFromUrl(url: string): Promise<number | null> {
           raw = raw.replace(",", ".");
         }
         const n = parseFloat(raw);
-        if (Number.isFinite(n) && n > 0) return n;
+        if (Number.isFinite(n) && n > 0 && n < 100_000) return n;
       }
     }
     return null;
@@ -172,22 +194,22 @@ async function fetchPriceFromUrl(url: string): Promise<number | null> {
   }
 }
 
-// Tenta cotar um ativo. Se nunca foi cotado e tem quote_url, usa o site primeiro.
+// Tenta cotar um ativo. Yahoo API sempre tem prioridade; scraping de URL é último recurso.
 async function fetchPriceFor(
   a: { symbol: string; asset_class: string; currency: string; quote_url?: string | null },
-  neverFetched: boolean,
+  _neverFetched: boolean,
 ): Promise<{ price: number | null; source: string }> {
-  if (neverFetched && a.quote_url) {
-    const p = await fetchPriceFromUrl(a.quote_url);
-    if (p != null) return { price: p, source: "url" };
-  }
+  // 1. Sempre tenta Yahoo API primeiro (mais confiável)
   const ySym = yahooSymbolFor(a.symbol, a.currency as CurrencyCode, a.asset_class as AssetClass, a.quote_url);
   const py = await fetchYahooPrice(ySym);
   if (py != null) return { price: py, source: "yahoo" };
-  if (!neverFetched && a.quote_url) {
+
+  // 2. Só usa scraping de URL se Yahoo falhou completamente
+  if (a.quote_url) {
     const pu = await fetchPriceFromUrl(a.quote_url);
     if (pu != null) return { price: pu, source: "url" };
   }
+
   return { price: null, source: "none" };
 }
 
@@ -687,6 +709,57 @@ export type CatalogAsset = {
   assetClass: AssetClass;
   currency: CurrencyCode;
 };
+
+export const forceRefreshPrice = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => {
+    const i = input as { assetId: string };
+    if (!i?.assetId) throw new Error("assetId required");
+    return i;
+  })
+  .handler(async ({ data, context }): Promise<{ price: number; source: string }> => {
+    const { supabase } = context;
+    const { assetId } = data;
+
+    const { data: asset, error } = await supabase
+      .from("assets")
+      .select("id, symbol, asset_class, currency, quote_url")
+      .eq("id", assetId)
+      .single();
+    if (error || !asset) throw new Error("Asset not found");
+
+    // Force fresh fetch — always try Yahoo first, then URL
+    const ySym = yahooSymbolFor(asset.symbol, asset.currency as CurrencyCode, asset.asset_class as AssetClass, asset.quote_url);
+    let price: number | null = null;
+    let source = "none";
+
+    const yPrice = await fetchYahooPrice(ySym);
+    if (yPrice != null) { price = yPrice; source = "yahoo"; }
+
+    if (price == null && asset.quote_url) {
+      const uPrice = await fetchPriceFromUrl(asset.quote_url);
+      if (uPrice != null) { price = uPrice; source = "url"; }
+    }
+
+    if (price == null) throw new Error("Não foi possível obter cotação para este ativo.");
+
+    // Upsert the fresh price
+    await supabase.from("asset_prices").upsert({
+      asset_id: assetId,
+      price_date: new Date().toISOString().slice(0, 10),
+      close_price: price,
+      source,
+      fetched_at: new Date().toISOString(),
+    }, { onConflict: "asset_id,price_date" });
+
+    // Clear any failure records
+    await supabase.from("price_fetch_failures")
+      .delete()
+      .eq("asset_id", assetId)
+      .eq("resolved", false);
+
+    return { price, source };
+  });
 
 export const searchAssets = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])

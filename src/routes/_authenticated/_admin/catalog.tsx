@@ -15,18 +15,22 @@ import { Badge } from "@/components/ui/badge";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Database, Plus, Check, X,
-  MoreHorizontal, Link as LinkIcon, Loader2, Activity, AlertTriangle, CheckCircle2,
+  MoreHorizontal, Link as LinkIcon, Loader2, Activity, AlertTriangle, CheckCircle2, Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   listCatalog, adminCreateAsset, adminUpdateAsset, adminApproveAsset, adminRejectAsset,
-  adminTestPriceSource,
+  adminTestPriceSource, deleteAsset,
   type AssetClass, type CurrencyCode, type CatalogRow, type MarketCode, type PriceSourceTest,
 } from "@/lib/portfolio.functions";
 
@@ -208,6 +212,7 @@ function CatalogPage() {
 
 function CatalogRowItem({ a, onChanged }: { a: CatalogRow; onChanged: () => void }) {
   const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const approveFn = useServerFn(adminApproveAsset);
   const rejectFn = useServerFn(adminRejectAsset);
 
@@ -275,9 +280,13 @@ function CatalogRowItem({ a, onChanged }: { a: CatalogRow; onChanged: () => void
                 <X className="h-4 w-4 mr-2" /> Rejeitar
               </DropdownMenuItem>
             )}
+            <DropdownMenuItem className="text-destructive" onClick={() => setDeleteOpen(true)}>
+              <Trash2 className="h-4 w-4 mr-2" /> Excluir
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <EditAssetDialog asset={a} open={editOpen} onOpenChange={setEditOpen} onSaved={onChanged} />
+        <DeleteAssetDialog asset={a} open={deleteOpen} onOpenChange={setDeleteOpen} onDeleted={onChanged} />
       </TableCell>
     </TableRow>
   );
@@ -463,6 +472,41 @@ function NewAssetButton({ onCreated }: { onCreated: () => void }) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function DeleteAssetDialog({
+  asset, open, onOpenChange, onDeleted,
+}: { asset: CatalogRow; open: boolean; onOpenChange: (v: boolean) => void; onDeleted: () => void }) {
+  const deleteFn = useServerFn(deleteAsset);
+  const mut = useMutation({
+    mutationFn: deleteFn,
+    onSuccess: () => { toast.success(`Ativo ${asset.symbol} excluído`); onOpenChange(false); onDeleted(); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Excluir ativo?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Esta ação não pode ser desfeita. O ativo <b>{asset.symbol}</b>
+            {asset.name ? ` (${asset.name})` : ""} será removido permanentemente do catálogo.
+            Lançamentos existentes que referenciam este ativo podem ser afetados.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={mut.isPending}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive hover:bg-destructive/90"
+            disabled={mut.isPending}
+            onClick={(e) => { e.preventDefault(); mut.mutate({ data: { id: asset.id } }); }}
+          >
+            {mut.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Excluindo…</> : "Excluir"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

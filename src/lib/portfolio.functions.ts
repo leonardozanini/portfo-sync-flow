@@ -1063,7 +1063,9 @@ export const deleteAsset = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase } = context;
     const userId = (await supabase.auth.getUser()).data.user?.id;
-    if (!userId || !await hasRole(supabase, userId, "admin")) throw new Error("Forbidden");
+    if (!userId) throw new Error("Forbidden");
+    const { data: roles } = await supabase.from("user_roles").select("role").eq("user_id", userId);
+    if (!roles?.some((r: { role: string }) => r.role === "admin")) throw new Error("Acesso restrito.");
     const { error } = await supabase.from("assets").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true };

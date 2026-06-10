@@ -98,7 +98,7 @@ function AssetCombobox({
 
   const { data: results, isFetching } = useQuery({
     queryKey: ["catalog-search", debounced, assetClass],
-    queryFn: () => search({ data: { q: debounced, assetClass } }),
+    queryFn: () => search({ data: { q: debounced } }),
     enabled: debounced.length >= 2,
     staleTime: 60_000,
   });

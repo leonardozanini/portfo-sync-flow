@@ -102,39 +102,50 @@ const CLASS_LABEL: Record<AssetClass, string> = {
 };
 
 // ---------- Price refresh helpers ----------
-// ---------- FMP price fetching ----------
+// ---------- Yahoo Finance price fetching ----------
 
-function fmpSymbolFor(symbol: string, klass: AssetClass, currency: CurrencyCode, quoteUrl?: string | null): string {
-  const s = symbol.toUpperCase();
-  // Crypto: FMP uses BTCUSD format — always USD as base for lookup
-  if (klass === "crypto") return `${s}USD`;
-  // If quote_url has a Yahoo ticker (e.g. VUAA.DE), use it
+function yahooSymbolFor(symbol: string, klass: AssetClass, currency: CurrencyCode, quoteUrl?: string | null): string {
+  // Extract ticker from Yahoo quote_url (e.g. VUAA.DE from /quote/VUAA.DE/)
   if (quoteUrl) {
     const match = quoteUrl.match(/\/quote\/([^/?#]+)/i);
     if (match) return match[1].toUpperCase();
   }
+  const s = symbol.toUpperCase();
+  if (klass === "crypto") return `${s}-${currency}`;
   return s;
 }
 
-async function fetchFmpPrice(fmpSymbol: string, klass: AssetClass): Promise<number | null> {
-  const apiKey = process.env.FMP_API_KEY;
-  if (!apiKey) return null;
-  try {
-    // FMP v3 API — works on free plan
-    const url = `https://financialmodelingprep.com/api/v3/quote-short/${encodeURIComponent(fmpSymbol)}?apikey=${apiKey}`;
-    const res = await fetch(url, { headers: { "Accept": "application/json" } });
-    if (!res.ok) return null;
-    const json = await res.json() as Array<{ symbol?: string; price?: number }>;
-    if (!Array.isArray(json) || json.length === 0) return null;
-    // Validate symbol matches to avoid wrong results
-    const item = json.find(i => i.symbol?.toUpperCase() === fmpSymbol.toUpperCase()) ?? json[0];
-    if (item?.symbol?.toUpperCase() !== fmpSymbol.toUpperCase()) return null;
-    const p = item?.price;
-    return typeof p === "number" && p > 0 && p < 10_000_000 ? p : null;
-  } catch { return null; }
+async function fetchYahooPrice(ySymbol: string): Promise<number | null> {
+  const urls = [
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ySymbol)}?interval=1d&range=1d`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ySymbol)}?interval=1d&range=1d`,
+    `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(ySymbol)}`,
+  ];
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Origin": "https://finance.yahoo.com",
+    "Referer": "https://finance.yahoo.com/",
+  };
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { headers });
+      if (!res.ok) continue;
+      const json = await res.json() as any;
+      // v8 chart response
+      const p1 = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
+      if (typeof p1 === "number" && p1 > 0 && p1 < 10_000_000) return p1;
+      // v7 quote response
+      const p2 = json?.quoteResponse?.result?.[0]?.regularMarketPrice;
+      if (typeof p2 === "number" && p2 > 0 && p2 < 10_000_000) return p2;
+    } catch { continue; }
+  }
+  return null;
 }
 
-// Fallback scraping — usado apenas se FMP falhar
+// Fallback scraping — usado apenas se Yahoo falhar
 async function fetchPriceFromUrl(url: string): Promise<number | null> {
   try {
     const res = await fetch(url, {
@@ -152,8 +163,7 @@ async function fetchPriceFromUrl(url: string): Promise<number | null> {
     for (const re of patterns) {
       const m = html.match(re);
       if (m && m[1]) {
-        let raw = m[1].trim().replace(/,/g, "");
-        const n = parseFloat(raw);
+        const n = parseFloat(m[1].replace(/,/g, ""));
         if (Number.isFinite(n) && n > 0 && n < 100_000) return n;
       }
     }
@@ -165,12 +175,12 @@ async function fetchPriceFor(
   a: { symbol: string; asset_class: string; currency: string; quote_url?: string | null },
   _neverFetched: boolean,
 ): Promise<{ price: number | null; source: string }> {
-  // 1. FMP sempre primeiro
-  const fSym = fmpSymbolFor(a.symbol, a.asset_class as AssetClass, a.currency as CurrencyCode, a.quote_url);
-  const fp = await fetchFmpPrice(fSym, a.asset_class as AssetClass);
-  if (fp != null) return { price: fp, source: "fmp" };
+  // 1. Yahoo sempre primeiro
+  const ySym = yahooSymbolFor(a.symbol, a.asset_class as AssetClass, a.currency as CurrencyCode, a.quote_url);
+  const py = await fetchYahooPrice(ySym);
+  if (py != null) return { price: py, source: "yahoo" };
 
-  // 2. Scraping de URL como último recurso
+  // 2. Scraping só se Yahoo falhou completamente
   if (a.quote_url) {
     const pu = await fetchPriceFromUrl(a.quote_url);
     if (pu != null) return { price: pu, source: "url" };
@@ -695,12 +705,12 @@ export const forceRefreshPrice = createServerFn({ method: "POST" })
     if (error || !asset) throw new Error("Asset not found");
 
     // Force fresh fetch via FMP
-    const fSym = fmpSymbolFor(asset.symbol, asset.asset_class as AssetClass, asset.currency as CurrencyCode, asset.quote_url);
+    const ySym = yahooSymbolFor(asset.symbol, asset.asset_class as AssetClass, asset.currency as CurrencyCode, asset.quote_url);
     let price: number | null = null;
     let source = "none";
 
-    const fPrice = await fetchFmpPrice(fSym, asset.asset_class as AssetClass);
-    if (fPrice != null) { price = fPrice; source = "fmp"; }
+    const yPrice = await fetchYahooPrice(ySym);
+    if (yPrice != null) { price = yPrice; source = "yahoo"; }
 
     if (price == null && asset.quote_url) {
       const uPrice = await fetchPriceFromUrl(asset.quote_url);
@@ -998,14 +1008,14 @@ export const adminTestPriceSource = createServerFn({ method: "POST" })
     await assertAdmin(context.supabase as any, context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    // 1) FMP: testa com símbolo conhecido (AAPL)
+    // 1) Yahoo: testa com símbolo conhecido (AAPL)
     const t0 = Date.now();
-    const fPrice = await fetchFmpPrice("AAPL", "stock");
+    const yPrice = await fetchYahooPrice("AAPL");
     const yahoo = {
-      ok: fPrice != null,
+      ok: yPrice != null,
       latencyMs: Date.now() - t0,
-      price: fPrice,
-      error: fPrice == null ? "FMP API não respondeu. Verifique a variável FMP_API_KEY." : undefined,
+      price: yPrice,
+      error: yPrice == null ? "Yahoo Finance não respondeu ou bloqueou a requisição." : undefined,
     };
 
     // 2) URL: tenta primeiro ativo aprovado com quote_url

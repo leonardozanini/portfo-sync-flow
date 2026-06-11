@@ -284,44 +284,6 @@ function Dashboard() {
 
       </div>
 
-      {/* Broker allocation card — only shown when brokers are assigned */}
-      {data.brokerAllocation.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Alocação por Corretora</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-              <div className="h-[180px] w-full sm:w-[180px] shrink-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={data.brokerAllocation} dataKey="pct" nameKey="name"
-                      innerRadius="55%" outerRadius="90%" paddingAngle={2} strokeWidth={0}>
-                      {data.brokerAllocation.map((b, i) => <Cell key={i} fill={b.color} />)}
-                    </Pie>
-                    <Tooltip formatter={(v: number) => `${v.toFixed(2)}%`} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <ul className="flex-1 space-y-2 text-sm">
-                {data.brokerAllocation.map((b) => (
-                  <li key={b.id ?? "none"} className="flex items-center justify-between gap-3">
-                    <span className="flex items-center gap-2 min-w-0">
-                      <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: b.color }} />
-                      <span className="truncate text-muted-foreground">{b.name}</span>
-                    </span>
-                    <div className="flex items-center gap-3 tabular-nums">
-                      <span className="text-xs text-muted-foreground">{formatMoney(convert(b.valueBRL, currency), currency)}</span>
-                      <span className="font-medium w-14 text-right">{b.pct.toFixed(2)}%</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Meus Ativos */}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold tracking-tight">

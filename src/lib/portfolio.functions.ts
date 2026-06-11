@@ -211,7 +211,7 @@ export const getDashboard = createServerFn({ method: "GET" })
       supabase.from("asset_prices").select("asset_id, close_price, price_date, fetched_at").order("fetched_at", { ascending: false }),
       supabase.from("fx_rates").select("base, quote, rate, rate_date").order("rate_date", { ascending: false }),
       supabase.from("user_roles").select("role").eq("user_id", userId),
-      supabase.from("brokers").select("id, name, color").eq("user_id", userId),
+      (supabase as any).from("brokers").select("id, name, color").eq("user_id", userId),
     ]);
     if (txRes.error) throw new Error(txRes.error.message);
 
@@ -220,7 +220,9 @@ export const getDashboard = createServerFn({ method: "GET" })
     const prices = pricesRes.data ?? [];
     const fxRows = fxRes.data ?? [];
     const isAdmin = (rolesRes.data ?? []).some((r) => r.role === "admin");
-    const brokerMap = new Map((brokersRes.data ?? []).map((b) => [b.id, b]));
+    const brokerMap = new Map<string, { id: string; name: string; color: string }>(
+      ((brokersRes.data ?? []) as any[]).map((b: any) => [b.id, b])
+    );
 
     const assetById = new Map(assets.map((a) => [a.id, a]));
 
@@ -493,6 +495,7 @@ const createTxSchema = z.object({
   unitPrice: z.number().min(0).max(1e12),
   fees: z.number().min(0).max(1e9).default(0),
   currency: z.enum(["BRL","USD","EUR","GBP","JPY"]),
+  brokerId: z.string().uuid().optional(),
 });
 
 export const createTransaction = createServerFn({ method: "POST" })
@@ -527,7 +530,7 @@ export const createTransaction = createServerFn({ method: "POST" })
       asset = ins.data;
     }
 
-    const { error: tErr } = await supabase.from("transactions").insert({
+    const { error: tErr } = await (supabase as any).from("transactions").insert({
       user_id: userId,
       asset_id: asset.id,
       tx_type: data.txType,
@@ -550,14 +553,17 @@ export const listTransactions = createServerFn({ method: "GET" })
     const [txRes, assetsRes, brokersRes] = await Promise.all([
       supabase.from("transactions").select("*").eq("user_id", userId).order("occurred_at", { ascending: false }),
       supabase.from("assets").select("id, symbol, name, asset_class, currency"),
-      supabase.from("brokers").select("id, name, color").eq("user_id", userId),
+      (supabase as any).from("brokers").select("id, name, color").eq("user_id", userId),
     ]);
     if (txRes.error) throw new Error(txRes.error.message);
     const assetById = new Map((assetsRes.data ?? []).map((a) => [a.id, a]));
-    const brokerById = new Map((brokersRes.data ?? []).map((b) => [b.id, b]));
+    const brokerById = new Map<string, { id: string; name: string; color: string }>(
+      ((brokersRes.data ?? []) as any[]).map((b: any) => [b.id, b])
+    );
     return (txRes.data ?? []).map((t) => {
       const a = assetById.get(t.asset_id);
-      const b = t.broker_id ? brokerById.get(t.broker_id) : null;
+      const tAny = t as any;
+      const b = tAny.broker_id ? brokerById.get(tAny.broker_id) : null;
       return {
         id: t.id,
         symbol: a?.symbol ?? "?",
@@ -569,10 +575,9 @@ export const listTransactions = createServerFn({ method: "GET" })
         unitPrice: Number(t.unit_price),
         fees: Number(t.fees ?? 0),
         currency: t.currency as CurrencyCode,
-        brokerId: t.broker_id ?? null,
+        brokerId: tAny.broker_id ?? null,
         brokerName: b?.name ?? null,
         brokerColor: b?.color ?? null,
-      };
       };
     });
   });
@@ -758,13 +763,11 @@ export const forceRefreshPrice = createServerFn({ method: "POST" })
     if (error || !asset) throw new Error("Asset not found");
 
     // Force fresh fetch
-    const { price, source } = await fetchPriceFor(asset, true);
-    let _price = price;
-    let _source = source;
+    let { price: _price, source: _source } = await fetchPriceFor(asset, true);
 
-    if (price == null && asset.quote_url) {
+    if (_price == null && asset.quote_url) {
       const uPrice = await fetchPriceFromUrl(asset.quote_url);
-      if (uPrice != null) { price = uPrice; source = "url"; }
+      if (uPrice != null) { _price = uPrice; _source = "url"; }
     }
 
     if (_price == null) throw new Error("Não foi possível obter cotação para este ativo.");
@@ -792,13 +795,13 @@ export const listBrokers = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase, userId } = context;
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from("brokers")
       .select("id, name, type, country, color")
       .eq("user_id", userId)
       .order("name");
     if (error) throw new Error(error.message);
-    return data ?? [];
+    return (data ?? []) as { id: string; name: string; type: string; country: string; color: string }[];
   });
 
 export const searchAssets = createServerFn({ method: "GET" })
@@ -1025,7 +1028,7 @@ export const adminUpdateAsset = createServerFn({ method: "POST" })
     if (data.dataSource !== undefined) patch.data_source = data.dataSource || null;
     if (data.quoteUrl !== undefined) patch.quote_url = data.quoteUrl || null;
     if (data.country !== undefined) patch.country = data.country;
-    const upd = await supabaseAdmin.from("assets").update(patch).eq("id", data.id);
+    const upd = await supabaseAdmin.from("assets").update(patch as any).eq("id", data.id);
     if (upd.error) throw new Error(upd.error.message);
     return { ok: true as const };
   });

@@ -536,6 +536,7 @@ function EditAssetDialog({
   const [dataSource, setDataSource] = useState(asset.dataSource ?? "yahoo");
   const [market, setMarket] = useState<MarketCode>(asset.market);
   const [country, setCountry] = useState((asset as any).country ?? "US");
+  const [currency, setCurrency] = useState<CurrencyCode>(asset.currency);
 
   const updateFn = useServerFn(adminUpdateAsset);
   const mutation = useMutation({
@@ -583,6 +584,17 @@ function EditAssetDialog({
               </Select>
             </div>
             <div className="space-y-1.5">
+              <Label>Moeda</Label>
+              <Select value={currency} onValueChange={(v) => setCurrency(v as CurrencyCode)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
               <Label>País</Label>
               <Select value={country} onValueChange={setCountry}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -612,7 +624,7 @@ function EditAssetDialog({
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
           <Button
-            onClick={() => mutation.mutate({ data: { id: asset.id, name, market, quoteUrl, dataSource, country } })}
+            onClick={() => mutation.mutate({ data: { id: asset.id, name, market, quoteUrl, dataSource, country, currency } })}
             disabled={mutation.isPending}
           >
             {mutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Salvando…</> : "Salvar"}

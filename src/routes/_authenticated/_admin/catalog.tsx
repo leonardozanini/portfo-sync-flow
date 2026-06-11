@@ -535,6 +535,7 @@ function EditAssetDialog({
   const [quoteUrl, setQuoteUrl] = useState(asset.quoteUrl ?? "");
   const [dataSource, setDataSource] = useState(asset.dataSource ?? "yahoo");
   const [market, setMarket] = useState<MarketCode>(asset.market);
+  const [country, setCountry] = useState((asset as any).country ?? "US");
 
   const updateFn = useServerFn(adminUpdateAsset);
   const mutation = useMutation({
@@ -543,13 +544,27 @@ function EditAssetDialog({
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const COUNTRIES = [
+    { value: "US", label: "🇺🇸 Estados Unidos" },
+    { value: "BR", label: "🇧🇷 Brasil" },
+    { value: "EU", label: "🇪🇺 União Europeia" },
+    { value: "GB", label: "🇬🇧 Reino Unido" },
+    { value: "JP", label: "🇯🇵 Japão" },
+    { value: "DE", label: "🇩🇪 Alemanha" },
+    { value: "FR", label: "🇫🇷 França" },
+    { value: "CN", label: "🇨🇳 China" },
+    { value: "CA", label: "🇨🇦 Canadá" },
+    { value: "AU", label: "🇦🇺 Austrália" },
+    { value: "WORLD", label: "🌐 Global / Cripto" },
+  ];
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Editar — {asset.symbol}</DialogTitle>
           <DialogDescription>
-            Atualize o nome, mercado e a URL de cotação (usada quando "Atualizado" = Nunca).
+            Atualize o nome, mercado, país e a URL de cotação.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -557,14 +572,25 @@ function EditAssetDialog({
             <Label>Nome</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} />
           </div>
-          <div className="space-y-1.5">
-            <Label>Mercado</Label>
-            <Select value={market} onValueChange={(v) => setMarket(v as MarketCode)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {MARKETS.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Mercado</Label>
+              <Select value={market} onValueChange={(v) => setMarket(v as MarketCode)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {MARKETS.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>País</Label>
+              <Select value={country} onValueChange={setCountry}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {COUNTRIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div className="space-y-1.5">
             <Label>Fonte de cotação</Label>
@@ -572,6 +598,7 @@ function EditAssetDialog({
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="yahoo">Yahoo Finance</SelectItem>
+                <SelectItem value="stooq">Stooq</SelectItem>
                 <SelectItem value="url">URL manual</SelectItem>
               </SelectContent>
             </Select>
@@ -585,7 +612,7 @@ function EditAssetDialog({
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
           <Button
-            onClick={() => mutation.mutate({ data: { id: asset.id, name, market, quoteUrl, dataSource } })}
+            onClick={() => mutation.mutate({ data: { id: asset.id, name, market, quoteUrl, dataSource, country } })}
             disabled={mutation.isPending}
           >
             {mutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Salvando…</> : "Salvar"}

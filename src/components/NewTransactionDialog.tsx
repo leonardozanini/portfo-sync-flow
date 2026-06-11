@@ -221,7 +221,7 @@ function TxForm({ txType, onClose, preset }: { txType: "buy" | "sell"; onClose: 
         unitPrice: price,
         fees,
         currency,
-        brokerId: brokerId || undefined,
+        brokerId: (brokerId && brokerId !== "none") ? brokerId : undefined,
       },
     });
   };
@@ -282,7 +282,7 @@ function TxForm({ txType, onClose, preset }: { txType: "buy" | "sell"; onClose: 
               <SelectValue placeholder="Selecionar corretora" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Sem corretora</SelectItem>
+              <SelectItem value="none">Sem corretora</SelectItem>
               {(brokers as any[]).map((b) => (
                 <SelectItem key={b.id} value={b.id}>
                   <div className="flex items-center gap-2">

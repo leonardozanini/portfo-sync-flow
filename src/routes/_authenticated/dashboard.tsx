@@ -102,22 +102,7 @@ function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <nav className="flex flex-wrap items-center gap-1 text-sm">
-          {["Resumo", "Proventos", "Patrimônio", "Rentabilidade", "Metas", "Análise", "Lançamentos"].map((tab, i) => (
-            <button
-              key={tab}
-              className={`rounded-md px-3 py-1.5 transition ${
-                i === 0
-                  ? "bg-foreground text-background font-medium"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
-          <Badge variant="outline" className="ml-2 border-amber-500/40 text-amber-600 dark:text-amber-400">PRO</Badge>
-        </nav>
+      <div className="flex items-center justify-end">
         <Button onClick={() => openNew()} size="lg" className="rounded-xl">
           <Plus className="mr-2 h-4 w-4" />Adicionar Lançamento
         </Button>
@@ -299,6 +284,44 @@ function Dashboard() {
 
       </div>
 
+      {/* Broker allocation card — only shown when brokers are assigned */}
+      {data.brokerAllocation.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Alocação por Corretora</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+              <div className="h-[180px] w-full sm:w-[180px] shrink-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={data.brokerAllocation} dataKey="pct" nameKey="name"
+                      innerRadius="55%" outerRadius="90%" paddingAngle={2} strokeWidth={0}>
+                      {data.brokerAllocation.map((b, i) => <Cell key={i} fill={b.color} />)}
+                    </Pie>
+                    <Tooltip formatter={(v: number) => `${v.toFixed(2)}%`} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <ul className="flex-1 space-y-2 text-sm">
+                {data.brokerAllocation.map((b) => (
+                  <li key={b.id ?? "none"} className="flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: b.color }} />
+                      <span className="truncate text-muted-foreground">{b.name}</span>
+                    </span>
+                    <div className="flex items-center gap-3 tabular-nums">
+                      <span className="text-xs text-muted-foreground">{formatMoney(convert(b.valueBRL, currency), currency)}</span>
+                      <span className="font-medium w-14 text-right">{b.pct.toFixed(2)}%</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Meus Ativos */}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold tracking-tight">
@@ -320,6 +343,15 @@ function Dashboard() {
       </section>
     </div>
   );
+}
+
+function countryFlag(country: string): string {
+  const flags: Record<string, string> = {
+    BR: "🇧🇷", US: "🇺🇸", EU: "🇪🇺", GB: "🇬🇧",
+    JP: "🇯🇵", DE: "🇩🇪", FR: "🇫🇷", CN: "🇨🇳",
+    CA: "🇨🇦", AU: "🇦🇺", WORLD: "🌐",
+  };
+  return flags[country?.toUpperCase()] ?? "🏳️";
 }
 
 function EmptyChart({ label }: { label: string }) {
@@ -495,13 +527,18 @@ function AssetRow({
           <span className="grid h-7 w-7 place-items-center rounded bg-foreground/10 text-[10px] font-bold">
             {initials}
           </span>
-          <button
-            type="button"
-            className="font-medium hover:underline"
-            onClick={() => onShowLots({ id: a.assetId, symbol: a.symbol })}
-          >
-            {a.symbol}
-          </button>
+          <div className="flex flex-col leading-tight">
+            <button
+              type="button"
+              className="font-medium hover:underline text-left"
+              onClick={() => onShowLots({ id: a.assetId, symbol: a.symbol })}
+            >
+              {a.symbol}
+            </button>
+            <span className="text-[11px] text-muted-foreground" title={a.country}>
+              {countryFlag(a.country)}
+            </span>
+          </div>
         </div>
       </TableCell>
       <TableCell className="text-right tabular-nums">{a.qty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</TableCell>

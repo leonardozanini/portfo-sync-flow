@@ -32,6 +32,7 @@ import {
 } from "@/lib/portfolio.functions";
 import { convert, formatMoney, type Currency } from "@/lib/currency";
 import { useDisplayCurrency } from "@/components/CurrencySwitcher";
+import { listBrokers } from "@/lib/portfolio.functions";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, ReferenceLine, CartesianGrid,
 } from "recharts";
@@ -52,6 +53,9 @@ type TxRow = {
   unitPrice: number;
   fees: number;
   currency: CurrencyCode;
+  brokerId: string | null;
+  brokerName: string | null;
+  brokerColor: string | null;
 };
 
 const TX_LABEL: Record<TxType, string> = {
@@ -80,6 +84,7 @@ function buildChartData(txs: TxRow[], currency: Currency) {
 function TransactionsPage() {
   const [filterClass, setFilterClass] = useState<string>("all");
   const [filterSymbol, setFilterSymbol] = useState<string>("all");
+  const [filterBroker, setFilterBroker] = useState<string>("all");
   const [openNew, setOpenNew] = useState(false);
   const [editing, setEditing] = useState<TxRow | null>(null);
   const [deleting, setDeleting] = useState<TxRow | null>(null);
@@ -87,9 +92,17 @@ function TransactionsPage() {
   const { currency } = useDisplayCurrency();
 
   const listFn = useServerFn(listTransactions);
+  const listBrokersFn = useServerFn(listBrokers);
+
   const { data: txs = [], isLoading } = useQuery({
     queryKey: ["transactions"],
     queryFn: () => listFn(),
+  });
+
+  const { data: brokers = [] } = useQuery({
+    queryKey: ["brokers"],
+    queryFn: () => listBrokersFn(),
+    staleTime: 5 * 60_000,
   });
 
   const classes = useMemo(
@@ -97,7 +110,6 @@ function TransactionsPage() {
     [txs],
   );
 
-  // Symbols filtered by selected class
   const symbols = useMemo(() => {
     const base = filterClass === "all" ? (txs as TxRow[]) : (txs as TxRow[]).filter((t) => t.classLabel === filterClass);
     return Array.from(new Set(base.map((t) => t.symbol))).sort();
@@ -107,8 +119,9 @@ function TransactionsPage() {
     let rows = txs as TxRow[];
     if (filterClass !== "all") rows = rows.filter((t) => t.classLabel === filterClass);
     if (filterSymbol !== "all") rows = rows.filter((t) => t.symbol === filterSymbol);
+    if (filterBroker !== "all") rows = rows.filter((t) => (t.brokerId ?? "none") === filterBroker);
     return rows;
-  }, [txs, filterClass, filterSymbol]);
+  }, [txs, filterClass, filterSymbol, filterBroker]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, TxRow[]>();
@@ -192,6 +205,24 @@ function TransactionsPage() {
               {symbols.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
             </SelectContent>
           </Select>
+          {/* Filter by broker */}
+          {brokers.length > 0 && (
+            <Select value={filterBroker} onValueChange={setFilterBroker}>
+              <SelectTrigger className="w-[180px]"><SelectValue placeholder="Todas as corretoras" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas as corretoras</SelectItem>
+                {brokers.map((b) => (
+                  <SelectItem key={b.id} value={b.id}>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-block h-2 w-2 rounded-full" style={{ background: b.color }} />
+                      {b.name}
+                    </div>
+                  </SelectItem>
+                ))}
+                <SelectItem value="none">Sem corretora</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
           <Button onClick={() => setOpenNew(true)}>
             <Plus className="mr-2 h-4 w-4" />Novo lançamento
           </Button>
@@ -263,6 +294,7 @@ function TransactionsPage() {
                   <TableHead className="text-right">Preço unit.</TableHead>
                   <TableHead className="text-right">Quantidade</TableHead>
                   <TableHead className="text-right">Total</TableHead>
+                  <TableHead>Corretora</TableHead>
                   <TableHead className="w-12"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -286,6 +318,16 @@ function TransactionsPage() {
                       <TableCell className="text-right tabular-nums">{t.quantity}</TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatMoney(total, t.currency as Currency)}
+                      </TableCell>
+                      <TableCell>
+                        {t.brokerName ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <span className="h-2 w-2 rounded-full shrink-0" style={{ background: t.brokerColor ?? "#9ca3af" }} />
+                            {t.brokerName}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground/40">—</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>

@@ -35,6 +35,7 @@ import { useDisplayCurrency } from "@/components/CurrencySwitcher";
 import { listBrokers } from "@/lib/portfolio.functions";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, ReferenceLine, CartesianGrid,
+  PieChart, Pie, Cell,
 } from "recharts";
 
 export const Route = createFileRoute("/_authenticated/transactions")({
@@ -280,6 +281,65 @@ function TransactionsPage() {
           <p className="text-sm">Comece adicionando seu primeiro lançamento.</p>
         </CardContent></Card>
       )}
+
+      {/* Broker allocation card */}
+      {brokers.length > 0 && (txs as TxRow[]).some(t => t.brokerId) && (() => {
+        const brokerValueMap = new Map<string, number>();
+        let unassigned = 0;
+        for (const t of visible as TxRow[]) {
+          if (t.txType !== "buy" && t.txType !== "sell") continue;
+          const total = t.quantity * t.unitPrice;
+          if (t.brokerId && t.brokerName) {
+            brokerValueMap.set(t.brokerId, (brokerValueMap.get(t.brokerId) ?? 0) + total);
+          } else {
+            unassigned += total;
+          }
+        }
+        const total = Array.from(brokerValueMap.values()).reduce((a, b) => a + b, 0) + unassigned;
+        const brokerData = [
+          ...(brokers as any[]).filter(b => brokerValueMap.has(b.id)).map(b => ({
+            id: b.id, name: b.name, color: b.color,
+            value: brokerValueMap.get(b.id) ?? 0,
+            pct: total > 0 ? ((brokerValueMap.get(b.id) ?? 0) / total) * 100 : 0,
+          })),
+          ...(unassigned > 0 ? [{ id: "none", name: "Sem corretora", color: "#9ca3af", value: unassigned, pct: total > 0 ? (unassigned / total) * 100 : 0 }] : []),
+        ].sort((a, b) => b.value - a.value);
+
+        if (brokerData.length === 0) return null;
+        return (
+          <Card>
+            <CardHeader><CardTitle className="text-base">Alocação por Corretora</CardTitle></CardHeader>
+            <CardContent>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                <div className="h-[180px] w-full sm:w-[180px] shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={brokerData} dataKey="pct" nameKey="name"
+                        innerRadius="55%" outerRadius="90%" paddingAngle={2} strokeWidth={0}>
+                        {brokerData.map((b, i) => <Cell key={i} fill={b.color} />)}
+                      </Pie>
+                      <Tooltip formatter={(v: number) => `${v.toFixed(2)}%`} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <ul className="flex-1 space-y-2 text-sm">
+                  {brokerData.map((b) => (
+                    <li key={b.id} className="flex items-center justify-between gap-3">
+                      <span className="flex items-center gap-2 min-w-0">
+                        <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: b.color }} />
+                        <span className="truncate text-muted-foreground">{b.name}</span>
+                      </span>
+                      <div className="flex items-center gap-3 tabular-nums">
+                        <span className="font-medium w-14 text-right">{b.pct.toFixed(2)}%</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {grouped.map(([cls, rows]) => (
         <Card key={cls}>

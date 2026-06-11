@@ -105,7 +105,6 @@ const CLASS_LABEL: Record<AssetClass, string> = {
 // ---------- Yahoo Finance price fetching ----------
 
 function yahooSymbolFor(symbol: string, klass: AssetClass, currency: CurrencyCode, quoteUrl?: string | null): string {
-  // Extract ticker from Yahoo quote_url (e.g. VUAA.DE from /quote/VUAA.DE/)
   if (quoteUrl) {
     const match = quoteUrl.match(/\/quote\/([^/?#]+)/i);
     if (match) return match[1].toUpperCase();
@@ -115,77 +114,99 @@ function yahooSymbolFor(symbol: string, klass: AssetClass, currency: CurrencyCod
   return s;
 }
 
-async function fetchYahooPrice(ySymbol: string): Promise<number | null> {
-  const urls = [
-    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ySymbol)}?interval=1d&range=1d`,
-    `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ySymbol)}?interval=1d&range=1d`,
-    `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(ySymbol)}`,
-  ];
-  const headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Origin": "https://finance.yahoo.com",
-    "Referer": "https://finance.yahoo.com/",
-  };
+// Fetches a crumb+cookie from Yahoo Finance — required for authenticated API calls
+let _yahooCrumb: { crumb: string; cookie: string; fetchedAt: number } | null = null;
 
-  for (const url of urls) {
-    try {
-      const res = await fetch(url, { headers });
-      if (!res.ok) continue;
-      const json = await res.json() as any;
-      // v8 chart response
-      const p1 = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
-      if (typeof p1 === "number" && p1 > 0 && p1 < 10_000_000) return p1;
-      // v7 quote response
-      const p2 = json?.quoteResponse?.result?.[0]?.regularMarketPrice;
-      if (typeof p2 === "number" && p2 > 0 && p2 < 10_000_000) return p2;
-    } catch { continue; }
+async function getYahooCrumb(): Promise<{ crumb: string; cookie: string } | null> {
+  // Cache crumb for 30 minutes
+  if (_yahooCrumb && Date.now() - _yahooCrumb.fetchedAt < 30 * 60 * 1000) {
+    return { crumb: _yahooCrumb.crumb, cookie: _yahooCrumb.cookie };
   }
+  try {
+    // Step 1: get consent cookie
+    const r1 = await fetch("https://finance.yahoo.com/quote/AAPL", {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+      redirect: "follow",
+    });
+    const cookie = r1.headers.get("set-cookie")
+      ?.split(",")
+      .map(c => c.split(";")[0].trim())
+      .filter(c => c.includes("="))
+      .join("; ") ?? "";
+
+    // Step 2: get crumb
+    const r2 = await fetch("https://query1.finance.yahoo.com/v1/test/getcrumb", {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Cookie": cookie,
+      },
+    });
+    if (!r2.ok) return null;
+    const crumb = (await r2.text()).trim();
+    if (!crumb || crumb.length < 3) return null;
+    _yahooCrumb = { crumb, cookie, fetchedAt: Date.now() };
+    return { crumb, cookie };
+  } catch { return null; }
+}
+
+async function fetchYahooPrice(ySymbol: string): Promise<number | null> {
+  try {
+    // Try with crumb first (authenticated)
+    const auth = await getYahooCrumb();
+    if (auth) {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ySymbol)}?interval=1d&range=1d&crumb=${encodeURIComponent(auth.crumb)}`;
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          "Accept": "application/json",
+          "Cookie": auth.cookie,
+        },
+      });
+      if (res.ok) {
+        const json = await res.json() as any;
+        const p = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
+        if (typeof p === "number" && p > 0 && p < 10_000_000) return p;
+      }
+    }
+  } catch { /* fallthrough */ }
+
+  // Fallback: try without auth
+  try {
+    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ySymbol)}?interval=1d&range=1d`;
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Referer": "https://finance.yahoo.com/",
+      },
+    });
+    if (res.ok) {
+      const json = await res.json() as any;
+      const p = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
+      if (typeof p === "number" && p > 0 && p < 10_000_000) return p;
+    }
+  } catch { /* fallthrough */ }
+
   return null;
 }
 
-// Fallback scraping — usado apenas se Yahoo falhar
-async function fetchPriceFromUrl(url: string): Promise<number | null> {
-  try {
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; Folio/1.0)",
-        "Accept": "text/html,application/xhtml+xml",
-      },
-    });
-    if (!res.ok) return null;
-    const html = await res.text();
-    const patterns: RegExp[] = [
-      /"regularMarketPrice"\s*:\s*\{?\s*"raw"\s*:\s*([\d.]+)/i,
-      /data-test=["']qsp-price["'][^>]*>\s*([\d.,]+)/i,
-    ];
-    for (const re of patterns) {
-      const m = html.match(re);
-      if (m && m[1]) {
-        const n = parseFloat(m[1].replace(/,/g, ""));
-        if (Number.isFinite(n) && n > 0 && n < 100_000) return n;
-      }
-    }
-    return null;
-  } catch { return null; }
+// Fallback scraping — só usado se Yahoo falhar completamente
+async function fetchPriceFromUrl(_url: string): Promise<number | null> {
+  // Disabled — scraping is too unreliable
+  return null;
 }
 
 async function fetchPriceFor(
   a: { symbol: string; asset_class: string; currency: string; quote_url?: string | null },
   _neverFetched: boolean,
 ): Promise<{ price: number | null; source: string }> {
-  // 1. Yahoo sempre primeiro
   const ySym = yahooSymbolFor(a.symbol, a.asset_class as AssetClass, a.currency as CurrencyCode, a.quote_url);
   const py = await fetchYahooPrice(ySym);
   if (py != null) return { price: py, source: "yahoo" };
-
-  // 2. Scraping só se Yahoo falhou completamente
-  if (a.quote_url) {
-    const pu = await fetchPriceFromUrl(a.quote_url);
-    if (pu != null) return { price: pu, source: "url" };
-  }
-
   return { price: null, source: "none" };
 }
 

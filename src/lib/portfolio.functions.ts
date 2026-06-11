@@ -106,9 +106,9 @@ const CLASS_LABEL: Record<AssetClass, string> = {
 
 function fmpSymbolFor(symbol: string, klass: AssetClass, currency: CurrencyCode, quoteUrl?: string | null): string {
   const s = symbol.toUpperCase();
-  // Crypto: FMP uses BTCUSD format
-  if (klass === "crypto") return `${s}${currency}`;
-  // If quote_url has a ticker (e.g. VUAA.DE), use it
+  // Crypto: FMP uses BTCUSD format — always USD as base for lookup
+  if (klass === "crypto") return `${s}USD`;
+  // If quote_url has a Yahoo ticker (e.g. VUAA.DE), use it
   if (quoteUrl) {
     const match = quoteUrl.match(/\/quote\/([^/?#]+)/i);
     if (match) return match[1].toUpperCase();
@@ -120,16 +120,15 @@ async function fetchFmpPrice(fmpSymbol: string, klass: AssetClass): Promise<numb
   const apiKey = process.env.FMP_API_KEY;
   if (!apiKey) return null;
   try {
-    let url: string;
-    if (klass === "crypto") {
-      url = `https://financialmodelingprep.com/stable/cryptocurrency-quote-short?symbol=${encodeURIComponent(fmpSymbol)}&apikey=${apiKey}`;
-    } else {
-      url = `https://financialmodelingprep.com/stable/quote-short?symbol=${encodeURIComponent(fmpSymbol)}&apikey=${apiKey}`;
-    }
+    // FMP v3 API — works on free plan
+    const url = `https://financialmodelingprep.com/api/v3/quote-short/${encodeURIComponent(fmpSymbol)}?apikey=${apiKey}`;
     const res = await fetch(url, { headers: { "Accept": "application/json" } });
     if (!res.ok) return null;
-    const json = await res.json() as Array<{ price?: number }> | { price?: number };
-    const item = Array.isArray(json) ? json[0] : json;
+    const json = await res.json() as Array<{ symbol?: string; price?: number }>;
+    if (!Array.isArray(json) || json.length === 0) return null;
+    // Validate symbol matches to avoid wrong results
+    const item = json.find(i => i.symbol?.toUpperCase() === fmpSymbol.toUpperCase()) ?? json[0];
+    if (item?.symbol?.toUpperCase() !== fmpSymbol.toUpperCase()) return null;
     const p = item?.price;
     return typeof p === "number" && p > 0 && p < 10_000_000 ? p : null;
   } catch { return null; }

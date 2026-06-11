@@ -102,111 +102,98 @@ const CLASS_LABEL: Record<AssetClass, string> = {
 };
 
 // ---------- Price refresh helpers ----------
-// ---------- Yahoo Finance price fetching ----------
+// ---------- Price fetching via Stooq (stocks/ETFs) + Yahoo (crypto) ----------
 
-function yahooSymbolFor(symbol: string, klass: AssetClass, currency: CurrencyCode, quoteUrl?: string | null): string {
-  if (quoteUrl) {
-    const match = quoteUrl.match(/\/quote\/([^/?#]+)/i);
-    if (match) return match[1].toUpperCase();
-  }
+function priceSymbolFor(symbol: string, klass: AssetClass, currency: CurrencyCode, quoteUrl?: string | null): { stooq: string; yahoo: string } {
   const s = symbol.toUpperCase();
-  if (klass === "crypto") return `${s}-${currency}`;
-  return s;
+  // Extract Yahoo ticker from quote_url if present
+  const yahooTicker = (() => {
+    if (quoteUrl) {
+      const m = quoteUrl.match(/\/quote\/([^/?#]+)/i);
+      if (m) return m[1].toUpperCase();
+    }
+    return s;
+  })();
+
+  // Stooq symbols: US stocks = "NU.US", EU ETFs = "VUAA.DE", crypto = "BTC-EUR.FX"
+  const stooqSymbol = (() => {
+    if (klass === "crypto") return `${s}-${currency}.FX`.toLowerCase();
+    if (yahooTicker.includes(".")) return yahooTicker.toLowerCase(); // already has exchange suffix
+    if (currency === "USD") return `${s}.US`.toLowerCase();
+    if (currency === "BRL") return `${s}.SA`.toLowerCase();
+    return yahooTicker.toLowerCase();
+  })();
+
+  return { stooq: stooqSymbol, yahoo: `${s}-${currency}` };
 }
 
-// Fetches a crumb+cookie from Yahoo Finance — required for authenticated API calls
-let _yahooCrumb: { crumb: string; cookie: string; fetchedAt: number } | null = null;
-
-async function getYahooCrumb(): Promise<{ crumb: string; cookie: string } | null> {
-  // Cache crumb for 30 minutes
-  if (_yahooCrumb && Date.now() - _yahooCrumb.fetchedAt < 30 * 60 * 1000) {
-    return { crumb: _yahooCrumb.crumb, cookie: _yahooCrumb.cookie };
-  }
+async function fetchStooqPrice(stooqSymbol: string): Promise<number | null> {
   try {
-    // Step 1: get consent cookie
-    const r1 = await fetch("https://finance.yahoo.com/quote/AAPL", {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-      redirect: "follow",
+    const url = `https://stooq.com/q/l/?s=${encodeURIComponent(stooqSymbol)}&f=sd2t2ohlcv&h&e=csv`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; Folio/1.0)" },
     });
-    const cookie = r1.headers.get("set-cookie")
-      ?.split(",")
-      .map(c => c.split(";")[0].trim())
-      .filter(c => c.includes("="))
-      .join("; ") ?? "";
-
-    // Step 2: get crumb
-    const r2 = await fetch("https://query1.finance.yahoo.com/v1/test/getcrumb", {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Cookie": cookie,
-      },
-    });
-    if (!r2.ok) return null;
-    const crumb = (await r2.text()).trim();
-    if (!crumb || crumb.length < 3) return null;
-    _yahooCrumb = { crumb, cookie, fetchedAt: Date.now() };
-    return { crumb, cookie };
+    if (!res.ok) return null;
+    const csv = await res.text();
+    const lines = csv.trim().split("\n");
+    if (lines.length < 2) return null;
+    const cols = lines[1].split(",");
+    // CSV: Symbol,Date,Time,Open,High,Low,Close,Volume
+    const close = parseFloat(cols[6]);
+    if (Number.isFinite(close) && close > 0 && close < 10_000_000) return close;
+    return null;
   } catch { return null; }
 }
 
-async function fetchYahooPrice(ySymbol: string): Promise<number | null> {
+async function fetchYahooCryptoPrice(ySymbol: string): Promise<number | null> {
   try {
-    // Try with crumb first (authenticated)
-    const auth = await getYahooCrumb();
-    if (auth) {
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ySymbol)}?interval=1d&range=1d&crumb=${encodeURIComponent(auth.crumb)}`;
-      const res = await fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-          "Accept": "application/json",
-          "Cookie": auth.cookie,
-        },
-      });
-      if (res.ok) {
-        const json = await res.json() as any;
-        const p = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
-        if (typeof p === "number" && p > 0 && p < 10_000_000) return p;
-      }
-    }
-  } catch { /* fallthrough */ }
-
-  // Fallback: try without auth
-  try {
-    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ySymbol)}?interval=1d&range=1d`;
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ySymbol)}?interval=1d&range=1d`;
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json",
-        "Referer": "https://finance.yahoo.com/",
       },
     });
-    if (res.ok) {
-      const json = await res.json() as any;
-      const p = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
-      if (typeof p === "number" && p > 0 && p < 10_000_000) return p;
-    }
-  } catch { /* fallthrough */ }
-
-  return null;
+    if (!res.ok) return null;
+    const json = await res.json() as any;
+    const p = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
+    return typeof p === "number" && p > 0 ? p : null;
+  } catch { return null; }
 }
 
-// Fallback scraping — só usado se Yahoo falhar completamente
+// Keep for compatibility
+async function fetchYahooPrice(ySymbol: string): Promise<number | null> {
+  return fetchYahooCryptoPrice(ySymbol);
+}
+
 async function fetchPriceFromUrl(_url: string): Promise<number | null> {
-  // Disabled — scraping is too unreliable
-  return null;
+  return null; // disabled — scraping unreliable
 }
 
 async function fetchPriceFor(
   a: { symbol: string; asset_class: string; currency: string; quote_url?: string | null },
   _neverFetched: boolean,
 ): Promise<{ price: number | null; source: string }> {
-  const ySym = yahooSymbolFor(a.symbol, a.asset_class as AssetClass, a.currency as CurrencyCode, a.quote_url);
-  const py = await fetchYahooPrice(ySym);
-  if (py != null) return { price: py, source: "yahoo" };
+  const klass = a.asset_class as AssetClass;
+  const currency = a.currency as CurrencyCode;
+  const { stooq, yahoo } = priceSymbolFor(a.symbol, klass, currency, a.quote_url);
+
+  if (klass === "crypto") {
+    // Crypto: Yahoo works fine for crypto pairs
+    const p = await fetchYahooCryptoPrice(yahoo);
+    if (p != null) return { price: p, source: "yahoo" };
+  }
+
+  // Stocks, ETFs, REITs: use Stooq
+  const p = await fetchStooqPrice(stooq);
+  if (p != null) return { price: p, source: "stooq" };
+
+  // Crypto fallback via Stooq
+  if (klass === "crypto") {
+    const p2 = await fetchStooqPrice(stooq);
+    if (p2 != null) return { price: p2, source: "stooq" };
+  }
+
   return { price: null, source: "none" };
 }
 
@@ -725,27 +712,24 @@ export const forceRefreshPrice = createServerFn({ method: "POST" })
       .single();
     if (error || !asset) throw new Error("Asset not found");
 
-    // Force fresh fetch via FMP
-    const ySym = yahooSymbolFor(asset.symbol, asset.asset_class as AssetClass, asset.currency as CurrencyCode, asset.quote_url);
-    let price: number | null = null;
-    let source = "none";
-
-    const yPrice = await fetchYahooPrice(ySym);
-    if (yPrice != null) { price = yPrice; source = "yahoo"; }
+    // Force fresh fetch
+    const { price, source } = await fetchPriceFor(asset, true);
+    let _price = price;
+    let _source = source;
 
     if (price == null && asset.quote_url) {
       const uPrice = await fetchPriceFromUrl(asset.quote_url);
       if (uPrice != null) { price = uPrice; source = "url"; }
     }
 
-    if (price == null) throw new Error("Não foi possível obter cotação para este ativo.");
+    if (_price == null) throw new Error("Não foi possível obter cotação para este ativo.");
 
     // Upsert the fresh price
     await supabase.from("asset_prices").upsert({
       asset_id: assetId,
       price_date: new Date().toISOString().slice(0, 10),
-      close_price: price,
-      source,
+      close_price: _price,
+      source: _source,
       fetched_at: new Date().toISOString(),
     }, { onConflict: "asset_id,price_date" });
 
@@ -755,7 +739,7 @@ export const forceRefreshPrice = createServerFn({ method: "POST" })
       .eq("asset_id", assetId)
       .eq("resolved", false);
 
-    return { price, source };
+    return { price: _price, source: _source };
   });
 
 export const searchAssets = createServerFn({ method: "GET" })
@@ -1029,14 +1013,14 @@ export const adminTestPriceSource = createServerFn({ method: "POST" })
     await assertAdmin(context.supabase as any, context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    // 1) Yahoo: testa com símbolo conhecido (AAPL)
+    // 1) Stooq: testa com símbolo conhecido (AAPL.US)
     const t0 = Date.now();
-    const yPrice = await fetchYahooPrice("AAPL");
+    const yPrice = await fetchStooqPrice("aapl.us");
     const yahoo = {
       ok: yPrice != null,
       latencyMs: Date.now() - t0,
       price: yPrice,
-      error: yPrice == null ? "Yahoo Finance não respondeu ou bloqueou a requisição." : undefined,
+      error: yPrice == null ? "Stooq não respondeu." : undefined,
     };
 
     // 2) URL: tenta primeiro ativo aprovado com quote_url

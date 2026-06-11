@@ -53,13 +53,14 @@ export type GroupedAsset = {
   name: string | null;
   assetClass: AssetClass;
   currency: CurrencyCode;
+  country: string;
   qty: number;
-  avgPrice: number;         // native currency
-  currentPrice: number;     // native currency
-  balanceBRL: number;        // qty * currentPrice converted to BRL
-  investedBRL: number;       // total cost basis in BRL
-  variation: number;         // % vs avg
-  yieldPct: number;          // % gain/loss
+  avgPrice: number;
+  currentPrice: number;
+  balanceBRL: number;
+  investedBRL: number;
+  variation: number;
+  yieldPct: number;
 };
 
 export type AssetGroup = {
@@ -83,6 +84,7 @@ export type DashboardData = {
     dividends12m: number;
   };
   allocation: { name: string; assetClass: AssetClass; valueBRL: number; pct: number }[];
+  brokerAllocation: { id: string | null; name: string; color: string; valueBRL: number; pct: number }[];
   equity: { date: string; aplicado: number; ganho: number }[];
   groups: AssetGroup[];
 };
@@ -203,12 +205,13 @@ export const getDashboard = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<DashboardData> => {
     const { supabase, userId } = context;
 
-    const [txRes, assetsRes, pricesRes, fxRes, rolesRes] = await Promise.all([
+    const [txRes, assetsRes, pricesRes, fxRes, rolesRes, brokersRes] = await Promise.all([
       supabase.from("transactions").select("*").eq("user_id", userId).order("occurred_at", { ascending: true }),
       supabase.from("assets").select("*"),
       supabase.from("asset_prices").select("asset_id, close_price, price_date, fetched_at").order("fetched_at", { ascending: false }),
       supabase.from("fx_rates").select("base, quote, rate, rate_date").order("rate_date", { ascending: false }),
       supabase.from("user_roles").select("role").eq("user_id", userId),
+      supabase.from("brokers").select("id, name, color").eq("user_id", userId),
     ]);
     if (txRes.error) throw new Error(txRes.error.message);
 
@@ -217,6 +220,7 @@ export const getDashboard = createServerFn({ method: "GET" })
     const prices = pricesRes.data ?? [];
     const fxRows = fxRes.data ?? [];
     const isAdmin = (rolesRes.data ?? []).some((r) => r.role === "admin");
+    const brokerMap = new Map((brokersRes.data ?? []).map((b) => [b.id, b]));
 
     const assetById = new Map(assets.map((a) => [a.id, a]));
 
@@ -341,6 +345,7 @@ export const getDashboard = createServerFn({ method: "GET" })
         name: asset.name,
         assetClass: klass,
         currency: cur,
+        country: (asset as any).country ?? "US",
         qty: agg.qty,
         avgPrice,
         currentPrice,
@@ -388,6 +393,37 @@ export const getDashboard = createServerFn({ method: "GET" })
     // otherwise derive monthly cumulative invested from transactions.
     const equity = buildEquityHistory(txs, toBRL, totalValueBRL);
 
+    // Broker allocation
+    const brokerValueMap = new Map<string, number>(); // brokerId → totalValueBRL
+    let unassignedValueBRL = 0;
+    for (const t of txs) {
+      if (t.tx_type !== "buy" && t.tx_type !== "sell") continue;
+      const asset = assetById.get(t.asset_id);
+      if (!asset) continue;
+      const currentPrice = latestPrice.get(t.asset_id);
+      if (currentPrice == null) continue;
+      const qty = Number(t.quantity);
+      const valueBRL = toBRL(qty * currentPrice, asset.currency as CurrencyCode);
+      const bid = (t as any).broker_id;
+      if (bid && brokerMap.has(bid)) {
+        brokerValueMap.set(bid, (brokerValueMap.get(bid) ?? 0) + valueBRL);
+      } else {
+        unassignedValueBRL += valueBRL;
+      }
+    }
+    // Deduplicate by keeping only current holdings per asset per broker
+    // (simplified: use group totals proportionally)
+    const brokerAllocation: { id: string | null; name: string; color: string; valueBRL: number; pct: number }[] = [];
+    for (const [bid, val] of brokerValueMap.entries()) {
+      const b = brokerMap.get(bid);
+      if (!b) continue;
+      brokerAllocation.push({ id: bid, name: b.name, color: b.color, valueBRL: val, pct: totalValueBRL > 0 ? (val / totalValueBRL) * 100 : 0 });
+    }
+    if (unassignedValueBRL > 0) {
+      brokerAllocation.push({ id: null, name: "Sem corretora", color: "#9ca3af", valueBRL: unassignedValueBRL, pct: totalValueBRL > 0 ? (unassignedValueBRL / totalValueBRL) * 100 : 0 });
+    }
+    brokerAllocation.sort((a, b) => b.valueBRL - a.valueBRL);
+
     return {
       totalsBRL: {
         patrimonio: totalValueBRL,
@@ -398,6 +434,7 @@ export const getDashboard = createServerFn({ method: "GET" })
         dividends12m: totalDividends12mBRL,
       },
       allocation,
+      brokerAllocation,
       equity,
       groups,
     };
@@ -499,6 +536,7 @@ export const createTransaction = createServerFn({ method: "POST" })
       unit_price: data.unitPrice,
       fees: data.fees ?? 0,
       currency: data.currency,
+      broker_id: data.brokerId ?? null,
     });
     if (tErr) throw new Error(tErr.message);
     return { ok: true as const };
@@ -509,14 +547,17 @@ export const listTransactions = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase, userId } = context;
-    const [txRes, assetsRes] = await Promise.all([
+    const [txRes, assetsRes, brokersRes] = await Promise.all([
       supabase.from("transactions").select("*").eq("user_id", userId).order("occurred_at", { ascending: false }),
       supabase.from("assets").select("id, symbol, name, asset_class, currency"),
+      supabase.from("brokers").select("id, name, color").eq("user_id", userId),
     ]);
     if (txRes.error) throw new Error(txRes.error.message);
     const assetById = new Map((assetsRes.data ?? []).map((a) => [a.id, a]));
+    const brokerById = new Map((brokersRes.data ?? []).map((b) => [b.id, b]));
     return (txRes.data ?? []).map((t) => {
       const a = assetById.get(t.asset_id);
+      const b = t.broker_id ? brokerById.get(t.broker_id) : null;
       return {
         id: t.id,
         symbol: a?.symbol ?? "?",
@@ -528,6 +569,10 @@ export const listTransactions = createServerFn({ method: "GET" })
         unitPrice: Number(t.unit_price),
         fees: Number(t.fees ?? 0),
         currency: t.currency as CurrencyCode,
+        brokerId: t.broker_id ?? null,
+        brokerName: b?.name ?? null,
+        brokerColor: b?.color ?? null,
+      };
       };
     });
   });
@@ -742,6 +787,20 @@ export const forceRefreshPrice = createServerFn({ method: "POST" })
     return { price: _price, source: _source };
   });
 
+// ---------- listBrokers ----------
+export const listBrokers = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    const { data, error } = await supabase
+      .from("brokers")
+      .select("id, name, type, country, color")
+      .eq("user_id", userId)
+      .order("name");
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+
 export const searchAssets = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
@@ -943,6 +1002,7 @@ const adminUpdateSchema = z.object({
   market: MARKET_ENUM.optional(),
   dataSource: z.string().max(40).optional(),
   quoteUrl: z.string().max(500).optional(),
+  country: z.string().max(10).optional(),
 });
 
 export const adminUpdateAsset = createServerFn({ method: "POST" })
@@ -956,6 +1016,7 @@ export const adminUpdateAsset = createServerFn({ method: "POST" })
       name?: string; asset_class?: AssetClass; currency?: CurrencyCode;
       market?: MarketCode;
       data_source?: string | null; quote_url?: string | null;
+      country?: string;
     } = {};
     if (data.name !== undefined) patch.name = data.name;
     if (data.assetClass) patch.asset_class = data.assetClass;
@@ -963,6 +1024,7 @@ export const adminUpdateAsset = createServerFn({ method: "POST" })
     if (data.market) patch.market = data.market;
     if (data.dataSource !== undefined) patch.data_source = data.dataSource || null;
     if (data.quoteUrl !== undefined) patch.quote_url = data.quoteUrl || null;
+    if (data.country !== undefined) patch.country = data.country;
     const upd = await supabaseAdmin.from("assets").update(patch).eq("id", data.id);
     if (upd.error) throw new Error(upd.error.message);
     return { ok: true as const };

@@ -211,7 +211,7 @@ function TransactionsPage() {
               <SelectTrigger className="w-[180px]"><SelectValue placeholder="Todas as corretoras" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas as corretoras</SelectItem>
-                {brokers.map((b) => (
+                {(brokers as any[]).map((b: any) => (
                   <SelectItem key={b.id} value={b.id}>
                     <div className="flex items-center gap-2">
                       <span className="inline-block h-2 w-2 rounded-full" style={{ background: b.color }} />

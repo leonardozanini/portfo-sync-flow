@@ -89,7 +89,7 @@ export function AssetLotsDialog({
   );
 }
 
-function Lots({ data }: { data: NonNullable<ReturnType<typeof useQuery<Awaited<ReturnType<typeof getAssetLots>>>["data"]> }) {
+function Lots({ data }: { data: any }) {
   const cur = data.asset.currency as Currency;
   const t = data.totals;
 

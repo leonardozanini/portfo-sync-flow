@@ -178,9 +178,9 @@ function TxForm({ txType, onClose, preset }: { txType: "buy" | "sell"; onClose: 
   const [symbol, setSymbol] = useState(preset?.symbol ?? "");
   const [currency, setCurrency] = useState<CurrencyCode>(preset?.currency ?? "BRL");
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10));
-  const [qty, setQty] = useState<number>(1);
-  const [price, setPrice] = useState<number>(0);
-  const [fees, setFees] = useState<number>(0);
+  const [qty, setQty] = useState<string>("");
+  const [priceCents, setPriceCents] = useState<number>(0);
+  const [feesCents, setFeesCents] = useState<number>(0);
   const [brokerId, setBrokerId] = useState<string>("");
 
   const listBrokersFn = useServerFn(listBrokers);
@@ -190,7 +190,10 @@ function TxForm({ txType, onClose, preset }: { txType: "buy" | "sell"; onClose: 
     staleTime: 5 * 60_000,
   });
 
-  const total = qty * price + fees;
+  const price = priceCents / 100;
+  const fees = feesCents / 100;
+  const qtyNum = parseFloat(qty) || 0;
+  const total = qtyNum * price + fees;
   const qc = useQueryClient();
   const createTx = useServerFn(createTransaction);
 
@@ -210,14 +213,14 @@ function TxForm({ txType, onClose, preset }: { txType: "buy" | "sell"; onClose: 
 
   const submit = () => {
     if (!symbol.trim()) { toast.error("Informe o ativo (símbolo)"); return; }
-    if (qty <= 0) { toast.error("Quantidade deve ser maior que zero"); return; }
+    if (qtyNum <= 0) { toast.error("Quantidade deve ser maior que zero"); return; }
     mutation.mutate({
       data: {
         symbol: symbol.trim().toUpperCase(),
         assetClass,
         txType,
         occurredAt: date,
-        quantity: qty,
+        quantity: qtyNum,
         unitPrice: price,
         fees,
         currency,
@@ -254,13 +257,20 @@ function TxForm({ txType, onClose, preset }: { txType: "buy" | "sell"; onClose: 
           </div>
         </Field>
         <Field label="Quantidade">
-          <Input type="number" step="0.0001" min="0" value={qty}
-            onChange={(e) => setQty(parseFloat(e.target.value) || 0)} />
+          <Input
+            type="text"
+            inputMode="decimal"
+            value={qty}
+            onChange={(e) => {
+              const v = e.target.value.replace(",", ".");
+              if (v === "" || /^\d*\.?\d*$/.test(v)) setQty(v);
+            }}
+            placeholder="0"
+          />
         </Field>
 
         <Field label={<>Preço <span className="font-normal text-muted-foreground">em {currency}</span></>}>
-          <Input type="number" step="0.01" min="0" value={price}
-            onChange={(e) => setPrice(parseFloat(e.target.value) || 0)} placeholder="0,00" />
+          <MoneyInput cents={priceCents} onChange={setPriceCents} currency={currency} />
         </Field>
         <Field label="Moeda">
           <Select value={currency} onValueChange={(v) => setCurrency(v as CurrencyCode)} disabled={preset?.lockAsset}>
@@ -272,8 +282,7 @@ function TxForm({ txType, onClose, preset }: { txType: "buy" | "sell"; onClose: 
         </Field>
 
         <Field label={<>Outros custos <span className="float-right text-xs text-muted-foreground">(Opcional)</span></>}>
-          <Input type="number" step="0.01" min="0" value={fees}
-            onChange={(e) => setFees(parseFloat(e.target.value) || 0)} placeholder="0,00" />
+          <MoneyInput cents={feesCents} onChange={setFeesCents} currency={currency} />
         </Field>
 
         <Field label={<><Building2 className="inline h-3.5 w-3.5 mr-1 opacity-60" />Corretora <span className="float-right text-xs text-muted-foreground">(Opcional)</span></>}>
@@ -312,6 +321,50 @@ function TxForm({ txType, onClose, preset }: { txType: "buy" | "sell"; onClose: 
           )}
         </Button>
       </div>
+    </div>
+  );
+}
+
+function MoneyInput({ cents, onChange, currency }: {
+  cents: number;
+  onChange: (cents: number) => void;
+  currency: string;
+}) {
+  const currencySymbol: Record<string, string> = {
+    BRL: "R$", USD: "US$", EUR: "€", GBP: "£", JPY: "¥",
+  };
+  const symbol = currencySymbol[currency] ?? currency;
+
+  const display = (cents / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+  const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Backspace") {
+      e.preventDefault();
+      onChange(Math.floor(cents / 10));
+    } else if (/^\d$/.test(e.key)) {
+      e.preventDefault();
+      const next = cents * 10 + parseInt(e.key);
+      if (next <= 9_999_999_99) onChange(next); // max ~99M
+    }
+  };
+
+  return (
+    <div className="relative">
+      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+        {symbol}
+      </span>
+      <Input
+        type="text"
+        inputMode="numeric"
+        value={display}
+        onKeyDown={handleKey}
+        onChange={() => {}} // controlled via keydown
+        className="pl-10 tabular-nums"
+        placeholder="0,00"
+      />
     </div>
   );
 }

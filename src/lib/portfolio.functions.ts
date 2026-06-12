@@ -103,12 +103,10 @@ const CLASS_LABEL: Record<AssetClass, string> = {
   other: "Outros",
 };
 
-// ---------- Price refresh helpers ----------
-// ---------- Price fetching via Stooq (stocks/ETFs) + Yahoo (crypto) ----------
+// ---------- Price fetching via Twelve Data (stocks/ETFs) + Yahoo (crypto) ----------
 
-function priceSymbolFor(symbol: string, klass: AssetClass, currency: CurrencyCode, quoteUrl?: string | null): { stooq: string; yahoo: string } {
+function priceSymbolFor(symbol: string, klass: AssetClass, currency: CurrencyCode, quoteUrl?: string | null): { stooq: string; yahoo: string; twelve: string } {
   const s = symbol.toUpperCase();
-  // Extract Yahoo ticker from quote_url if present
   const yahooTicker = (() => {
     if (quoteUrl) {
       const m = quoteUrl.match(/\/quote\/([^/?#]+)/i);
@@ -117,16 +115,37 @@ function priceSymbolFor(symbol: string, klass: AssetClass, currency: CurrencyCod
     return s;
   })();
 
-  // Stooq symbols: US stocks = "NU.US", EU ETFs = "VUAA.DE", crypto = "BTC-EUR.FX"
   const stooqSymbol = (() => {
     if (klass === "crypto") return `${s}-${currency}.FX`.toLowerCase();
-    if (yahooTicker.includes(".")) return yahooTicker.toLowerCase(); // already has exchange suffix
+    if (yahooTicker.includes(".")) return yahooTicker.toLowerCase();
     if (currency === "USD") return `${s}.US`.toLowerCase();
     if (currency === "BRL") return `${s}.SA`.toLowerCase();
     return yahooTicker.toLowerCase();
   })();
 
-  return { stooq: stooqSymbol, yahoo: `${s}-${currency}` };
+  // Twelve Data uses plain ticker for US stocks, ticker:exchange for others
+  const twelveSymbol = (() => {
+    if (klass === "crypto") return `${s}/USD`; // crypto via Yahoo instead
+    if (yahooTicker.includes(".DE")) return `${s}:XETRA`;
+    if (currency === "BRL") return `${s}:BOVESPA`;
+    return s; // US stocks: plain symbol
+  })();
+
+  return { stooq: stooqSymbol, yahoo: `${s}-${currency}`, twelve: twelveSymbol };
+}
+
+async function fetchTwelveDataPrice(symbol: string): Promise<number | null> {
+  const apiKey = process.env.TWELVE_DATA_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const url = `https://api.twelvedata.com/price?symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`;
+    const res = await fetch(url, { headers: { "Accept": "application/json" } });
+    if (!res.ok) return null;
+    const json = await res.json() as { price?: string; code?: number; message?: string };
+    if (json.code || json.message) return null; // error response
+    const p = parseFloat(json.price ?? "");
+    return Number.isFinite(p) && p > 0 && p < 10_000_000 ? p : null;
+  } catch { return null; }
 }
 
 async function fetchStooqPrice(stooqSymbol: string): Promise<number | null> {
@@ -140,7 +159,6 @@ async function fetchStooqPrice(stooqSymbol: string): Promise<number | null> {
     const lines = csv.trim().split("\n");
     if (lines.length < 2) return null;
     const cols = lines[1].split(",");
-    // CSV: Symbol,Date,Time,Open,High,Low,Close,Volume
     const close = parseFloat(cols[6]);
     if (Number.isFinite(close) && close > 0 && close < 10_000_000) return close;
     return null;
@@ -163,7 +181,6 @@ async function fetchYahooCryptoPrice(ySymbol: string): Promise<number | null> {
   } catch { return null; }
 }
 
-// Keep for compatibility
 async function fetchYahooPrice(ySymbol: string): Promise<number | null> {
   return fetchYahooCryptoPrice(ySymbol);
 }
@@ -178,23 +195,25 @@ async function fetchPriceFor(
 ): Promise<{ price: number | null; source: string }> {
   const klass = a.asset_class as AssetClass;
   const currency = a.currency as CurrencyCode;
-  const { stooq, yahoo } = priceSymbolFor(a.symbol, klass, currency, a.quote_url);
+  const { stooq, yahoo, twelve } = priceSymbolFor(a.symbol, klass, currency, a.quote_url);
 
+  // Crypto: Yahoo works reliably for pairs like BTC-EUR
   if (klass === "crypto") {
-    // Crypto: Yahoo works fine for crypto pairs
     const p = await fetchYahooCryptoPrice(yahoo);
     if (p != null) return { price: p, source: "yahoo" };
-  }
-
-  // Stocks, ETFs, REITs: use Stooq
-  const p = await fetchStooqPrice(stooq);
-  if (p != null) return { price: p, source: "stooq" };
-
-  // Crypto fallback via Stooq
-  if (klass === "crypto") {
+    // Fallback: Stooq
     const p2 = await fetchStooqPrice(stooq);
     if (p2 != null) return { price: p2, source: "stooq" };
+    return { price: null, source: "none" };
   }
+
+  // Stocks/ETFs: Twelve Data first (works from server), then Stooq as fallback
+  const p = await fetchTwelveDataPrice(twelve);
+  if (p != null) return { price: p, source: "twelve" };
+
+  // Fallback: Stooq
+  const p2 = await fetchStooqPrice(stooq);
+  if (p2 != null) return { price: p2, source: "stooq" };
 
   return { price: null, source: "none" };
 }

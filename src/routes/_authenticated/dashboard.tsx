@@ -82,11 +82,14 @@ function Dashboard() {
   const openNew = (p?: TxPreset) => { setPreset(p); setOpen(true); };
   const openLots = (a: { id: string; symbol: string }) => setLotsAsset(a);
 
-  // Sync dividends in background when dashboard opens
+  // Sync dividends in background — called once on mount via query
   const syncFn = useServerFn(syncDividends);
-  useEffect(() => {
-    syncFn().catch(() => {});
-  }, []);
+  useQuery({
+    queryKey: ["dividends-sync"],
+    queryFn: () => syncFn().catch(() => ({ synced: 0 })),
+    staleTime: 10 * 60_000, // only sync once every 10 min
+    refetchOnWindowFocus: false,
+  });
 
   // Realtime: invalidate dashboard whenever transactions/prices change for any client
   useEffect(() => {

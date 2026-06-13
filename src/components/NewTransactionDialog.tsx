@@ -203,6 +203,7 @@ function TxForm({ txType, onClose, preset }: { txType: "buy" | "sell"; onClose: 
       toast.success("Lançamento adicionado");
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["asset-lots"] });
       onClose();
     },
     onError: (err: Error) => toast.error(err.message ?? "Erro ao salvar"),

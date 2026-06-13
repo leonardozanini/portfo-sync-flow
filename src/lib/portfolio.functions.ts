@@ -847,7 +847,9 @@ async function fetchBrapiDividends(
     const result = json?.results?.[0];
     const divData = result?.dividendsData;
     const cashDivs = divData?.cashDividends ?? [];
-    console.log(`[brapi] ${symbol} cashDividends: ${cashDivs.length}, first: ${cashDivs[0] ? JSON.stringify(cashDivs[0]) : 'none'}`);
+    // Log raw structure to understand API response
+    console.log(`[brapi] ${symbol} keys: ${result ? Object.keys(result).join(',') : 'no result'}`);
+    console.log(`[brapi] ${symbol} divData: ${divData ? JSON.stringify(divData).slice(0,200) : 'null'}`);
 
     if (!result) return [];
     const divs = cashDivs;

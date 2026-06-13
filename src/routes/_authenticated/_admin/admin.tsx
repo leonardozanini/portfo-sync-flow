@@ -9,7 +9,7 @@ export const Route = createFileRoute("/_authenticated/_admin/admin")({
 
 function AdminHome() {
   const sections = [
-    { icon: Users, title: "Usuários e papéis", desc: "Atribuir Premium / Admin, ver assinaturas.", to: null },
+    { icon: Users, title: "Usuários e papéis", desc: "Ver contas, atribuir Premium / Admin.", to: "/users" as const },
     { icon: Database, title: "Catálogo de ativos", desc: "Lista completa de ativos disponíveis para lançamento. Refresh automático a cada 15 min.", to: "/catalog" as const },
     { icon: AlertTriangle, title: "Falhas de cotação", desc: "Fila de ativos sem preço — defina fonte ou valor manual.", to: null },
     { icon: SlidersHorizontal, title: "Limites Free vs Premium", desc: "Configure quotas e funcionalidades por plano.", to: null },
@@ -22,8 +22,8 @@ function AdminHome() {
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         {sections.map((s) => {
-          const inner = (
-            <Card className={s.to ? "transition hover:border-primary/50 hover:shadow-sm cursor-pointer h-full" : "h-full"}>
+          const card = (
+            <Card className={s.to ? "transition hover:border-primary/50 hover:shadow-sm cursor-pointer h-full" : "h-full opacity-60"}>
               <CardHeader className="flex flex-row items-center gap-3">
                 <div className="grid h-10 w-10 place-items-center rounded-lg bg-accent text-accent-foreground">
                   <s.icon className="h-5 w-5" />
@@ -34,10 +34,11 @@ function AdminHome() {
             </Card>
           );
           return s.to
-            ? <Link key={s.title} to={s.to}>{inner}</Link>
-            : <div key={s.title}>{inner}</div>;
+            ? <Link key={s.title} to={s.to} className="block h-full">{card}</Link>
+            : <div key={s.title}>{card}</div>;
         })}
       </div>
     </div>
   );
 }
+

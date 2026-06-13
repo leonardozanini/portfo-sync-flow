@@ -905,10 +905,14 @@ export const syncDividends = createServerFn({ method: "POST" })
 
     if (!txs?.length) return { synced: 0 };
 
-    // First purchase date per asset
+    // First purchase date per asset — ensure YYYY-MM-DD format
     const firstBuyMap = new Map<string, string>();
     for (const t of txs) {
-      if (!firstBuyMap.has(t.asset_id)) firstBuyMap.set(t.asset_id, t.occurred_at);
+      if (!firstBuyMap.has(t.asset_id)) {
+        const d = new Date(t.occurred_at);
+        const since = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        firstBuyMap.set(t.asset_id, since);
+      }
     }
 
     // Get asset details

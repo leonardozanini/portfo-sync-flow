@@ -161,7 +161,7 @@ async function fetchBrapiPrice(symbol: string): Promise<number | null> {
   } catch { return null; }
 }
 
-
+async function fetchStooqPrice(stooqSymbol: string): Promise<number | null> {
   try {
     const url = `https://stooq.com/q/l/?s=${encodeURIComponent(stooqSymbol)}&f=sd2t2ohlcv&h&e=csv`;
     const res = await fetch(url, {

@@ -893,14 +893,12 @@ async function fetchTwelveDataDividends(
   } catch { return []; }
 }
 
-export const syncDividends = createServerFn({ method: "POST" })
+// Returns list of assets that need dividend sync (client calls syncAssetDividends for each)
+export const getDividendSyncQueue = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase, userId } = context;
-    const BRAPI_TOKEN = process.env.BRAPI_TOKEN;
-    const TWELVE_KEY = process.env.TWELVE_DATA_API_KEY;
 
-    // Get all assets in user's portfolio with first purchase date
     const { data: txs } = await supabase
       .from("transactions")
       .select("asset_id, occurred_at")
@@ -908,9 +906,8 @@ export const syncDividends = createServerFn({ method: "POST" })
       .eq("tx_type", "buy")
       .order("occurred_at", { ascending: true });
 
-    if (!txs?.length) return { synced: 0 };
+    if (!txs?.length) return [];
 
-    // First purchase date per asset — ensure YYYY-MM-DD format
     const firstBuyMap = new Map<string, string>();
     for (const t of txs) {
       if (!firstBuyMap.has(t.asset_id)) {
@@ -920,7 +917,6 @@ export const syncDividends = createServerFn({ method: "POST" })
       }
     }
 
-    // Get asset details
     const assetIds = Array.from(firstBuyMap.keys());
     const { data: assets } = await supabase
       .from("assets")
@@ -928,57 +924,61 @@ export const syncDividends = createServerFn({ method: "POST" })
       .in("id", assetIds)
       .eq("status", "approved");
 
-    if (!assets?.length) return { synced: 0 };
+    return (assets ?? [])
+      .filter(a => a.asset_class !== "crypto")
+      .map(a => ({
+        assetId: a.id,
+        symbol: a.symbol,
+        currency: a.currency as CurrencyCode,
+        assetClass: a.asset_class as AssetClass,
+        since: firstBuyMap.get(a.id) ?? "2020-01-01",
+      }));
+  });
 
-    // Get already synced dividends to avoid duplicates
+export const syncAssetDividends = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => {
+    const i = input as { assetId: string; symbol: string; currency: string; assetClass: string; since: string };
+    if (!i?.assetId) throw new Error("assetId required");
+    return i;
+  })
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const BRAPI_TOKEN = process.env.BRAPI_TOKEN;
+    const TWELVE_KEY = process.env.TWELVE_DATA_API_KEY;
+
+    let divs: Array<{ ex_date: string; payment_date?: string; amount: number }> = [];
+
+    if (data.currency === "BRL" && BRAPI_TOKEN) {
+      divs = await fetchBrapiDividends(data.symbol, BRAPI_TOKEN, data.since);
+    } else if (data.currency !== "BRL" && TWELVE_KEY) {
+      divs = await fetchTwelveDataDividends(data.symbol, TWELVE_KEY, data.since);
+    }
+
+    console.log(`[dividends] ${data.symbol}: ${divs.length} found since ${data.since}`);
+
+    if (!divs.length) return { synced: 0 };
+
+    // Check existing to avoid duplicates
     const { data: existing } = await (supabase as any)
       .from("dividends")
-      .select("asset_id, ex_date")
-      .eq("user_id", userId);
+      .select("ex_date")
+      .eq("user_id", userId)
+      .eq("asset_id", data.assetId);
 
-    const existingSet = new Set(
-      (existing ?? []).map((d: any) => `${d.asset_id}|${d.ex_date}`)
-    );
+    const existingDates = new Set((existing ?? []).map((d: any) => d.ex_date));
 
-    let synced = 0;
-    const toInsert: any[] = [];
-
-    // Process in parallel batches of 5 to avoid timeout
-    const batchSize = 5;
-    for (let i = 0; i < assets.length; i += batchSize) {
-      const batch = assets.slice(i, i + batchSize);
-      const results = await Promise.all(batch.map(async (asset) => {
-        const since = firstBuyMap.get(asset.id) ?? "2020-01-01";
-        let divs: Array<{ ex_date: string; payment_date?: string; amount: number }> = [];
-
-        if (asset.currency === "BRL" && BRAPI_TOKEN) {
-          divs = await fetchBrapiDividends(asset.symbol, BRAPI_TOKEN, since);
-          console.log(`[dividends] ${asset.symbol} brapi: ${divs.length} since ${since}`);
-        } else if (asset.currency !== "BRL" && TWELVE_KEY && asset.asset_class !== "crypto") {
-          divs = await fetchTwelveDataDividends(asset.symbol, TWELVE_KEY, since);
-          console.log(`[dividends] ${asset.symbol} twelve: ${divs.length} since ${since}`);
-        }
-        return { asset, divs };
+    const toInsert = divs
+      .filter(d => !existingDates.has(d.ex_date))
+      .map(d => ({
+        user_id: userId,
+        asset_id: data.assetId,
+        ex_date: d.ex_date,
+        payment_date: d.payment_date ?? null,
+        amount: d.amount,
+        currency: data.currency,
+        source: data.currency === "BRL" ? "brapi" : "twelve",
       }));
-
-      for (const { asset, divs } of results) {
-        for (const d of divs) {
-          const key = `${asset.id}|${d.ex_date}`;
-          if (existingSet.has(key)) continue;
-          toInsert.push({
-            user_id: userId,
-            asset_id: asset.id,
-            ex_date: d.ex_date,
-            payment_date: d.payment_date ?? null,
-            amount: d.amount,
-            currency: asset.currency,
-            source: asset.currency === "BRL" ? "brapi" : "twelve",
-          });
-          existingSet.add(key);
-          synced++;
-        }
-      }
-    }
 
     if (toInsert.length > 0) {
       await (supabase as any)
@@ -986,8 +986,11 @@ export const syncDividends = createServerFn({ method: "POST" })
         .upsert(toInsert, { onConflict: "asset_id,ex_date,user_id" });
     }
 
-    return { synced };
+    return { synced: toInsert.length };
   });
+
+// Keep for backwards compat
+export const syncDividends = getDividendSyncQueue;
 
 export const listDividends = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])

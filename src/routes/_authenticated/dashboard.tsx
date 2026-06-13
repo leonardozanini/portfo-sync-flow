@@ -30,7 +30,7 @@ import { useDisplayCurrency } from "@/components/CurrencySwitcher";
 import { convert, formatMoney, type Currency } from "@/lib/currency";
 import { NewTransactionDialog, type TxPreset } from "@/components/NewTransactionDialog";
 import { AssetLotsDialog } from "@/components/AssetLotsDialog";
-import { getDashboard, type AssetClass, type AssetGroup, type GroupedAsset } from "@/lib/portfolio.functions";
+import { getDashboard, syncDividends, type AssetClass, type AssetGroup, type GroupedAsset } from "@/lib/portfolio.functions";
 import { supabase } from "@/integrations/supabase/client";
 
 const dashboardQueryOptions = queryOptions({
@@ -80,6 +80,12 @@ function Dashboard() {
 
   const openNew = (p?: TxPreset) => { setPreset(p); setOpen(true); };
   const openLots = (a: { id: string; symbol: string }) => setLotsAsset(a);
+
+  // Sync dividends in background when dashboard opens
+  const syncFn = useServerFn(syncDividends);
+  useEffect(() => {
+    syncFn().catch(() => {});
+  }, []);
 
   // Realtime: invalidate dashboard whenever transactions/prices change for any client
   useEffect(() => {

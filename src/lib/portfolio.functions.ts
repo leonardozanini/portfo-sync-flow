@@ -943,32 +943,40 @@ export const syncDividends = createServerFn({ method: "POST" })
     let synced = 0;
     const toInsert: any[] = [];
 
-    for (const asset of assets) {
-      const since = firstBuyMap.get(asset.id) ?? "2020-01-01";
-      let divs: Array<{ ex_date: string; payment_date?: string; amount: number }> = [];
+    // Process in parallel batches of 5 to avoid timeout
+    const batchSize = 5;
+    for (let i = 0; i < assets.length; i += batchSize) {
+      const batch = assets.slice(i, i + batchSize);
+      const results = await Promise.all(batch.map(async (asset) => {
+        const since = firstBuyMap.get(asset.id) ?? "2020-01-01";
+        let divs: Array<{ ex_date: string; payment_date?: string; amount: number }> = [];
 
-      if (asset.currency === "BRL" && BRAPI_TOKEN) {
-        divs = await fetchBrapiDividends(asset.symbol, BRAPI_TOKEN, since);
-        console.log(`[dividends] ${asset.symbol} brapi: ${divs.length} found since ${since}`);
-      } else if (asset.currency !== "BRL" && TWELVE_KEY && asset.asset_class !== "crypto") {
-        divs = await fetchTwelveDataDividends(asset.symbol, TWELVE_KEY, since);
-        console.log(`[dividends] ${asset.symbol} twelve: ${divs.length} found since ${since}`);
-      }
+        if (asset.currency === "BRL" && BRAPI_TOKEN) {
+          divs = await fetchBrapiDividends(asset.symbol, BRAPI_TOKEN, since);
+          console.log(`[dividends] ${asset.symbol} brapi: ${divs.length} since ${since}`);
+        } else if (asset.currency !== "BRL" && TWELVE_KEY && asset.asset_class !== "crypto") {
+          divs = await fetchTwelveDataDividends(asset.symbol, TWELVE_KEY, since);
+          console.log(`[dividends] ${asset.symbol} twelve: ${divs.length} since ${since}`);
+        }
+        return { asset, divs };
+      }));
 
-      for (const d of divs) {
-        const key = `${asset.id}|${d.ex_date}`;
-        if (existingSet.has(key)) continue;
-        toInsert.push({
-          user_id: userId,
-          asset_id: asset.id,
-          ex_date: d.ex_date,
-          payment_date: d.payment_date ?? null,
-          amount: d.amount,
-          currency: asset.currency,
-          source: asset.currency === "BRL" ? "brapi" : "twelve",
-        });
-        existingSet.add(key);
-        synced++;
+      for (const { asset, divs } of results) {
+        for (const d of divs) {
+          const key = `${asset.id}|${d.ex_date}`;
+          if (existingSet.has(key)) continue;
+          toInsert.push({
+            user_id: userId,
+            asset_id: asset.id,
+            ex_date: d.ex_date,
+            payment_date: d.payment_date ?? null,
+            amount: d.amount,
+            currency: asset.currency,
+            source: asset.currency === "BRL" ? "brapi" : "twelve",
+          });
+          existingSet.add(key);
+          synced++;
+        }
       }
     }
 

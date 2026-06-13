@@ -90,7 +90,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b bg-card px-4 py-3">
+        <header className="flex items-center justify-between border-b bg-card px-4 py-3"
+          style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}>
           <div className="flex items-center gap-3">
             {/* Mobile hamburger */}
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -137,7 +138,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             </DropdownMenu>
           </div>
         </header>
-        <main className="min-w-0 flex-1 overflow-x-hidden p-4 md:p-8">
+        <main className="min-w-0 flex-1 overflow-x-hidden p-4 md:p-8"
+          style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
           {children ?? <Outlet />}
         </main>
       </div>

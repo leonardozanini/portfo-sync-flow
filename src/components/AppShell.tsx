@@ -9,7 +9,7 @@ import {
   Sheet, SheetContent, SheetTrigger,
 } from "@/components/ui/sheet";
 import {
-  LayoutDashboard, ArrowRightLeft, Settings, Shield, LogOut, Sparkles, Wallet, Menu,
+  LayoutDashboard, ArrowRightLeft, Settings, Shield, LogOut, Sparkles, Wallet, Menu, TrendingUp,
 } from "lucide-react";
 import { CurrencySwitcher } from "./CurrencySwitcher";
 import { type ReactNode, useState } from "react";
@@ -17,6 +17,7 @@ import { type ReactNode, useState } from "react";
 const nav = [
   { to: "/dashboard", label: "Visão geral", icon: LayoutDashboard },
   { to: "/transactions", label: "Lançamentos", icon: ArrowRightLeft },
+  { to: "/proventos", label: "Proventos", icon: TrendingUp },
   { to: "/settings", label: "Ajustes", icon: Settings },
 ] as const;
 

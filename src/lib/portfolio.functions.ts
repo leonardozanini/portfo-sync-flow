@@ -831,38 +831,33 @@ export const forceRefreshPrice = createServerFn({ method: "POST" })
 // ---------- listBrokers ----------
 // ---------- Dividend sync ----------
 
-async function fetchStatusInvestDividends(
+async function fetchFintzDividends(
   symbol: string,
   since: string,
 ): Promise<Array<{ ex_date: string; payment_date?: string; amount: number }>> {
   try {
-    // StatusInvest non-official API — returns FII proventos
-    const url = `https://statusinvest.com.br/fundos-imobiliarios/companytickerprovents?ticker=${encodeURIComponent(symbol)}&chartProventsType=2`;
+    const url = `https://api.fintz.com.br/bolsa/b3/avista/eventos/proventos?ticker=${encodeURIComponent(symbol)}&dataInicio=${since}`;
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Referer": `https://statusinvest.com.br/fundos-imobiliarios/${symbol.toLowerCase()}`,
+        "X-API-Key": "chave-de-testes-api-fintz",
+        "Accept": "application/json",
       },
     });
     if (!res.ok) {
-      console.log(`[statusinvest] ${symbol} HTTP ${res.status}`);
+      console.log(`[fintz] ${symbol} HTTP ${res.status}`);
       return [];
     }
-    const json = await res.json() as any;
-    const assetEarnings = json?.assetEarningsModels ?? [];
-    console.log(`[statusinvest] ${symbol} total: ${assetEarnings.length}`);
+    const json = await res.json() as any[];
+    console.log(`[fintz] ${symbol} total: ${json?.length ?? 0}`);
+    if (!Array.isArray(json) || json.length === 0) return [];
 
-    return assetEarnings
-      .filter((d: any) => d.ed >= since || d.pd >= since)
-      .map((d: any) => ({
-        ex_date: d.ed?.slice(0, 10),      // ex-dividend date
-        payment_date: d.pd?.slice(0, 10), // payment date
-        amount: Number(d.v ?? 0),          // value per unit
-      }))
-      .filter((d: any) => d.amount > 0 && d.ex_date);
+    return json.map((d: any) => ({
+      ex_date: (d.dataEx ?? d.dataCom ?? d.data ?? "").slice(0, 10),
+      payment_date: d.dataPagamento ? d.dataPagamento.slice(0, 10) : undefined,
+      amount: Number(d.valor ?? d.valorProvento ?? 0),
+    })).filter(d => d.amount > 0 && d.ex_date);
   } catch (e) {
-    console.log(`[statusinvest] ${symbol} error: ${e}`);
+    console.log(`[fintz] ${symbol} error: ${e}`);
     return [];
   }
 }
@@ -979,8 +974,8 @@ export const syncAssetDividends = createServerFn({ method: "POST" }) // v2 2026-
 
     if (data.currency === "BRL" && BRAPI_TOKEN) {
       if (data.assetClass === "reit" || data.assetClass === "etf") {
-        // FIIs: use StatusInvest (Brapi free plan doesn't support FII dividends)
-        divs = await fetchStatusInvestDividends(data.symbol, data.since);
+        // FIIs: use Fintz API (data from B3)
+        divs = await fetchFintzDividends(data.symbol, data.since);
       } else {
         // Brazilian stocks: try Brapi first
         divs = await fetchBrapiDividends(data.symbol, BRAPI_TOKEN, data.since);

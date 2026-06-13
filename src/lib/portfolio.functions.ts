@@ -839,13 +839,18 @@ async function fetchBrapiDividends(
   try {
     const url = `https://brapi.dev/api/quote/${encodeURIComponent(symbol)}?dividends=true&token=${token}`;
     const res = await fetch(url, { headers: { "Accept": "application/json" } });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      console.log(`[brapi] ${symbol} HTTP ${res.status}`);
+      return [];
+    }
     const json = await res.json() as any;
     const result = json?.results?.[0];
-    if (!result) return [];
+    const divData = result?.dividendsData;
+    const cashDivs = divData?.cashDividends ?? [];
+    console.log(`[brapi] ${symbol} cashDividends: ${cashDivs.length}, first: ${cashDivs[0] ? JSON.stringify(cashDivs[0]) : 'none'}`);
 
-    // Brapi returns dividendsData.cashDividends with paymentDate and value
-    const divs = result?.dividendsData?.cashDividends ?? [];
+    if (!result) return [];
+    const divs = cashDivs;
     const out: Array<{ ex_date: string; payment_date?: string; amount: number }> = [];
 
     for (const d of divs) {

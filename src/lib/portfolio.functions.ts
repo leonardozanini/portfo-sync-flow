@@ -148,7 +148,20 @@ async function fetchTwelveDataPrice(symbol: string): Promise<number | null> {
   } catch { return null; }
 }
 
-async function fetchStooqPrice(stooqSymbol: string): Promise<number | null> {
+async function fetchBrapiPrice(symbol: string): Promise<number | null> {
+  const token = process.env.BRAPI_TOKEN;
+  if (!token) return null;
+  try {
+    const url = `https://brapi.dev/api/quote/${encodeURIComponent(symbol)}?token=${token}`;
+    const res = await fetch(url, { headers: { "Accept": "application/json" } });
+    if (!res.ok) return null;
+    const json = await res.json() as { results?: Array<{ regularMarketPrice?: number }> };
+    const p = json?.results?.[0]?.regularMarketPrice;
+    return typeof p === "number" && p > 0 ? p : null;
+  } catch { return null; }
+}
+
+
   try {
     const url = `https://stooq.com/q/l/?s=${encodeURIComponent(stooqSymbol)}&f=sd2t2ohlcv&h&e=csv`;
     const res = await fetch(url, {
@@ -201,17 +214,23 @@ async function fetchPriceFor(
   if (klass === "crypto") {
     const p = await fetchYahooCryptoPrice(yahoo);
     if (p != null) return { price: p, source: "yahoo" };
-    // Fallback: Stooq
     const p2 = await fetchStooqPrice(stooq);
     if (p2 != null) return { price: p2, source: "stooq" };
     return { price: null, source: "none" };
   }
 
-  // Stocks/ETFs: Twelve Data first (works from server), then Stooq as fallback
+  // BRL assets (FIIs, Brazilian stocks): Brapi first, then Stooq
+  if (currency === "BRL") {
+    const p = await fetchBrapiPrice(a.symbol);
+    if (p != null) return { price: p, source: "brapi" };
+    const p2 = await fetchStooqPrice(stooq);
+    if (p2 != null) return { price: p2, source: "stooq" };
+    return { price: null, source: "none" };
+  }
+
+  // International stocks/ETFs: Twelve Data first, then Stooq
   const p = await fetchTwelveDataPrice(twelve);
   if (p != null) return { price: p, source: "twelve" };
-
-  // Fallback: Stooq
   const p2 = await fetchStooqPrice(stooq);
   if (p2 != null) return { price: p2, source: "stooq" };
 

@@ -17,9 +17,32 @@ function parseCookies(cookieHeader: string): Record<string, string> {
 
 function extractTokenFromCookies(cookies: Record<string, string>, supabaseUrl: string): string | null {
   const projectRef = supabaseUrl.match(/https:\/\/([^.]+)/)?.[1] ?? '';
-  // Try exact name first, then pattern match
+  const baseKey = `sb-${projectRef}-auth-token`;
+
+  // Supabase @ssr splits large cookies into chunks: sb-xxx-auth-token.0, .1, .2 etc.
+  // Try reassembling chunks first
+  const chunkKeys = Object.keys(cookies)
+    .filter(k => k.startsWith(`${baseKey}.`))
+    .sort();
+
+  if (chunkKeys.length > 0) {
+    const joined = chunkKeys.map(k => cookies[k]).join('');
+    try {
+      const parsed = JSON.parse(decodeURIComponent(joined));
+      const token = Array.isArray(parsed) ? parsed[0]?.access_token : parsed?.access_token;
+      if (token) return token;
+    } catch { /* fallthrough */ }
+    // Try raw joined (base64 chunks)
+    try {
+      const parsed = JSON.parse(joined);
+      const token = Array.isArray(parsed) ? parsed[0]?.access_token : parsed?.access_token;
+      if (token) return token;
+    } catch { /* fallthrough */ }
+  }
+
+  // Try single cookie candidates
   const candidates = [
-    `sb-${projectRef}-auth-token`,
+    baseKey,
     ...Object.keys(cookies).filter(k => k.startsWith('sb-') && k.endsWith('-auth-token')),
   ];
   for (const name of candidates) {

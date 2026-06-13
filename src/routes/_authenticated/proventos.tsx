@@ -1,15 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Inbox, TrendingUp, Calendar, Coins } from "lucide-react";
-import { listDividends, type CurrencyCode } from "@/lib/portfolio.functions";
+import { Loader2, Inbox, TrendingUp, Calendar, Coins, RefreshCw } from "lucide-react";
+import { listDividends, syncDividends, type CurrencyCode } from "@/lib/portfolio.functions";
 import { convert, formatMoney, type Currency } from "@/lib/currency";
 import { useDisplayCurrency } from "@/components/CurrencySwitcher";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/proventos")({
   head: () => ({ meta: [{ title: "Proventos — Folio" }] }),
@@ -28,10 +30,22 @@ function ProventosPage() {
   const [filterSymbol, setFilterSymbol] = useState<string>("all");
 
   const listFn = useServerFn(listDividends);
+  const syncFn = useServerFn(syncDividends);
+  const qc = useQueryClient();
+
   const { data: divs = [], isLoading } = useQuery({
     queryKey: ["dividends"],
     queryFn: () => listFn(),
     staleTime: 5 * 60_000,
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: syncFn,
+    onSuccess: (result) => {
+      toast.success(`${result.synced} proventos sincronizados`);
+      qc.invalidateQueries({ queryKey: ["dividends"] });
+    },
+    onError: (e: Error) => toast.error(`Erro na sincronização: ${e.message}`),
   });
 
   const years = useMemo(() => {
@@ -83,6 +97,17 @@ function ProventosPage() {
           <p className="text-sm text-muted-foreground">Histórico de dividendos e rendimentos recebidos</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+          >
+            {syncMutation.isPending
+              ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              : <RefreshCw className="mr-2 h-4 w-4" />}
+            Sincronizar
+          </Button>
           <Select value={filterYear} onValueChange={setFilterYear}>
             <SelectTrigger className="w-[130px]"><SelectValue placeholder="Todos os anos" /></SelectTrigger>
             <SelectContent>

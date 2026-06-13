@@ -553,15 +553,15 @@ export const createTransaction = createServerFn({ method: "POST" })
     if (aErr) throw new Error(aErr.message);
 
     if (!asset) {
-      // Ativo não existe: cria como PENDENTE de aprovação pelo admin.
-      // O lançamento ainda é registrado normalmente — assim o usuário não perde o trabalho.
+      const isAdmin = await supabase.from("user_roles").select("role").eq("user_id", userId).eq("role", "admin").maybeSingle();
+      const autoApprove = !!isAdmin.data;
       const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
       const ins = await supabaseAdmin.from("assets").insert({
         symbol,
         name: data.name ?? symbol,
         asset_class: data.assetClass,
         currency: data.currency,
-        status: "pending",
+        status: autoApprove ? "approved" : "pending",
         requested_by: userId,
       }).select("id").single();
       if (ins.error) throw new Error(ins.error.message);
@@ -890,10 +890,10 @@ export const requestAssetInclusion = createServerFn({ method: "POST" })
     const ins = await supabaseAdmin.from("assets").insert({
       symbol, name: data.name ?? symbol,
       asset_class: data.assetClass, currency: data.currency,
-      status: "pending", requested_by: userId,
+      status: "approved", requested_by: userId,
     }).select("id").single();
     if (ins.error) throw new Error(ins.error.message);
-    return { ok: true as const, id: ins.data.id, status: "pending" };
+    return { ok: true as const, id: ins.data.id, status: "approved" };
   });
 
 // ---------- listCatalog (admin) ----------

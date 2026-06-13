@@ -31,7 +31,7 @@ import { useDisplayCurrency } from "@/components/CurrencySwitcher";
 import { convert, formatMoney, type Currency } from "@/lib/currency";
 import { NewTransactionDialog, type TxPreset } from "@/components/NewTransactionDialog";
 import { AssetLotsDialog } from "@/components/AssetLotsDialog";
-import { getDashboard, syncDividends, type AssetClass, type AssetGroup, type GroupedAsset } from "@/lib/portfolio.functions";
+import { getDashboard, getDividendSyncQueue, syncAssetDividends, syncDividends, type AssetClass, type AssetGroup, type GroupedAsset } from "@/lib/portfolio.functions";
 import { supabase } from "@/integrations/supabase/client";
 
 const dashboardQueryOptions = queryOptions({
@@ -82,12 +82,18 @@ function Dashboard() {
   const openNew = (p?: TxPreset) => { setPreset(p); setOpen(true); };
   const openLots = (a: { id: string; symbol: string }) => setLotsAsset(a);
 
-  // Sync dividends in background once per session
-  const syncFn = useServerFn(syncDividends);
+  // Sync dividends in background — one asset at a time to avoid timeout
+  const getQueueFn = useServerFn(getDividendSyncQueue);
+  const syncAssetFn = useServerFn(syncAssetDividends);
   useEffect(() => {
-    const timer = setTimeout(() => {
-      syncFn().catch(() => {});
-    }, 2000); // delay 2s after dashboard loads
+    const timer = setTimeout(async () => {
+      try {
+        const queue = await getQueueFn();
+        for (const asset of queue) {
+          await syncAssetFn({ data: asset }).catch(() => {});
+        }
+      } catch { /* silent */ }
+    }, 3000);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

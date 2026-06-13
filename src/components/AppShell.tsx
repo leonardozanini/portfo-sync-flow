@@ -20,13 +20,15 @@ const nav = [
   { to: "/settings", label: "Ajustes", icon: Settings },
 ] as const;
 
-function SidebarContent({ isAdmin, isPremium, onNavigate }: {
+function SidebarContent({ isAdmin, isPremium, onNavigate, safeTop = false }: {
   isAdmin: boolean;
   isPremium: boolean;
   onNavigate?: () => void;
+  safeTop?: boolean;
 }) {
   return (
-    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
+    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground"
+      style={safeTop ? { paddingTop: "env(safe-area-inset-top)" } : undefined}>
       <div className="flex items-center gap-2 px-6 py-6">
         <div className="grid h-9 w-9 place-items-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
           <Wallet className="h-5 w-5" />
@@ -105,6 +107,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   isAdmin={isAdmin}
                   isPremium={isPremium}
                   onNavigate={() => setMobileOpen(false)}
+                  safeTop={true}
                 />
               </SheetContent>
             </Sheet>

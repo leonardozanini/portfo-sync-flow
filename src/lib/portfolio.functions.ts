@@ -831,6 +831,42 @@ export const forceRefreshPrice = createServerFn({ method: "POST" })
 // ---------- listBrokers ----------
 // ---------- Dividend sync ----------
 
+async function fetchStatusInvestDividends(
+  symbol: string,
+  since: string,
+): Promise<Array<{ ex_date: string; payment_date?: string; amount: number }>> {
+  try {
+    // StatusInvest non-official API — returns FII proventos
+    const url = `https://statusinvest.com.br/fundos-imobiliarios/companytickerprovents?ticker=${encodeURIComponent(symbol)}&chartProventsType=2`;
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Referer": `https://statusinvest.com.br/fundos-imobiliarios/${symbol.toLowerCase()}`,
+      },
+    });
+    if (!res.ok) {
+      console.log(`[statusinvest] ${symbol} HTTP ${res.status}`);
+      return [];
+    }
+    const json = await res.json() as any;
+    const assetEarnings = json?.assetEarningsModels ?? [];
+    console.log(`[statusinvest] ${symbol} total: ${assetEarnings.length}`);
+
+    return assetEarnings
+      .filter((d: any) => d.ed >= since || d.pd >= since)
+      .map((d: any) => ({
+        ex_date: d.ed?.slice(0, 10),      // ex-dividend date
+        payment_date: d.pd?.slice(0, 10), // payment date
+        amount: Number(d.v ?? 0),          // value per unit
+      }))
+      .filter((d: any) => d.amount > 0 && d.ex_date);
+  } catch (e) {
+    console.log(`[statusinvest] ${symbol} error: ${e}`);
+    return [];
+  }
+}
+
 async function fetchBrapiDividends(
   symbol: string,
   token: string,
@@ -847,28 +883,17 @@ async function fetchBrapiDividends(
     const result = json?.results?.[0];
     const divData = result?.dividendsData;
     const cashDivs = divData?.cashDividends ?? [];
-    // Log raw structure to understand API response
-    console.log(`[brapi] ${symbol} keys: ${result ? Object.keys(result).join(',') : 'no result'}`);
-    console.log(`[brapi] ${symbol} divData: ${divData ? JSON.stringify(divData).slice(0,200) : 'null'}`);
+    console.log(`[brapi] ${symbol} cashDividends: ${cashDivs.length}`);
 
-    if (!result) return [];
-    const divs = cashDivs;
+    if (!cashDivs.length) return [];
     const out: Array<{ ex_date: string; payment_date?: string; amount: number }> = [];
-
-    for (const d of divs) {
-      // Try various field combinations the API might return
+    for (const d of cashDivs) {
       const payDate = d.paymentDate ?? d.payDate ?? d.date ?? null;
       const exDate = d.lastDatePrior ?? d.approvedOn ?? d.referenceDate ?? payDate;
       const amount = Number(d.rate ?? d.value ?? d.amount ?? 0);
-
       if (!exDate || amount <= 0) continue;
-      if (exDate < since) continue;
-
-      out.push({
-        ex_date: exDate.slice(0, 10),
-        payment_date: payDate ? payDate.slice(0, 10) : undefined,
-        amount,
-      });
+      if (exDate.slice(0, 10) < since) continue;
+      out.push({ ex_date: exDate.slice(0, 10), payment_date: payDate?.slice(0, 10), amount });
     }
     return out;
   } catch { return []; }
@@ -952,7 +977,13 @@ export const syncAssetDividends = createServerFn({ method: "POST" })
     let divs: Array<{ ex_date: string; payment_date?: string; amount: number }> = [];
 
     if (data.currency === "BRL" && BRAPI_TOKEN) {
-      divs = await fetchBrapiDividends(data.symbol, BRAPI_TOKEN, data.since);
+      if (data.assetClass === "reit" || data.assetClass === "etf") {
+        // FIIs: use StatusInvest (Brapi free plan doesn't support FII dividends)
+        divs = await fetchStatusInvestDividends(data.symbol, data.since);
+      } else {
+        // Brazilian stocks: try Brapi first
+        divs = await fetchBrapiDividends(data.symbol, BRAPI_TOKEN, data.since);
+      }
     } else if (data.currency !== "BRL" && TWELVE_KEY) {
       divs = await fetchTwelveDataDividends(data.symbol, TWELVE_KEY, data.since);
     }

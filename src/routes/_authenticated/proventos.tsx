@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Loader2, Inbox, TrendingUp, Calendar, Coins, RefreshCw } from "lucide-react";
-import { listDividends, syncDividends, type CurrencyCode } from "@/lib/portfolio.functions";
+import { listDividends, getDividendSyncQueue, syncAssetDividends, type CurrencyCode } from "@/lib/portfolio.functions";
 import { convert, formatMoney, type Currency } from "@/lib/currency";
 import { useDisplayCurrency } from "@/components/CurrencySwitcher";
 import { toast } from "sonner";
@@ -30,8 +30,10 @@ function ProventosPage() {
   const [filterSymbol, setFilterSymbol] = useState<string>("all");
 
   const listFn = useServerFn(listDividends);
-  const syncFn = useServerFn(syncDividends);
+  const getQueueFn = useServerFn(getDividendSyncQueue);
+  const syncAssetFn = useServerFn(syncAssetDividends);
   const qc = useQueryClient();
+  const [syncProgress, setSyncProgress] = useState<string>("");
 
   const { data: divs = [], isLoading } = useQuery({
     queryKey: ["dividends"],
@@ -40,12 +42,25 @@ function ProventosPage() {
   });
 
   const syncMutation = useMutation({
-    mutationFn: syncFn,
+    mutationFn: async () => {
+      const queue = await getQueueFn();
+      let total = 0;
+      for (const asset of queue) {
+        setSyncProgress(`Sincronizando ${asset.symbol}…`);
+        const result = await syncAssetFn({ data: asset });
+        total += result.synced;
+      }
+      setSyncProgress("");
+      return { synced: total };
+    },
     onSuccess: (result) => {
       toast.success(`${result.synced} proventos sincronizados`);
       qc.invalidateQueries({ queryKey: ["dividends"] });
     },
-    onError: (e: Error) => toast.error(`Erro na sincronização: ${e.message}`),
+    onError: (e: Error) => {
+      setSyncProgress("");
+      toast.error(`Erro na sincronização: ${e.message}`);
+    },
   });
 
   const years = useMemo(() => {
@@ -104,9 +119,8 @@ function ProventosPage() {
             disabled={syncMutation.isPending}
           >
             {syncMutation.isPending
-              ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              : <RefreshCw className="mr-2 h-4 w-4" />}
-            Sincronizar
+              ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{syncProgress || "Sincronizando…"}</>
+              : <><RefreshCw className="mr-2 h-4 w-4" />Sincronizar</>}
           </Button>
           <Select value={filterYear} onValueChange={setFilterYear}>
             <SelectTrigger className="w-[130px]"><SelectValue placeholder="Todos os anos" /></SelectTrigger>

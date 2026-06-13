@@ -962,7 +962,7 @@ export const getDividendSyncQueue = createServerFn({ method: "GET" })
       }));
   });
 
-export const syncAssetDividends = createServerFn({ method: "POST" })
+export const syncAssetDividends = createServerFn({ method: "POST" }) // v2 2026-06-13
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => {
     const i = input as { assetId: string; symbol: string; currency: string; assetClass: string; since: string };

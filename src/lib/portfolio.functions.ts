@@ -975,6 +975,7 @@ export const syncAssetDividends = createServerFn({ method: "POST" })
     const TWELVE_KEY = process.env.TWELVE_DATA_API_KEY;
 
     let divs: Array<{ ex_date: string; payment_date?: string; amount: number }> = [];
+    console.log(`[sync] ${data.symbol} currency=${data.currency} class=${data.assetClass} hasBrapi=${!!BRAPI_TOKEN} hasTwelve=${!!TWELVE_KEY}`);
 
     if (data.currency === "BRL" && BRAPI_TOKEN) {
       if (data.assetClass === "reit" || data.assetClass === "etf") {

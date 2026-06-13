@@ -14,6 +14,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedTransactionsRouteImport } from './routes/_authenticated/transactions'
+import { Route as AuthenticatedProventosRouteImport } from './routes/_authenticated/proventos'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/_admin'
@@ -46,6 +47,11 @@ const AuthenticatedTransactionsRoute =
     path: '/transactions',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedProventosRoute = AuthenticatedProventosRouteImport.update({
+  id: '/proventos',
+  path: '/proventos',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -85,6 +91,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/transactions': typeof AuthenticatedTransactionsRoute
+  '/proventos': typeof AuthenticatedProventosRoute
   '/admin': typeof AuthenticatedAdminAdminRoute
   '/catalog': typeof AuthenticatedAdminCatalogRoute
   '/api/public/hooks/refresh-prices': typeof ApiPublicHooksRefreshPricesRoute
@@ -96,7 +103,8 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/transactions': typeof AuthenticatedTransactionsRoute
-  '/admin': typeof AuthenticatedAdminAdminRoute
+  '/transactions': typeof AuthenticatedTransactionsRoute
+  '/proventos': typeof AuthenticatedProventosRoute
   '/catalog': typeof AuthenticatedAdminCatalogRoute
   '/api/public/hooks/refresh-prices': typeof ApiPublicHooksRefreshPricesRoute
 }
@@ -110,6 +118,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/transactions': typeof AuthenticatedTransactionsRoute
+  '/_authenticated/proventos': typeof AuthenticatedProventosRoute
   '/_authenticated/_admin/admin': typeof AuthenticatedAdminAdminRoute
   '/_authenticated/_admin/catalog': typeof AuthenticatedAdminCatalogRoute
   '/api/public/hooks/refresh-prices': typeof ApiPublicHooksRefreshPricesRoute
@@ -123,6 +132,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/settings'
     | '/transactions'
+    | '/proventos'
     | '/admin'
     | '/catalog'
     | '/api/public/hooks/refresh-prices'
@@ -134,6 +144,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/settings'
     | '/transactions'
+    | '/proventos'
     | '/admin'
     | '/catalog'
     | '/api/public/hooks/refresh-prices'
@@ -147,6 +158,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/settings'
     | '/_authenticated/transactions'
+    | '/_authenticated/proventos'
     | '/_authenticated/_admin/admin'
     | '/_authenticated/_admin/catalog'
     | '/api/public/hooks/refresh-prices'
@@ -195,6 +207,13 @@ declare module '@tanstack/react-router' {
       path: '/transactions'
       fullPath: '/transactions'
       preLoaderRoute: typeof AuthenticatedTransactionsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/proventos': {
+      id: '/_authenticated/proventos'
+      path: '/proventos'
+      fullPath: '/proventos'
+      preLoaderRoute: typeof AuthenticatedProventosRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/settings': {
@@ -260,6 +279,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedTransactionsRoute: typeof AuthenticatedTransactionsRoute
+  AuthenticatedProventosRoute: typeof AuthenticatedProventosRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
@@ -267,6 +287,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedTransactionsRoute: AuthenticatedTransactionsRoute,
+  AuthenticatedProventosRoute: AuthenticatedProventosRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
@@ -283,3 +304,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

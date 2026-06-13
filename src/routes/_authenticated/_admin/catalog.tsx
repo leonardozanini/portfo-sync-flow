@@ -131,6 +131,9 @@ function CatalogPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          {(data?.pendingCount ?? 0) > 0 && (
+            <ApproveAllButton onDone={refresh} pendingRows={(data?.rows ?? []).filter(r => r.status === "pending")} />
+          )}
           <TestConnectionButton />
           <NewAssetButton onCreated={refresh} />
         </div>
@@ -307,6 +310,31 @@ function CatalogRowItem({ a, onChanged }: { a: CatalogRow; onChanged: () => void
         <DeleteAssetDialog asset={a} open={deleteOpen} onOpenChange={setDeleteOpen} onDeleted={onChanged} />
       </TableCell>
     </TableRow>
+  );
+}
+
+function ApproveAllButton({ onDone, pendingRows }: { onDone: () => void; pendingRows: CatalogRow[] }) {
+  const approveFn = useServerFn(adminApproveAsset);
+  const qc = useQueryClient();
+  const [loading, setLoading] = useState(false);
+
+  const approveAll = async () => {
+    setLoading(true);
+    for (const row of pendingRows) {
+      await approveFn({ data: { id: row.id } }).catch(() => {});
+    }
+    toast.success(`${pendingRows.length} ativo(s) aprovado(s)`);
+    qc.invalidateQueries({ queryKey: ["catalog"] });
+    onDone();
+    setLoading(false);
+  };
+
+  return (
+    <Button variant="outline" size="sm" onClick={approveAll} disabled={loading}
+      className="border-success/40 text-success hover:bg-success/10">
+      {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+      Aprovar todos ({pendingRows.length})
+    </Button>
   );
 }
 

@@ -834,22 +834,36 @@ export const forceRefreshPrice = createServerFn({ method: "POST" })
 async function fetchBrapiDividends(
   symbol: string,
   token: string,
-  since: string, // YYYY-MM-DD
+  since: string,
 ): Promise<Array<{ ex_date: string; payment_date?: string; amount: number }>> {
   try {
     const url = `https://brapi.dev/api/quote/${encodeURIComponent(symbol)}?dividends=true&token=${token}`;
     const res = await fetch(url, { headers: { "Accept": "application/json" } });
     if (!res.ok) return [];
     const json = await res.json() as any;
-    const divs = json?.results?.[0]?.dividendsData?.cashDividends ?? [];
-    return divs
-      .filter((d: any) => d.paymentDate >= since || d.approvedOn >= since)
-      .map((d: any) => ({
-        ex_date: d.lastDatePrior ?? d.approvedOn,
-        payment_date: d.paymentDate,
-        amount: Number(d.rate ?? d.value ?? 0),
-      }))
-      .filter((d: any) => d.amount > 0 && d.ex_date);
+    const result = json?.results?.[0];
+    if (!result) return [];
+
+    // Brapi returns dividendsData.cashDividends with paymentDate and value
+    const divs = result?.dividendsData?.cashDividends ?? [];
+    const out: Array<{ ex_date: string; payment_date?: string; amount: number }> = [];
+
+    for (const d of divs) {
+      // Try various field combinations the API might return
+      const payDate = d.paymentDate ?? d.payDate ?? d.date ?? null;
+      const exDate = d.lastDatePrior ?? d.approvedOn ?? d.referenceDate ?? payDate;
+      const amount = Number(d.rate ?? d.value ?? d.amount ?? 0);
+
+      if (!exDate || amount <= 0) continue;
+      if (exDate < since) continue;
+
+      out.push({
+        ex_date: exDate.slice(0, 10),
+        payment_date: payDate ? payDate.slice(0, 10) : undefined,
+        amount,
+      });
+    }
+    return out;
   } catch { return []; }
 }
 
@@ -926,8 +940,10 @@ export const syncDividends = createServerFn({ method: "POST" })
 
       if (asset.currency === "BRL" && BRAPI_TOKEN) {
         divs = await fetchBrapiDividends(asset.symbol, BRAPI_TOKEN, since);
+        console.log(`[dividends] ${asset.symbol} brapi: ${divs.length} found since ${since}`);
       } else if (asset.currency !== "BRL" && TWELVE_KEY && asset.asset_class !== "crypto") {
         divs = await fetchTwelveDataDividends(asset.symbol, TWELVE_KEY, since);
+        console.log(`[dividends] ${asset.symbol} twelve: ${divs.length} found since ${since}`);
       }
 
       for (const d of divs) {

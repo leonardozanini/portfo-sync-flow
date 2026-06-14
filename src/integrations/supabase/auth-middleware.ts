@@ -83,13 +83,14 @@ export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server
     let token: string | null = null;
 
     if (authHeader?.startsWith('Bearer ')) {
-      // Normal flow: token from client-side attachSupabaseAuth middleware
       token = authHeader.replace('Bearer ', '');
     } else {
-      // Hard refresh fallback: extract token from Supabase session cookie
       const cookieHeader = request.headers.get('cookie') ?? '';
       const cookies = parseCookies(cookieHeader);
+      const cookieKeys = Object.keys(cookies);
+      console.log(`[auth] no bearer, cookie keys: ${cookieKeys.join(', ')}`);
       token = extractTokenFromCookies(cookies, SUPABASE_URL);
+      console.log(`[auth] token from cookie: ${token ? 'found' : 'not found'}`);
     }
 
     if (!token) {

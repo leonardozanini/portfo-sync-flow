@@ -19,6 +19,7 @@ import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/_admin'
 import { Route as AuthenticatedAdminCatalogRouteImport } from './routes/_authenticated/_admin/catalog'
+import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/_admin/users'
 import { Route as AuthenticatedAdminAdminRouteImport } from './routes/_authenticated/_admin/admin'
 import { Route as ApiPublicHooksRefreshPricesRouteImport } from './routes/api/public/hooks/refresh-prices'
 
@@ -72,6 +73,11 @@ const AuthenticatedAdminCatalogRoute =
     path: '/catalog',
     getParentRoute: () => AuthenticatedAdminRoute,
   } as any)
+const AuthenticatedAdminUsersRoute = AuthenticatedAdminUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => AuthenticatedAdminRoute,
+} as any)
 const AuthenticatedAdminAdminRoute = AuthenticatedAdminAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
@@ -94,6 +100,7 @@ export interface FileRoutesByFullPath {
   '/proventos': typeof AuthenticatedProventosRoute
   '/admin': typeof AuthenticatedAdminAdminRoute
   '/catalog': typeof AuthenticatedAdminCatalogRoute
+  '/users': typeof AuthenticatedAdminUsersRoute
   '/api/public/hooks/refresh-prices': typeof ApiPublicHooksRefreshPricesRoute
 }
 export interface FileRoutesByTo {
@@ -106,6 +113,7 @@ export interface FileRoutesByTo {
   '/transactions': typeof AuthenticatedTransactionsRoute
   '/proventos': typeof AuthenticatedProventosRoute
   '/catalog': typeof AuthenticatedAdminCatalogRoute
+  '/users': typeof AuthenticatedAdminUsersRoute
   '/api/public/hooks/refresh-prices': typeof ApiPublicHooksRefreshPricesRoute
 }
 export interface FileRoutesById {
@@ -121,6 +129,7 @@ export interface FileRoutesById {
   '/_authenticated/proventos': typeof AuthenticatedProventosRoute
   '/_authenticated/_admin/admin': typeof AuthenticatedAdminAdminRoute
   '/_authenticated/_admin/catalog': typeof AuthenticatedAdminCatalogRoute
+  '/_authenticated/_admin/users': typeof AuthenticatedAdminUsersRoute
   '/api/public/hooks/refresh-prices': typeof ApiPublicHooksRefreshPricesRoute
 }
 export interface FileRouteTypes {
@@ -244,6 +253,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminCatalogRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
+    '/_authenticated/_admin/users': {
+      id: '/_authenticated/_admin/users'
+      path: '/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AuthenticatedAdminUsersRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
     '/_authenticated/_admin/admin': {
       id: '/_authenticated/_admin/admin'
       path: '/admin'
@@ -264,11 +280,13 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedAdminRouteChildren {
   AuthenticatedAdminAdminRoute: typeof AuthenticatedAdminAdminRoute
   AuthenticatedAdminCatalogRoute: typeof AuthenticatedAdminCatalogRoute
+  AuthenticatedAdminUsersRoute: typeof AuthenticatedAdminUsersRoute
 }
 
 const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
   AuthenticatedAdminAdminRoute: AuthenticatedAdminAdminRoute,
   AuthenticatedAdminCatalogRoute: AuthenticatedAdminCatalogRoute,
+  AuthenticatedAdminUsersRoute: AuthenticatedAdminUsersRoute,
 }
 
 const AuthenticatedAdminRouteWithChildren =

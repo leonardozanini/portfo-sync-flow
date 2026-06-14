@@ -1048,6 +1048,76 @@ export const listDividends = createServerFn({ method: "GET" })
     }));
   });
 
+// ---------- adminListUsers ----------
+export const adminListUsers = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { userId } = context;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // Verify caller is admin
+    const { data: role } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .eq("role", "admin")
+      .maybeSingle();
+    if (!role) throw new Error("Unauthorized");
+
+    // List all users from auth
+    const { data: authData, error } = await supabaseAdmin.auth.admin.listUsers({ perPage: 200 });
+    if (error) throw new Error(error.message);
+
+    // Get all roles
+    const { data: roles } = await supabaseAdmin.from("user_roles").select("user_id, role");
+    const rolesByUser = new Map<string, string[]>();
+    for (const r of roles ?? []) {
+      if (!rolesByUser.has(r.user_id)) rolesByUser.set(r.user_id, []);
+      rolesByUser.get(r.user_id)!.push(r.role);
+    }
+
+    return (authData.users ?? []).map(u => ({
+      id: u.id,
+      email: u.email ?? "",
+      createdAt: u.created_at,
+      lastSignIn: u.last_sign_in_at ?? null,
+      roles: rolesByUser.get(u.id) ?? [],
+    }));
+  });
+
+export const adminSetUserRole = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => {
+    const i = input as { targetUserId: string; role: string; action: "add" | "remove" };
+    if (!i?.targetUserId || !i?.role) throw new Error("targetUserId and role required");
+    return i;
+  })
+  .handler(async ({ data, context }) => {
+    const { userId } = context;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { data: role } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .eq("role", "admin")
+      .maybeSingle();
+    if (!role) throw new Error("Unauthorized");
+
+    if (data.action === "add") {
+      await supabaseAdmin.from("user_roles").upsert({
+        user_id: data.targetUserId,
+        role: data.role,
+      }, { onConflict: "user_id,role" });
+    } else {
+      await supabaseAdmin.from("user_roles")
+        .delete()
+        .eq("user_id", data.targetUserId)
+        .eq("role", data.role);
+    }
+    return { ok: true };
+  });
+
 export const listBrokers = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {

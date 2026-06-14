@@ -1,5 +1,5 @@
-const CACHE = "folio-v1";
-const STATIC = ["/", "/dashboard", "/transactions", "/settings"];
+const CACHE = "folio-v2";
+const STATIC = ["/", "/dashboard", "/transactions", "/proventos", "/settings"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
@@ -16,14 +16,20 @@ self.addEventListener("activate", (e) => {
 });
 
 self.addEventListener("fetch", (e) => {
-  // Only cache GET requests, skip API/auth calls
   if (e.request.method !== "GET") return;
-  if (e.request.url.includes("/api/") || e.request.url.includes("supabase")) return;
+  // Never cache API, auth, or server function calls
+  const url = e.request.url;
+  if (
+    url.includes("/api/") ||
+    url.includes("supabase") ||
+    url.includes("/_serverFn/") ||
+    url.includes("/auth/")
+  ) return;
 
   e.respondWith(
     fetch(e.request)
       .then((res) => {
-        if (res.ok) {
+        if (res.ok && res.status < 400) {
           const clone = res.clone();
           caches.open(CACHE).then((c) => c.put(e.request, clone));
         }

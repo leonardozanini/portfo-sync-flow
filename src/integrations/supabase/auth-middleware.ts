@@ -20,7 +20,6 @@ function extractTokenFromCookies(cookies: Record<string, string>, supabaseUrl: s
   const baseKey = `sb-${projectRef}-auth-token`;
 
   // Supabase @ssr splits large cookies into chunks: sb-xxx-auth-token.0, .1, .2 etc.
-  // Try reassembling chunks first
   const chunkKeys = Object.keys(cookies)
     .filter(k => k.startsWith(`${baseKey}.`))
     .sort();
@@ -32,7 +31,6 @@ function extractTokenFromCookies(cookies: Record<string, string>, supabaseUrl: s
       const token = Array.isArray(parsed) ? parsed[0]?.access_token : parsed?.access_token;
       if (token) return token;
     } catch { /* fallthrough */ }
-    // Try raw joined (base64 chunks)
     try {
       const parsed = JSON.parse(joined);
       const token = Array.isArray(parsed) ? parsed[0]?.access_token : parsed?.access_token;
@@ -40,7 +38,6 @@ function extractTokenFromCookies(cookies: Record<string, string>, supabaseUrl: s
     } catch { /* fallthrough */ }
   }
 
-  // Try single cookie candidates
   const candidates = [
     baseKey,
     ...Object.keys(cookies).filter(k => k.startsWith('sb-') && k.endsWith('-auth-token')),
@@ -51,6 +48,45 @@ function extractTokenFromCookies(cookies: Record<string, string>, supabaseUrl: s
     try {
       const parsed = JSON.parse(decodeURIComponent(raw));
       const token = Array.isArray(parsed) ? parsed[0]?.access_token : parsed?.access_token;
+      if (token) return token;
+    } catch { continue; }
+  }
+  return null;
+}
+
+// Extrai o refresh_token do cookie para poder renovar a sessão no servidor
+function extractRefreshTokenFromCookies(cookies: Record<string, string>, supabaseUrl: string): string | null {
+  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)/)?.[1] ?? '';
+  const baseKey = `sb-${projectRef}-auth-token`;
+
+  const chunkKeys = Object.keys(cookies)
+    .filter(k => k.startsWith(`${baseKey}.`))
+    .sort();
+
+  const rawSources: string[] = [];
+
+  if (chunkKeys.length > 0) {
+    const joined = chunkKeys.map(k => cookies[k]).join('');
+    rawSources.push(joined);
+    try { rawSources.push(decodeURIComponent(joined)); } catch { /* ignore */ }
+  }
+
+  const candidates = [
+    baseKey,
+    ...Object.keys(cookies).filter(k => k.startsWith('sb-') && k.endsWith('-auth-token')),
+  ];
+  for (const name of candidates) {
+    const raw = cookies[name];
+    if (raw) {
+      rawSources.push(raw);
+      try { rawSources.push(decodeURIComponent(raw)); } catch { /* ignore */ }
+    }
+  }
+
+  for (const raw of rawSources) {
+    try {
+      const parsed = JSON.parse(raw);
+      const token = Array.isArray(parsed) ? parsed[0]?.refresh_token : parsed?.refresh_token;
       if (token) return token;
     } catch { continue; }
   }
@@ -68,9 +104,7 @@ export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server
         ...(!SUPABASE_URL ? ['SUPABASE_URL'] : []),
         ...(!SUPABASE_PUBLISHABLE_KEY ? ['SUPABASE_PUBLISHABLE_KEY'] : []),
       ];
-      const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Connect Supabase in Lovable Cloud.`;
-      console.error(`[Supabase] ${message}`);
-      throw new Error(message);
+      throw new Error(`Missing Supabase environment variable(s): ${missing.join(', ')}.`);
     }
     
     const request = getRequest();
@@ -80,23 +114,65 @@ export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server
     }
 
     const authHeader = request.headers.get('authorization');
+    const cookieHeader = request.headers.get('cookie') ?? '';
+    const cookies = parseCookies(cookieHeader);
+
     let token: string | null = null;
 
     if (authHeader?.startsWith('Bearer ')) {
       token = authHeader.replace('Bearer ', '');
     } else {
-      const cookieHeader = request.headers.get('cookie') ?? '';
-      const cookies = parseCookies(cookieHeader);
-      const cookieKeys = Object.keys(cookies);
-      console.log(`[auth] no bearer, cookie keys: ${cookieKeys.join(', ')}`);
       token = extractTokenFromCookies(cookies, SUPABASE_URL);
-      console.log(`[auth] token from cookie: ${token ? 'found' : 'not found'}`);
     }
 
     if (!token) {
       throw new Error('Unauthorized: No authorization header provided');
     }
 
+    // Cria um cliente temporário para validar/renovar o token
+    const tempClient = createClient<Database>(
+      SUPABASE_URL!,
+      SUPABASE_PUBLISHABLE_KEY!,
+      {
+        auth: {
+          storage: undefined,
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+      }
+    );
+
+    // Tenta validar o token atual
+    let { data: claimsData, error: claimsError } = await tempClient.auth.getClaims(token);
+
+    // Se o token estiver expirado, tenta renovar com o refresh_token do cookie
+    if (claimsError || !claimsData?.claims) {
+      const refreshToken = extractRefreshTokenFromCookies(cookies, SUPABASE_URL);
+
+      if (refreshToken) {
+        const { data: refreshData, error: refreshError } = await tempClient.auth.refreshSession({
+          refresh_token: refreshToken,
+        });
+
+        if (!refreshError && refreshData?.session?.access_token) {
+          // Usa o novo access_token gerado pelo refresh
+          token = refreshData.session.access_token;
+          const refreshed = await tempClient.auth.getClaims(token);
+          claimsData = refreshed.data;
+          claimsError = refreshed.error;
+        }
+      }
+    }
+
+    if (claimsError || !claimsData?.claims) {
+      throw new Error('Unauthorized: Invalid or expired session. Please sign in again.');
+    }
+
+    if (!claimsData.claims.sub) {
+      throw new Error('Unauthorized: No user ID found in token');
+    }
+
+    // Cria o cliente autenticado com o token válido (pode ser o renovado)
     const supabase = createClient<Database>(
       SUPABASE_URL!,
       SUPABASE_PUBLISHABLE_KEY!,
@@ -114,20 +190,11 @@ export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server
       }
     );
 
-    const { data, error } = await supabase.auth.getClaims(token);
-    if (error || !data?.claims) {
-      throw new Error('Unauthorized: Invalid token');
-    }
-
-    if (!data.claims.sub) {
-      throw new Error('Unauthorized: No user ID found in token');
-    }
-
     return next({
       context: {
         supabase,
-        userId: data.claims.sub,
-        claims: data.claims,
+        userId: claimsData.claims.sub,
+        claims: claimsData.claims,
       },
     });
   },

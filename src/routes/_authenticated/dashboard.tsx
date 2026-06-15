@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { queryOptions, useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -40,14 +40,57 @@ const dashboardQueryOptions = queryOptions({
   staleTime: 30_000,
 });
 
+// ---------- Error fallback com retry automático de sessão ----------
+function DashboardErrorFallback({ error, reset }: { error: Error; reset: () => void }) {
+  const router = useRouter();
+
+  const isAuthError =
+    error.message?.toLowerCase().includes("unauthorized") ||
+    error.message?.toLowerCase().includes("invalid") ||
+    error.message?.toLowerCase().includes("expired");
+
+  useEffect(() => {
+    if (!isAuthError) return;
+
+    let cancelled = false;
+
+    // Aguarda o Supabase client renovar o token no browser e então faz retry
+    supabase.auth.getSession().then(({ data }) => {
+      if (cancelled) return;
+      if (data.session) {
+        reset();
+        router.invalidate();
+      } else {
+        router.navigate({ to: "/login", replace: true });
+      }
+    });
+
+    return () => { cancelled = true; };
+  }, [isAuthError, reset, router]);
+
+  if (isAuthError) {
+    // Mostra loading silencioso enquanto renova — o usuário não vê erro
+    return (
+      <div className="grid min-h-[50vh] place-items-center text-muted-foreground text-sm">
+        Atualizando sessão…
+      </div>
+    );
+  }
+
+  // Erro real (não de auth) — mostra mensagem
+  return (
+    <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm">
+      Não foi possível carregar o resumo: {error.message}
+    </div>
+  );
+}
+
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({ meta: [{ title: "Resumo — Folio" }] }),
   loader: ({ context }) => context.queryClient.ensureQueryData(dashboardQueryOptions),
   component: Dashboard,
-  errorComponent: ({ error }) => (
-    <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm">
-      Não foi possível carregar o resumo: {error.message}
-    </div>
+  errorComponent: ({ error, reset }) => (
+    <DashboardErrorFallback error={error} reset={reset} />
   ),
   notFoundComponent: () => <div>Não encontrado.</div>,
 });

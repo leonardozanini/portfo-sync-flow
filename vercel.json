@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/cron/refresh-prices",
-      "schedule": "0 14,21 * * 1-5"
+      "schedule": "0 21 * * 1-5"
     }
   ]
 }

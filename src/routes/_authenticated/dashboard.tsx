@@ -21,7 +21,7 @@ import {
   Plus, TrendingUp, TrendingDown, Wallet, PiggyBank, Coins, LineChart as LineIcon,
   ChevronDown, ChevronUp, BarChart3, Settings2, ArrowUpRight, ArrowDownRight,
   CheckCircle2, XCircle, MoreHorizontal, GripVertical, Landmark, Building2, Bitcoin,
-  Layers, ListOrdered, Trash2, TrendingDown,
+  Layers, ListOrdered, Trash2,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,

@@ -496,22 +496,26 @@ function RemoveAssetDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className="max-w-md w-[calc(100vw-2rem)] sm:w-full" style={{ zIndex: 9999 }}>
+      <AlertDialogContent className="max-w-sm mx-4 sm:max-w-md sm:mx-auto rounded-2xl overflow-hidden" style={{ zIndex: 9999 }}>
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
             <Trash2 className="h-5 w-5 text-destructive" />
             Remover {asset.symbol} da carteira
           </AlertDialogTitle>
-          <AlertDialogDescription className="space-y-2 pt-1">
+          <AlertDialogDescription className="space-y-2 pt-1 overflow-hidden">
             <p>Escolha como deseja remover este ativo:</p>
-            <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm w-full relative" style={{ zIndex: 9999 }}>
-              <div className="grid grid-cols-2 gap-y-2">
+            <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm w-full">
+              <div className="flex justify-between items-center py-1">
                 <span className="text-muted-foreground">Quantidade</span>
-                <span className="font-medium tabular-nums text-right">{asset.qty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</span>
+                <span className="font-medium tabular-nums">{asset.qty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</span>
+              </div>
+              <div className="flex justify-between items-center py-1">
                 <span className="text-muted-foreground">Preço atual</span>
-                <span className="font-medium tabular-nums text-right">{fmtPrice(asset.currentPrice)}</span>
-                <span className="text-muted-foreground border-t border-border pt-2">Valor de venda</span>
-                <span className="font-semibold tabular-nums text-right border-t border-border pt-2">{fmtPrice(asset.qty * asset.currentPrice)}</span>
+                <span className="font-medium tabular-nums">{fmtPrice(asset.currentPrice)}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 mt-1 border-t border-border">
+                <span className="text-muted-foreground">Valor de venda</span>
+                <span className="font-semibold tabular-nums">{fmtPrice(asset.qty * asset.currentPrice)}</span>
               </div>
             </div>
           </AlertDialogDescription>

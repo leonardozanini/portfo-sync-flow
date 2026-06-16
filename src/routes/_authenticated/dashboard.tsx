@@ -496,7 +496,7 @@ function RemoveAssetDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className="max-w-md w-[calc(100vw-2rem)] sm:w-full z-50">
+      <AlertDialogContent className="max-w-md w-[calc(100vw-2rem)] sm:w-full" style={{ zIndex: 9999 }}>
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
             <Trash2 className="h-5 w-5 text-destructive" />
@@ -504,18 +504,14 @@ function RemoveAssetDialog({
           </AlertDialogTitle>
           <AlertDialogDescription className="space-y-2 pt-1">
             <p>Escolha como deseja remover este ativo:</p>
-            <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm space-y-2 w-full">
-              <div className="flex items-center justify-between gap-4 min-w-0">
-                <span className="text-muted-foreground shrink-0">Quantidade</span>
+            <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm w-full relative" style={{ zIndex: 9999 }}>
+              <div className="grid grid-cols-2 gap-y-2">
+                <span className="text-muted-foreground">Quantidade</span>
                 <span className="font-medium tabular-nums text-right">{asset.qty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</span>
-              </div>
-              <div className="flex items-center justify-between gap-4 min-w-0">
-                <span className="text-muted-foreground shrink-0">Preço atual</span>
+                <span className="text-muted-foreground">Preço atual</span>
                 <span className="font-medium tabular-nums text-right">{fmtPrice(asset.currentPrice)}</span>
-              </div>
-              <div className="flex items-center justify-between gap-4 min-w-0 border-t border-border pt-2 mt-1">
-                <span className="text-muted-foreground shrink-0">Valor de venda</span>
-                <span className="font-semibold tabular-nums text-right">{fmtPrice(asset.qty * asset.currentPrice)}</span>
+                <span className="text-muted-foreground border-t border-border pt-2">Valor de venda</span>
+                <span className="font-semibold tabular-nums text-right border-t border-border pt-2">{fmtPrice(asset.qty * asset.currentPrice)}</span>
               </div>
             </div>
           </AlertDialogDescription>
@@ -697,13 +693,16 @@ function AssetRow({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-destructive focus:text-destructive focus:bg-destructive/10"
-              onClick={() => onRemove({
-                assetId: a.assetId,
-                symbol: a.symbol,
-                currentPrice: a.currentPrice,
-                currency: a.currency,
-                qty: a.qty,
-              })}
+              onClick={() => {
+                // Aguarda o DropdownMenu fechar antes de abrir o AlertDialog
+                setTimeout(() => onRemove({
+                  assetId: a.assetId,
+                  symbol: a.symbol,
+                  currentPrice: a.currentPrice,
+                  currency: a.currency,
+                  qty: a.qty,
+                }), 100);
+              }}
             >
               <Trash2 className="mr-2 h-4 w-4" />
               Remover {a.symbol} da carteira

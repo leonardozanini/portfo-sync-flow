@@ -15,7 +15,7 @@ import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from "@/components/ui/command";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, ArrowDownToLine, ArrowUpFromLine, CalendarDays, Loader2, ChevronsUpDown, Check, Building2 } from "lucide-react";
+import { Plus, ArrowDownToLine, ArrowUpFromLine, CalendarDays, Loader2, ChevronsUpDown, Check, Building2, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { createTransaction, searchAssets, listBrokers, type AssetClass, type CurrencyCode } from "@/lib/portfolio.functions";
@@ -42,40 +42,146 @@ export type TxPreset = {
   lockAsset?: boolean;
 };
 
+// ── Tela de sucesso ──────────────────────────────────────────────────────────
+function SuccessScreen({
+  symbol,
+  total,
+  currency,
+  onNewTransaction,
+  onClose,
+}: {
+  symbol: string;
+  total: string;
+  currency: string;
+  onNewTransaction: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center py-6 gap-5 text-center">
+      {/* Ícone animado */}
+      <div className="relative flex items-center justify-center">
+        <div className="absolute h-24 w-24 rounded-full bg-success/10 animate-ping opacity-30" />
+        <div className="h-20 w-20 rounded-full bg-success/15 flex items-center justify-center">
+          <CheckCircle2 className="h-10 w-10 text-success" />
+        </div>
+      </div>
+
+      {/* Mensagem */}
+      <div className="space-y-1">
+        <h3 className="text-xl font-semibold">Lançamento realizado!</h3>
+        <p className="text-sm text-muted-foreground">
+          <span className="font-mono font-semibold text-foreground">{symbol}</span>
+          {" · "}
+          <span className="font-semibold text-foreground">{total}</span>
+        </p>
+        <p className="text-xs text-muted-foreground mt-1">
+          Pode levar alguns instantes para aparecer na carteira.
+        </p>
+      </div>
+
+      {/* Botões */}
+      <div className="flex flex-col sm:flex-row gap-3 w-full pt-2">
+        <Button
+          variant="outline"
+          className="flex-1"
+          onClick={onClose}
+        >
+          Voltar para a carteira
+        </Button>
+        <Button
+          className="flex-1"
+          onClick={onNewTransaction}
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          Novo lançamento
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Dialog principal ─────────────────────────────────────────────────────────
 export function NewTransactionDialog({
   open, onOpenChange, preset,
 }: { open: boolean; onOpenChange: (v: boolean) => void; preset?: TxPreset }) {
+  const [successInfo, setSuccessInfo] = useState<{ symbol: string; total: string; currency: string } | null>(null);
+  const [resetKey, setResetKey] = useState(0);
+
+  // Fecha o dialog e limpa o estado de sucesso
+  const handleClose = () => {
+    onOpenChange(false);
+    setTimeout(() => setSuccessInfo(null), 300); // aguarda animação fechar
+  };
+
+  // Abre para novo lançamento mantendo o dialog aberto
+  const handleNewTransaction = () => {
+    setSuccessInfo(null);
+    setResetKey((k) => k + 1); // força reset do formulário
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
       <DialogContent className="max-w-xl">
-        <DialogHeader>
-          <DialogTitle className="text-xl">
-            Adicionar Lançamento{preset?.symbol ? ` — ${preset.symbol}` : ""}
-          </DialogTitle>
-        </DialogHeader>
-        <Tabs defaultValue="buy" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 h-12 p-1 bg-muted/60">
-            <TabsTrigger value="buy" className="gap-2 data-[state=active]:bg-background data-[state=active]:shadow-sm">
-              <ArrowDownToLine className="h-4 w-4 text-success" />
-              <span className="font-medium">Compra</span>
-            </TabsTrigger>
-            <TabsTrigger value="sell" className="gap-2 data-[state=active]:bg-background data-[state=active]:shadow-sm">
-              <ArrowUpFromLine className="h-4 w-4 text-destructive" />
-              <span className="font-medium">Venda</span>
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="buy" className="mt-4">
-            <TxForm txType="buy" onClose={() => onOpenChange(false)} preset={preset} />
-          </TabsContent>
-          <TabsContent value="sell" className="mt-4">
-            <TxForm txType="sell" onClose={() => onOpenChange(false)} preset={preset} />
-          </TabsContent>
-        </Tabs>
+        {successInfo ? (
+          // Tela de sucesso
+          <>
+            <DialogHeader>
+              <DialogTitle className="text-xl">Adicionar Lançamento</DialogTitle>
+            </DialogHeader>
+            <SuccessScreen
+              symbol={successInfo.symbol}
+              total={successInfo.total}
+              currency={successInfo.currency}
+              onNewTransaction={handleNewTransaction}
+              onClose={handleClose}
+            />
+          </>
+        ) : (
+          // Formulário normal
+          <>
+            <DialogHeader>
+              <DialogTitle className="text-xl">
+                Adicionar Lançamento{preset?.symbol ? ` — ${preset.symbol}` : ""}
+              </DialogTitle>
+            </DialogHeader>
+            <Tabs key={resetKey} defaultValue="buy" className="w-full">
+              <TabsList className="grid w-full grid-cols-2 h-12 p-1 bg-muted/60">
+                <TabsTrigger value="buy" className="gap-2 data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                  <ArrowDownToLine className="h-4 w-4 text-success" />
+                  <span className="font-medium">Compra</span>
+                </TabsTrigger>
+                <TabsTrigger value="sell" className="gap-2 data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                  <ArrowUpFromLine className="h-4 w-4 text-destructive" />
+                  <span className="font-medium">Venda</span>
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="buy" className="mt-4">
+                <TxForm
+                  key={`buy-${resetKey}`}
+                  txType="buy"
+                  onClose={handleClose}
+                  onSuccess={setSuccessInfo}
+                  preset={preset}
+                />
+              </TabsContent>
+              <TabsContent value="sell" className="mt-4">
+                <TxForm
+                  key={`sell-${resetKey}`}
+                  txType="sell"
+                  onClose={handleClose}
+                  onSuccess={setSuccessInfo}
+                  preset={preset}
+                />
+              </TabsContent>
+            </Tabs>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );
 }
 
+// ── Combobox de ativo ────────────────────────────────────────────────────────
 function AssetCombobox({
   value, onChange, assetClass, onPickCurrency, disabled,
 }: {
@@ -173,7 +279,15 @@ function AssetCombobox({
   );
 }
 
-function TxForm({ txType, onClose, preset }: { txType: "buy" | "sell"; onClose: () => void; preset?: TxPreset }) {
+// ── Formulário ───────────────────────────────────────────────────────────────
+function TxForm({
+  txType, onClose, onSuccess, preset,
+}: {
+  txType: "buy" | "sell";
+  onClose: () => void;
+  onSuccess: (info: { symbol: string; total: string; currency: string }) => void;
+  preset?: TxPreset;
+}) {
   const [assetClass, setAssetClass] = useState<AssetClass>(preset?.assetClass ?? "stock");
   const [symbol, setSymbol] = useState(preset?.symbol ?? "");
   const [currency, setCurrency] = useState<CurrencyCode>(preset?.currency ?? "BRL");
@@ -197,20 +311,24 @@ function TxForm({ txType, onClose, preset }: { txType: "buy" | "sell"; onClose: 
   const qc = useQueryClient();
   const createTx = useServerFn(createTransaction);
 
+  const fmt = (v: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(v);
+
   const mutation = useMutation({
     mutationFn: createTx,
     onSuccess: () => {
-      toast.success("Lançamento adicionado");
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["asset-lots"] });
-      onClose();
+      // Mostra tela de sucesso ao invés de fechar
+      onSuccess({
+        symbol: symbol.trim().toUpperCase(),
+        total: fmt(total),
+        currency,
+      });
     },
     onError: (err: Error) => toast.error(err.message ?? "Erro ao salvar"),
   });
-
-  const fmt = (v: number) =>
-    new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(v);
 
   const submit = () => {
     if (!symbol.trim()) { toast.error("Informe o ativo (símbolo)"); return; }
@@ -326,6 +444,7 @@ function TxForm({ txType, onClose, preset }: { txType: "buy" | "sell"; onClose: 
   );
 }
 
+// ── MoneyInput ───────────────────────────────────────────────────────────────
 function MoneyInput({ cents, onChange, currency }: {
   cents: number;
   onChange: (cents: number) => void;
@@ -348,7 +467,7 @@ function MoneyInput({ cents, onChange, currency }: {
     } else if (/^\d$/.test(e.key)) {
       e.preventDefault();
       const next = cents * 10 + parseInt(e.key);
-      if (next <= 9_999_999_99) onChange(next); // max ~99M
+      if (next <= 9_999_999_99) onChange(next);
     }
   };
 
@@ -362,7 +481,7 @@ function MoneyInput({ cents, onChange, currency }: {
         inputMode="numeric"
         value={display}
         onKeyDown={handleKey}
-        onChange={() => {}} // controlled via keydown
+        onChange={() => {}}
         className="pl-10 tabular-nums"
         placeholder="0,00"
       />
@@ -370,6 +489,7 @@ function MoneyInput({ cents, onChange, currency }: {
   );
 }
 
+// ── Field ────────────────────────────────────────────────────────────────────
 function Field({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">

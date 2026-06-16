@@ -10,8 +10,10 @@ import {
 } from "@/components/ui/sheet";
 import {
   LayoutDashboard, ArrowRightLeft, Settings, Shield, LogOut, Sparkles, Wallet, Menu, TrendingUp,
+  Sun, Moon,
 } from "lucide-react";
 import { CurrencySwitcher } from "./CurrencySwitcher";
+import { useTheme } from "@/hooks/useTheme";
 import { type ReactNode, useState } from "react";
 
 const nav = [
@@ -79,6 +81,27 @@ function SidebarContent({ isAdmin, isPremium, onNavigate, safeTop = false }: {
   );
 }
 
+// ── Botão de toggle de tema ──────────────────────────────────────────────────
+function ThemeToggle() {
+  const { isDark, toggle } = useTheme();
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={toggle}
+      aria-label={isDark ? "Ativar modo claro" : "Ativar modo escuro"}
+      className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground transition-colors"
+    >
+      {isDark ? (
+        <Sun className="h-4 w-4 transition-transform duration-300 rotate-0" />
+      ) : (
+        <Moon className="h-4 w-4 transition-transform duration-300 rotate-0" />
+      )}
+    </Button>
+  );
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, isAdmin, isPremium, signOut } = useAuth();
   const router = useRouter();
@@ -114,8 +137,14 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Sheet>
             <Link to="/dashboard" className="font-semibold md:hidden">Folio</Link>
           </div>
-          <div className="ml-auto flex items-center gap-3">
+
+          <div className="ml-auto flex items-center gap-2">
             <CurrencySwitcher />
+
+            {/* Theme toggle */}
+            <ThemeToggle />
+
+            {/* Avatar + menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="h-9 w-9 rounded-full p-0">
@@ -142,6 +171,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </DropdownMenu>
           </div>
         </header>
+
         <main className="min-w-0 flex-1 overflow-x-hidden p-4 md:p-8"
           style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
           {children ?? <Outlet />}

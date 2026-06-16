@@ -496,50 +496,63 @@ function RemoveAssetDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className="max-w-sm mx-4 sm:max-w-md sm:mx-auto rounded-2xl overflow-hidden" style={{ zIndex: 9999 }}>
-        <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2">
-            <Trash2 className="h-5 w-5 text-destructive" />
+      <AlertDialogContent className="w-[90vw] max-w-sm p-6" style={{ zIndex: 9999 }}>
+        {/* Título */}
+        <AlertDialogHeader className="mb-3">
+          <AlertDialogTitle className="flex items-center gap-2 text-base">
+            <Trash2 className="h-4 w-4 text-destructive shrink-0" />
             Remover {asset.symbol} da carteira
           </AlertDialogTitle>
-          <AlertDialogDescription className="space-y-2 pt-1 overflow-hidden">
-            <p>Escolha como deseja remover este ativo:</p>
-            <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm w-full">
-              <div className="flex justify-between items-center py-1">
-                <span className="text-muted-foreground">Quantidade</span>
-                <span className="font-medium tabular-nums">{asset.qty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</span>
-              </div>
-              <div className="flex justify-between items-center py-1">
-                <span className="text-muted-foreground">Preço atual</span>
-                <span className="font-medium tabular-nums">{fmtPrice(asset.currentPrice)}</span>
-              </div>
-              <div className="flex justify-between items-center py-1 mt-1 border-t border-border">
-                <span className="text-muted-foreground">Valor de venda</span>
-                <span className="font-semibold tabular-nums">{fmtPrice(asset.qty * asset.currentPrice)}</span>
-              </div>
-            </div>
+          <AlertDialogDescription className="text-sm text-muted-foreground">
+            Escolha como deseja remover este ativo:
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <AlertDialogFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-2">
-          <AlertDialogCancel disabled={!!pending}>Cancelar</AlertDialogCancel>
+
+        {/* Card de informações */}
+        <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm mb-4">
+          <div className="flex justify-between py-1">
+            <span className="text-muted-foreground">Quantidade</span>
+            <span className="font-medium tabular-nums">
+              {asset.qty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}
+            </span>
+          </div>
+          <div className="flex justify-between py-1">
+            <span className="text-muted-foreground">Preço atual</span>
+            <span className="font-medium tabular-nums">{fmtPrice(asset.currentPrice)}</span>
+          </div>
+          <div className="flex justify-between py-1 border-t border-border mt-1 pt-2">
+            <span className="text-muted-foreground">Valor de venda</span>
+            <span className="font-semibold tabular-nums">{fmtPrice(asset.qty * asset.currentPrice)}</span>
+          </div>
+        </div>
+
+        {/* Botões — sempre empilhados verticalmente */}
+        <div className="flex flex-col gap-2">
           <Button
-            variant="outline"
-            className="border-destructive/40 text-destructive hover:bg-destructive/10"
-            disabled={!!pending}
-            onClick={() => handle("delete")}
-          >
-            {pending === "delete" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-            Excluir permanentemente
-          </Button>
-          <Button
-            className="bg-amber-500 hover:bg-amber-600 text-white"
+            className="w-full bg-amber-500 hover:bg-amber-600 text-white"
             disabled={!!pending}
             onClick={() => handle("sell")}
           >
-            {pending === "sell" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <TrendingDown className="mr-2 h-4 w-4" />}
+            {pending === "sell"
+              ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              : <TrendingDown className="mr-2 h-4 w-4" />}
             Registrar venda
           </Button>
-        </AlertDialogFooter>
+          <Button
+            variant="outline"
+            className="w-full border-destructive/40 text-destructive hover:bg-destructive/10"
+            disabled={!!pending}
+            onClick={() => handle("delete")}
+          >
+            {pending === "delete"
+              ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              : <Trash2 className="mr-2 h-4 w-4" />}
+            Excluir permanentemente
+          </Button>
+          <AlertDialogCancel disabled={!!pending} className="w-full mt-1">
+            Cancelar
+          </AlertDialogCancel>
+        </div>
       </AlertDialogContent>
     </AlertDialog>
   );

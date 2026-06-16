@@ -21,7 +21,7 @@ import {
   Plus, TrendingUp, TrendingDown, Wallet, PiggyBank, Coins, LineChart as LineIcon,
   ChevronDown, ChevronUp, BarChart3, Settings2, ArrowUpRight, ArrowDownRight,
   CheckCircle2, XCircle, MoreHorizontal, GripVertical, Landmark, Building2, Bitcoin,
-  Layers, ListOrdered,
+  Layers, ListOrdered, Trash2, TrendingDown,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
@@ -31,7 +31,12 @@ import { useDisplayCurrency } from "@/components/CurrencySwitcher";
 import { convert, formatMoney, type Currency } from "@/lib/currency";
 import { NewTransactionDialog, type TxPreset } from "@/components/NewTransactionDialog";
 import { AssetLotsDialog } from "@/components/AssetLotsDialog";
-import { getDashboard, getDividendSyncQueue, syncAssetDividends, type AssetClass, type AssetGroup, type GroupedAsset } from "@/lib/portfolio.functions";
+import { getDashboard, getDividendSyncQueue, syncAssetDividends, removeAssetFromPortfolio, type AssetClass, type AssetGroup, type GroupedAsset } from "@/lib/portfolio.functions";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
 const dashboardQueryOptions = queryOptions({
@@ -119,6 +124,7 @@ function Dashboard() {
   const { data } = useSuspenseQuery(dashboardQueryOptions);
   const qc = useQueryClient();
 
+  const [removeAsset, setRemoveAsset] = useState<{ assetId: string; symbol: string; currentPrice: number; currency: string; qty: number } | null>(null);
   const openNew = (p?: TxPreset) => { setPreset(p); setOpen(true); };
   const openLots = (a: { id: string; symbol: string }) => setLotsAsset(a);
 
@@ -167,6 +173,11 @@ function Dashboard() {
           onOpenChange={(v) => !v && setLotsAsset(null)}
           assetId={lotsAsset?.id ?? null}
           symbol={lotsAsset?.symbol}
+        />
+        <RemoveAssetDialog
+          asset={removeAsset}
+          open={!!removeAsset}
+          onOpenChange={(v) => !v && setRemoveAsset(null)}
         />
       </div>
 
@@ -352,7 +363,7 @@ function Dashboard() {
           <div className="space-y-3">
             {data.groups.map((g) => (
               <AssetGroupCard key={g.assetClass} group={g} currency={currency}
-                onAdd={(p) => openNew(p)} onShowLots={openLots} />
+                onAdd={(p) => openNew(p)} onShowLots={openLots} onRemove={setRemoveAsset} />
             ))}
           </div>
         )}
@@ -445,13 +456,103 @@ function LegendDot({ color, label }: { color: string; label: string }) {
   );
 }
 
+// ---------- RemoveAssetDialog ----------
+function RemoveAssetDialog({
+  asset,
+  open,
+  onOpenChange,
+}: {
+  asset: { assetId: string; symbol: string; currentPrice: number; currency: string; qty: number } | null;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
+  const qc = useQueryClient();
+  const removeFn = useServerFn(removeAssetFromPortfolio);
+  const [pending, setPending] = useState<"delete" | "sell" | null>(null);
+
+  if (!asset) return null;
+
+  const handle = async (mode: "delete" | "sell") => {
+    setPending(mode);
+    try {
+      await removeFn({ data: { assetId: asset.assetId, mode } });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["asset-lots"] });
+      toast.success(
+        mode === "sell"
+          ? `Venda de ${asset.symbol} registrada e ativo removido.`
+          : `${asset.symbol} e todos os lançamentos foram excluídos.`
+      );
+      onOpenChange(false);
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao remover ativo");
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const fmtPrice = (v: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: asset.currency }).format(v);
+
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent className="max-w-md">
+        <AlertDialogHeader>
+          <AlertDialogTitle className="flex items-center gap-2">
+            <Trash2 className="h-5 w-5 text-destructive" />
+            Remover {asset.symbol} da carteira
+          </AlertDialogTitle>
+          <AlertDialogDescription className="space-y-2 pt-1">
+            <p>Escolha como deseja remover este ativo:</p>
+            <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm space-y-1">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Quantidade</span>
+                <span className="font-medium">{asset.qty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Preço atual</span>
+                <span className="font-medium">{fmtPrice(asset.currentPrice)}</span>
+              </div>
+              <div className="flex justify-between border-t border-border pt-1 mt-1">
+                <span className="text-muted-foreground">Valor de venda</span>
+                <span className="font-semibold">{fmtPrice(asset.qty * asset.currentPrice)}</span>
+              </div>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter className="flex-col sm:flex-row gap-2 sm:gap-2">
+          <AlertDialogCancel disabled={!!pending}>Cancelar</AlertDialogCancel>
+          <Button
+            variant="outline"
+            className="border-destructive/40 text-destructive hover:bg-destructive/10"
+            disabled={!!pending}
+            onClick={() => handle("delete")}
+          >
+            {pending === "delete" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+            Excluir permanentemente
+          </Button>
+          <Button
+            className="bg-amber-500 hover:bg-amber-600 text-white"
+            disabled={!!pending}
+            onClick={() => handle("sell")}
+          >
+            {pending === "sell" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <TrendingDown className="mr-2 h-4 w-4" />}
+            Registrar venda
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 function AssetGroupCard({
-  group, currency, onAdd, onShowLots,
+  group, currency, onAdd, onShowLots, onRemove,
 }: {
   group: AssetGroup;
   currency: Currency;
   onAdd: (preset?: TxPreset) => void;
   onShowLots: (a: { id: string; symbol: string }) => void;
+  onRemove: (a: { assetId: string; symbol: string; currentPrice: number; currency: string; qty: number }) => void;
 }) {
   const [open, setOpen] = useState(true);
   const Icon = CLASS_ICONS[group.assetClass] ?? Layers;
@@ -502,7 +603,7 @@ function AssetGroupCard({
                   {group.assets.map((a) => (
                     <AssetRow key={a.assetId} a={a} currency={currency}
                       groupValue={group.totalValueBRL}
-                      onAdd={onAdd} onShowLots={onShowLots} />
+                      onAdd={onAdd} onShowLots={onShowLots} onRemove={onRemove} />
                   ))}
                 </TableBody>
               </Table>
@@ -526,11 +627,12 @@ function AssetGroupCard({
 }
 
 function AssetRow({
-  a, currency, groupValue, onAdd, onShowLots,
+  a, currency, groupValue, onAdd, onShowLots, onRemove,
 }: {
   a: GroupedAsset; currency: Currency; groupValue: number;
   onAdd: (preset?: TxPreset) => void;
   onShowLots: (a: { id: string; symbol: string }) => void;
+  onRemove: (a: { assetId: string; symbol: string; currentPrice: number; currency: string; qty: number }) => void;
 }) {
   const pctInGroup = groupValue > 0 ? (a.balanceBRL / groupValue) * 100 : 0;
   const initials = a.symbol.slice(0, 2);
@@ -591,6 +693,20 @@ function AssetRow({
             <DropdownMenuItem onClick={() => onShowLots({ id: a.assetId, symbol: a.symbol })}>
               <ListOrdered className="mr-2 h-4 w-4" />
               Ver lançamentos detalhados
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive focus:bg-destructive/10"
+              onClick={() => onRemove({
+                assetId: a.assetId,
+                symbol: a.symbol,
+                currentPrice: a.currentPrice,
+                currency: a.currency,
+                qty: a.qty,
+              })}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Remover {a.symbol} da carteira
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

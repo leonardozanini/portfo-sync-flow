@@ -122,3 +122,17 @@
     font-feature-settings: "cv02","cv03","cv04","cv11";
   }
 }
+
+/* ── Ticker tape animation ── */
+@keyframes ticker {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-ticker {
+  animation: ticker linear infinite;
+}
+
+.animate-ticker:hover {
+  animation-play-state: paused;
+}

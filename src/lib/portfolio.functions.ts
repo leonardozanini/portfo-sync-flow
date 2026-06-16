@@ -1521,3 +1521,80 @@ export const deleteAsset = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true };
   });
+
+// ---------- removeAssetFromPortfolio ----------
+// Remove um ativo da carteira do usuário — duas modalidades:
+// mode "delete": apaga todos os lançamentos do ativo para o usuário
+// mode "sell"  : cria um lançamento de venda pelo preço atual e apaga os demais (saldo zerado)
+export const removeAssetFromPortfolio = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({
+      assetId: z.string().uuid(),
+      mode: z.enum(["delete", "sell"]),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+
+    // Busca todos os lançamentos de compra do ativo para o usuário
+    const { data: txs, error: txErr } = await supabase
+      .from("transactions")
+      .select("id, quantity, unit_price, currency, tx_type")
+      .eq("asset_id", data.assetId)
+      .eq("user_id", userId);
+
+    if (txErr) throw new Error(txErr.message);
+    if (!txs || txs.length === 0) throw new Error("Nenhum lançamento encontrado para este ativo.");
+
+    if (data.mode === "sell") {
+      // Calcula quantidade líquida (compras - vendas)
+      let netQty = 0;
+      for (const tx of txs) {
+        if (tx.tx_type === "buy") netQty += Number(tx.quantity);
+        if (tx.tx_type === "sell") netQty -= Number(tx.quantity);
+      }
+
+      if (netQty > 0) {
+        // Busca o preço atual do ativo
+        const { data: priceRow } = await supabase
+          .from("asset_prices")
+          .select("close_price")
+          .eq("asset_id", data.assetId)
+          .order("fetched_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const currentPrice = priceRow?.close_price ?? txs.find(t => t.tx_type === "buy")?.unit_price ?? 0;
+        const currency = txs.find(t => t.tx_type === "buy")?.currency ?? "BRL";
+
+        // Insere lançamento de venda com a quantidade líquida ao preço atual
+        const { error: sellErr } = await supabase.from("transactions").insert({
+          user_id: userId,
+          asset_id: data.assetId,
+          tx_type: "sell",
+          quantity: netQty,
+          unit_price: currentPrice,
+          currency,
+          occurred_at: new Date().toISOString().slice(0, 10),
+          notes: "Venda gerada automaticamente ao remover ativo da carteira",
+        });
+        if (sellErr) throw new Error(sellErr.message);
+      }
+    }
+
+    // Apaga todos os lançamentos do ativo para o usuário (exceto a venda que acabamos de criar no modo sell)
+    const idsToDelete = data.mode === "sell"
+      ? txs.map((t: { id: string }) => t.id) // apaga todos os antigos; a venda nova não está na lista
+      : txs.map((t: { id: string }) => t.id);
+
+    const { error: delErr } = await supabase
+      .from("transactions")
+      .delete()
+      .in("id", idsToDelete)
+      .eq("user_id", userId);
+
+    if (delErr) throw new Error(delErr.message);
+
+    return { ok: true as const };
+  });

@@ -292,6 +292,12 @@ function TxForm({
   const [symbol, setSymbol] = useState(preset?.symbol ?? "");
   const [currency, setCurrency] = useState<CurrencyCode>(preset?.currency ?? "BRL");
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  // Display format dd/mm/aaaa for mobile friendliness
+  const todayDisplay = (() => {
+    const d = new Date();
+    return `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;
+  })();
+  const [dateDisplay, setDateDisplay] = useState<string>(todayDisplay);
   const [qty, setQty] = useState<string>("");
   const [priceCents, setPriceCents] = useState<number>(0);
   const [feesCents, setFeesCents] = useState<number>(0);
@@ -372,7 +378,26 @@ function TxForm({
         <Field label="Data da transação">
           <div className="relative">
             <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="pl-9" />
+            <Input
+              type="text"
+              inputMode="numeric"
+              placeholder="DD/MM/AAAA"
+              value={dateDisplay}
+              onChange={(e) => {
+                // Máscara dd/mm/aaaa
+                const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
+                let masked = digits;
+                if (digits.length > 2) masked = digits.slice(0, 2) + "/" + digits.slice(2);
+                if (digits.length > 4) masked = digits.slice(0, 2) + "/" + digits.slice(2, 4) + "/" + digits.slice(4);
+                setDateDisplay(masked);
+                // Converte para yyyy-mm-dd quando completo
+                if (digits.length === 8) {
+                  const d = digits.slice(0, 2), m = digits.slice(2, 4), y = digits.slice(4, 8);
+                  setDate(`${y}-${m}-${d}`);
+                }
+              }}
+              className="pl-9"
+            />
           </div>
         </Field>
         <Field label="Quantidade">

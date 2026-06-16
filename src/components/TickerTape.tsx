@@ -58,14 +58,14 @@ function TickerItem({ item }: { item: TickerItem }) {
   const pos = item.change >= 0;
   return (
     <span className="inline-flex items-center gap-1.5 px-4 whitespace-nowrap">
-      <span className="font-semibold text-zinc-100 dark:text-zinc-900 text-xs tracking-wide">
+      <span className="font-semibold text-foreground text-sm tracking-wide">
         {item.symbol}
       </span>
-      <span className="text-xs text-zinc-400 dark:text-zinc-600 tabular-nums">
+      <span className="text-sm text-muted-foreground tabular-nums">
         {item.currency === "BRL" ? "R$" : item.currency === "EUR" ? "€" : "$"}{" "}
         {item.price}
       </span>
-      <span className={`inline-flex items-center gap-0.5 text-xs font-medium tabular-nums ${
+      <span className={`inline-flex items-center gap-0.5 text-sm font-medium tabular-nums ${
         pos ? "text-emerald-500" : "text-red-500"
       }`}>
         {pos
@@ -73,7 +73,7 @@ function TickerItem({ item }: { item: TickerItem }) {
           : <TrendingDown className="h-3 w-3" />}
         {pos ? "+" : ""}{item.change.toFixed(2)}%
       </span>
-      <span className="text-zinc-600 dark:text-zinc-400 ml-2 select-none">·</span>
+      <span className="text-border ml-2 select-none">·</span>
     </span>
   );
 }
@@ -105,10 +105,10 @@ export function TickerTape({ portfolioItems }: { portfolioItems: TickerItem[] })
   if (allItems.length === 0) return null;
 
   return (
-    <div className="relative w-full overflow-hidden border-b h-8 flex items-center bg-zinc-900 dark:bg-zinc-100">
+    <div className="relative w-full overflow-hidden border-b bg-card h-9 flex items-center">
       {/* Gradiente nas bordas */}
-      <div className="pointer-events-none absolute left-0 top-0 h-full w-12 z-10 bg-gradient-to-r from-zinc-900 dark:from-zinc-100 to-transparent" />
-      <div className="pointer-events-none absolute right-0 top-0 h-full w-12 z-10 bg-gradient-to-l from-zinc-900 dark:from-zinc-100 to-transparent" />
+      <div className="pointer-events-none absolute left-0 top-0 h-full w-12 z-10 bg-gradient-to-r from-card to-transparent" />
+      <div className="pointer-events-none absolute right-0 top-0 h-full w-12 z-10 bg-gradient-to-l from-card to-transparent" />
 
       {/* Faixa rolante */}
       <div

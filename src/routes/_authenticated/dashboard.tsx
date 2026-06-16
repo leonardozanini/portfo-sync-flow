@@ -496,7 +496,7 @@ function RemoveAssetDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className="max-w-md">
+      <AlertDialogContent className="max-w-md w-[calc(100vw-2rem)] sm:w-full z-50">
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
             <Trash2 className="h-5 w-5 text-destructive" />
@@ -504,23 +504,23 @@ function RemoveAssetDialog({
           </AlertDialogTitle>
           <AlertDialogDescription className="space-y-2 pt-1">
             <p>Escolha como deseja remover este ativo:</p>
-            <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm space-y-1">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Quantidade</span>
-                <span className="font-medium">{asset.qty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</span>
+            <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm space-y-2 w-full">
+              <div className="flex items-center justify-between gap-4 min-w-0">
+                <span className="text-muted-foreground shrink-0">Quantidade</span>
+                <span className="font-medium tabular-nums text-right">{asset.qty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Preço atual</span>
-                <span className="font-medium">{fmtPrice(asset.currentPrice)}</span>
+              <div className="flex items-center justify-between gap-4 min-w-0">
+                <span className="text-muted-foreground shrink-0">Preço atual</span>
+                <span className="font-medium tabular-nums text-right">{fmtPrice(asset.currentPrice)}</span>
               </div>
-              <div className="flex justify-between border-t border-border pt-1 mt-1">
-                <span className="text-muted-foreground">Valor de venda</span>
-                <span className="font-semibold">{fmtPrice(asset.qty * asset.currentPrice)}</span>
+              <div className="flex items-center justify-between gap-4 min-w-0 border-t border-border pt-2 mt-1">
+                <span className="text-muted-foreground shrink-0">Valor de venda</span>
+                <span className="font-semibold tabular-nums text-right">{fmtPrice(asset.qty * asset.currentPrice)}</span>
               </div>
             </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <AlertDialogFooter className="flex-col sm:flex-row gap-2 sm:gap-2">
+        <AlertDialogFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-2">
           <AlertDialogCancel disabled={!!pending}>Cancelar</AlertDialogCancel>
           <Button
             variant="outline"

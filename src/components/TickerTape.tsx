@@ -126,7 +126,7 @@ export function TickerTape({ portfolioItems }: { portfolioItems: TickerItem[] })
   );
 }
 
-// ── Hook para buscar os maiores ativos da carteira ───────────────────────────
+// ── Hook para buscar o maior ativo por classe da carteira ───────────────────
 export function usePortfolioTicker(): TickerItem[] {
   const getDashboardFn = useServerFn(getDashboard);
   const { data } = useQuery({
@@ -137,18 +137,20 @@ export function usePortfolioTicker(): TickerItem[] {
 
   if (!data?.groups) return [];
 
-  // Pega os top 8 ativos por saldo
-  const allAssets = data.groups.flatMap((g) => g.assets);
-  return allAssets
-    .sort((a, b) => b.balanceBRL - a.balanceBRL)
-    .slice(0, 8)
-    .map((a) => ({
-      symbol: a.symbol,
-      price: a.currentPrice.toLocaleString("pt-BR", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
-      change: a.variation,
-      currency: a.currency,
-    }));
+  // Pega o ativo com maior saldo de cada grupo (classe de ativo)
+  return data.groups
+    .map((g) => {
+      const top = [...g.assets].sort((a, b) => b.balanceBRL - a.balanceBRL)[0];
+      if (!top) return null;
+      return {
+        symbol: top.symbol,
+        price: top.currentPrice.toLocaleString("pt-BR", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }),
+        change: top.variation,
+        currency: top.currency,
+      };
+    })
+    .filter(Boolean) as TickerItem[];
 }

@@ -2,5 +2,15 @@
   "buildCommand": "npm run build",
   "outputDirectory": ".vercel/output",
   "installCommand": "npm install",
-  "framework": null
+  "framework": null,
+  "crons": [
+    {
+      "path": "/api/cron/sync-fx",
+      "schedule": "0 0 * * 1-5"
+    },
+    {
+      "path": "/api/cron/refresh-prices",
+      "schedule": "0 14,21 * * 1-5"
+    }
+  ]
 }

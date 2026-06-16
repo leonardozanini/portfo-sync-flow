@@ -58,10 +58,10 @@ function TickerItem({ item }: { item: TickerItem }) {
   const pos = item.change >= 0;
   return (
     <span className="inline-flex items-center gap-1.5 px-4 whitespace-nowrap">
-      <span className="font-semibold text-foreground text-sm tracking-wide">
+      <span className="font-semibold text-background dark:text-foreground text-sm tracking-wide">
         {item.symbol}
       </span>
-      <span className="text-sm text-muted-foreground tabular-nums">
+      <span className="text-sm text-background/70 dark:text-muted-foreground tabular-nums">
         {item.currency === "BRL" ? "R$" : item.currency === "EUR" ? "€" : "$"}{" "}
         {item.price}
       </span>
@@ -73,7 +73,7 @@ function TickerItem({ item }: { item: TickerItem }) {
           : <TrendingDown className="h-3 w-3" />}
         {pos ? "+" : ""}{item.change.toFixed(2)}%
       </span>
-      <span className="text-border ml-2 select-none">·</span>
+      <span className="text-background/30 dark:text-border ml-2 select-none">·</span>
     </span>
   );
 }
@@ -105,10 +105,10 @@ export function TickerTape({ portfolioItems }: { portfolioItems: TickerItem[] })
   if (allItems.length === 0) return null;
 
   return (
-    <div className="relative w-full overflow-hidden border-b bg-card h-9 flex items-center">
+    <div className="relative w-full overflow-hidden border-b h-9 flex items-center bg-foreground dark:bg-background">
       {/* Gradiente nas bordas */}
-      <div className="pointer-events-none absolute left-0 top-0 h-full w-12 z-10 bg-gradient-to-r from-card to-transparent" />
-      <div className="pointer-events-none absolute right-0 top-0 h-full w-12 z-10 bg-gradient-to-l from-card to-transparent" />
+      <div className="pointer-events-none absolute left-0 top-0 h-full w-12 z-10 bg-gradient-to-r from-foreground dark:from-background to-transparent" />
+      <div className="pointer-events-none absolute right-0 top-0 h-full w-12 z-10 bg-gradient-to-l from-foreground dark:from-background to-transparent" />
 
       {/* Faixa rolante */}
       <div

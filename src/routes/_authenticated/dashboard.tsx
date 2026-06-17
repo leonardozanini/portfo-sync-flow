@@ -211,19 +211,18 @@ function Dashboard() {
         />
         <KpiCard
           icon={LineIcon}
-          title="Variação do dia"
-          value={`${t.dayVariation > 0 ? "+" : ""}${t.dayVariation.toFixed(2)}%`}
-          valueTone={t.dayVariation >= 0 ? "success" : "destructive"}
+          title="Rentabilidade"
+          value={`${t.yieldPct >= 0 ? "+" : ""}${t.yieldPct.toFixed(2)}%`}
+          valueTone={t.yieldPct >= 0 ? "success" : "destructive"}
           twoCols={[
-            {
-              label: "Rentabilidade total",
-              value: `${t.yieldPct >= 0 ? "+" : ""}${t.yieldPct.toFixed(2)}%`,
-              tone: t.yieldPct >= 0 ? "success" : "destructive",
-            },
             {
               label: "Lucro/Prejuízo",
               value: formatMoney(pnl, currency),
               tone: pnl >= 0 ? "success" : "destructive",
+            },
+            {
+              label: "Valor investido",
+              value: formatMoney(invested, currency),
             },
           ]}
         />

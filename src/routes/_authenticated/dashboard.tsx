@@ -297,7 +297,7 @@ function Dashboard() {
                     <LegendDot color="hsl(142 71% 75%)" label="Ganho de Capital" />
                   </div>
                   <ResponsiveContainer width="100%" height="90%">
-                    <BarChart data={equityData} barCategoryGap={equityPeriod === "6" ? 18 : equityPeriod === "12" ? 12 : 6}>
+                    <BarChart data={equityData} barCategoryGap={equityPeriod === "6" ? 12 : equityPeriod === "12" ? 8 : 4}>
                       <CartesianGrid strokeDasharray="4 4" stroke="var(--color-border)" vertical={false} />
                       <XAxis dataKey="date" fontSize={11} stroke="var(--color-muted-foreground)" />
                       <YAxis fontSize={11} stroke="var(--color-muted-foreground)"

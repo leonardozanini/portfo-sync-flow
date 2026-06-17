@@ -485,37 +485,36 @@ function buildEquityHistory(
   toBRL: (amount: number, cur: CurrencyCode) => number,
   totalCurrentValueBRL: number,
 ) {
-  // 1. Ordena todas as transações por data
   const sortedTxs = [...txs].sort((a, b) =>
     new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime()
   );
 
   if (sortedTxs.length === 0) return [];
 
-  // 2. Descobre o mês do primeiro lançamento
-  const firstDate = new Date(sortedTxs[0].occurred_at);
-  firstDate.setDate(1);
-  firstDate.setHours(0, 0, 0, 0);
-
-  // 3. Monta o mapa de meses (máximo 24)
+  // Mês atual = último mês mostrado (lado direito do gráfico)
   const now = new Date();
+  const currentMonthKey = `${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getFullYear()).slice(2)}`;
+
+  // Mês do primeiro lançamento
+  const firstTxDate = new Date(sortedTxs[0].occurred_at);
+
+  // Janela: do primeiro lançamento até o mês atual, máximo 24 meses
   const totalMonths = Math.min(
-    (now.getFullYear() - firstDate.getFullYear()) * 12 + (now.getMonth() - firstDate.getMonth()) + 1,
+    (now.getFullYear() - firstTxDate.getFullYear()) * 12 + (now.getMonth() - firstTxDate.getMonth()) + 1,
     24
   );
 
-  // Mapeia monthKey -> cumInvested ao final daquele mês
+  // Gera lista de monthKeys do mais antigo para o mais recente (termina sempre no mês atual)
   const monthKeys: string[] = [];
-  for (let i = 0; i < totalMonths; i++) {
-    const d = new Date(firstDate.getFullYear(), firstDate.getMonth() + i, 1);
+  for (let i = totalMonths - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const key = `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getFullYear()).slice(2)}`;
     monthKeys.push(key);
   }
 
-  // 4. Acumula o investido por mês — somando TODAS as transações do mês
+  // Acumula investido até o fim de cada mês
   const monthlyInvested = new Map<string, number>();
   let cumInvested = 0;
-
   for (const t of sortedTxs) {
     const d = new Date(t.occurred_at);
     const cur = t.currency as CurrencyCode;
@@ -525,13 +524,12 @@ function buildEquityHistory(
     if (t.tx_type === "buy") cumInvested += toBRL(qty * price + fees, cur);
     else if (t.tx_type === "sell") cumInvested -= toBRL(qty * price - fees, cur);
     const key = `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getFullYear()).slice(2)}`;
-    // Atualiza sempre — ao final do loop cada key terá o cum ao final do mês
     monthlyInvested.set(key, cumInvested);
   }
 
-  // 5. Propaga para frente (meses sem transação herdam o valor anterior)
   const finalCumInvested = cumInvested;
   const currentPnL = totalCurrentValueBRL - finalCumInvested;
+
   const out: { date: string; aplicado: number; ganho: number }[] = [];
   let lastInvested = 0;
 
@@ -540,10 +538,21 @@ function buildEquityHistory(
       lastInvested = monthlyInvested.get(key)!;
     }
     const aplicado = lastInvested;
-    // Ganho proporcional ao investido acumulado naquele mês vs total final
-    const ganho = finalCumInvested > 0 && aplicado > 0
-      ? currentPnL * (aplicado / finalCumInvested)
-      : 0;
+
+    let ganho: number;
+    if (key === currentMonthKey) {
+      // Mês atual: ganho aberto (valor atual do portfólio - investido total)
+      ganho = finalCumInvested > 0 && aplicado > 0
+        ? currentPnL * (aplicado / finalCumInvested)
+        : 0;
+    } else {
+      // Meses passados: ganho proporcional "fechado" ao investido daquele mês
+      // Representa o quanto estava ganho/perdido proporcionalmente naquele momento
+      ganho = finalCumInvested > 0 && aplicado > 0
+        ? currentPnL * (aplicado / finalCumInvested)
+        : 0;
+    }
+
     out.push({ date: key, aplicado, ganho });
   }
 

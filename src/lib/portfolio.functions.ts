@@ -9,7 +9,7 @@ export type AssetClass =
   | "crypto" | "fixed_income" | "fund" | "cash" | "other";
 export type TxType = "buy" | "sell" | "dividend" | "deposit" | "withdraw";
 export type CurrencyCode = "BRL" | "USD" | "EUR" | "GBP" | "JPY";
-export type MarketCode = "B3" | "NYSE" | "NASDAQ" | "LSE" | "TSE" | "CRYPTO" | "OTHER";
+export type MarketCode = "B3" | "NYSE" | "NASDAQ" | "LSE" | "XETRA" | "TSE" | "CRYPTO" | "OTHER";
 
 // Horários de pregão (UTC, aproximados, sem ajuste DST). Seg-Sex.
 // Crypto: 24/7. OTHER: sempre considerado fechado para refresh automático.
@@ -18,6 +18,7 @@ const MARKET_HOURS_UTC: Record<MarketCode, { open: number; close: number } | "al
   NYSE:   { open: 14 * 60 + 30,   close: 21 * 60 },      // 09:30-16:00 EST
   NASDAQ: { open: 14 * 60 + 30,   close: 21 * 60 },
   LSE:    { open: 8 * 60,         close: 16 * 60 + 30 }, // 08:00-16:30 GMT
+  XETRA:  { open: 8 * 60,         close: 16 * 60 + 30 }, // 08:00-16:30 CET
   TSE:    { open: 0,              close: 6 * 60 },       // 09:00-15:00 JST
   CRYPTO: "always",
   OTHER:  "never",
@@ -42,7 +43,8 @@ export function defaultMarketFor(currency: CurrencyCode, klass: AssetClass): Mar
   if (klass === "crypto") return "CRYPTO";
   if (currency === "BRL") return "B3";
   if (currency === "USD") return "NYSE";
-  if (currency === "EUR" || currency === "GBP") return "LSE";
+  if (currency === "EUR") return "XETRA";
+  if (currency === "GBP") return "LSE";
   if (currency === "JPY") return "TSE";
   return "OTHER";
 }
@@ -120,13 +122,15 @@ function priceSymbolFor(symbol: string, klass: AssetClass, currency: CurrencyCod
     if (yahooTicker.includes(".")) return yahooTicker.toLowerCase();
     if (currency === "USD") return `${s}.US`.toLowerCase();
     if (currency === "BRL") return `${s}.SA`.toLowerCase();
+    if (currency === "EUR") return `${s}.DE`.toLowerCase();
+    if (currency === "GBP") return `${s}.UK`.toLowerCase();
     return yahooTicker.toLowerCase();
   })();
 
   // Twelve Data uses plain ticker for US stocks, ticker:exchange for others
   const twelveSymbol = (() => {
     if (klass === "crypto") return `${s}/USD`; // crypto via Yahoo instead
-    if (yahooTicker.includes(".DE")) return `${s}:XETRA`;
+    if (yahooTicker.includes(".DE") || currency === "EUR") return `${s}:XETRA`;
     if (currency === "BRL") return `${s}:BOVESPA`;
     return s; // US stocks: plain symbol
   })();

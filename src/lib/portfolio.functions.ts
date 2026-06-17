@@ -243,13 +243,14 @@ export const getDashboard = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<DashboardData> => {
     const { supabase, userId } = context;
 
-    const [txRes, assetsRes, pricesRes, fxRes, rolesRes, brokersRes] = await Promise.all([
+    const [txRes, assetsRes, pricesRes, fxRes, rolesRes, brokersRes, snapshotsRes] = await Promise.all([
       supabase.from("transactions").select("*").eq("user_id", userId).order("occurred_at", { ascending: true }),
       supabase.from("assets").select("*"),
       supabase.from("asset_prices").select("asset_id, close_price, price_date, fetched_at").order("fetched_at", { ascending: false }),
       supabase.from("fx_rates").select("base, quote, rate, rate_date").order("rate_date", { ascending: false }),
       supabase.from("user_roles").select("role").eq("user_id", userId),
       (supabase as any).from("brokers").select("id, name, color").eq("user_id", userId),
+      supabase.from("portfolio_snapshots").select("snapshot_date, total_value, total_invested, pnl").eq("user_id", userId).order("snapshot_date", { ascending: true }),
     ]);
     if (txRes.error) throw new Error(txRes.error.message);
 
@@ -431,7 +432,8 @@ export const getDashboard = createServerFn({ method: "GET" })
 
     // Equity history: cumulative invested + value-at-month-end from snapshots if present,
     // otherwise derive monthly cumulative invested from transactions.
-    const equity = buildEquityHistory(txs, toBRL, totalValueBRL);
+    const snapshots = (snapshotsRes.data ?? []) as Array<{ snapshot_date: string; total_value: number; total_invested: number; pnl: number }>;
+    const equity = buildEquityHistory(txs, toBRL, totalValueBRL, snapshots);
 
     // Broker allocation
     const brokerValueMap = new Map<string, number>(); // brokerId → totalValueBRL
@@ -484,6 +486,7 @@ function buildEquityHistory(
   txs: Array<{ occurred_at: string; tx_type: string; quantity: number | string; unit_price: number | string; fees: number | string | null; currency: string }>,
   toBRL: (amount: number, cur: CurrencyCode) => number,
   totalCurrentValueBRL: number,
+  snapshots: Array<{ snapshot_date: string; total_value: number; total_invested: number; pnl: number }> = [],
 ) {
   const sortedTxs = [...txs].sort((a, b) =>
     new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime()
@@ -541,16 +544,31 @@ function buildEquityHistory(
 
     let ganho: number;
     if (key === currentMonthKey) {
-      // Mês atual: ganho aberto (valor atual do portfólio - investido total)
+      // Mês atual: ganho aberto — usa valor real atual do portfólio
       ganho = finalCumInvested > 0 && aplicado > 0
         ? currentPnL * (aplicado / finalCumInvested)
         : 0;
     } else {
-      // Meses passados: ganho proporcional "fechado" ao investido daquele mês
-      // Representa o quanto estava ganho/perdido proporcionalmente naquele momento
-      ganho = finalCumInvested > 0 && aplicado > 0
-        ? currentPnL * (aplicado / finalCumInvested)
-        : 0;
+      // Meses passados: busca o snapshot travado do último dia do mês
+      // O snapshot_date é YYYY-MM-DD, o key é MM/YY
+      const [mm, yy] = key.split("/");
+      const fullYear = `20${yy}`;
+      const snapshotForMonth = snapshots
+        .filter(s => s.snapshot_date.startsWith(`${fullYear}-${mm}`))
+        .sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date))[0];
+
+      if (snapshotForMonth) {
+        // Usa o PnL real travado do snapshot do último dia do mês
+        ganho = Number(snapshotForMonth.pnl);
+        // Sobrescreve aplicado com o investido real do snapshot
+        out.push({ date: key, aplicado: Number(snapshotForMonth.total_invested), ganho });
+        continue;
+      } else {
+        // Sem snapshot ainda: usa estimativa proporcional
+        ganho = finalCumInvested > 0 && aplicado > 0
+          ? currentPnL * (aplicado / finalCumInvested)
+          : 0;
+      }
     }
 
     out.push({ date: key, aplicado, ganho });
@@ -636,6 +654,7 @@ export const listTransactions = createServerFn({ method: "GET" })
       supabase.from("transactions").select("*").eq("user_id", userId).order("occurred_at", { ascending: false }),
       supabase.from("assets").select("id, symbol, name, asset_class, currency"),
       (supabase as any).from("brokers").select("id, name, color").eq("user_id", userId),
+      supabase.from("portfolio_snapshots").select("snapshot_date, total_value, total_invested, pnl").eq("user_id", userId).order("snapshot_date", { ascending: true }),
     ]);
     if (txRes.error) throw new Error(txRes.error.message);
     const assetById = new Map((assetsRes.data ?? []).map((a) => [a.id, a]));

@@ -15,7 +15,7 @@ import {
   AlertTriangle, Trash2, TrendingUp, Building2, Globe, BarChart3,
 } from "lucide-react";
 import { toast } from "sonner";
-import { analyzeAsset, listAnalyses, deleteAnalysis } from "@/lib/portfolio.functions";
+import { analyzeAsset, listAnalyses, deleteAnalysis, askFollowUp } from "@/lib/portfolio.functions";
 
 // ── Frameworks de análise disponíveis ────────────────────────────────────────
 
@@ -260,6 +260,144 @@ function AnalysisCard({ analysis, onDelete }: { analysis: any; onDelete: (id: st
   );
 }
 
+
+// ── Tipos do chat ─────────────────────────────────────────────────────────────
+
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+// ── Chat de follow-up ─────────────────────────────────────────────────────────
+
+function FollowUpChat({ analysisText, ticker }: { analysisText: string; ticker: string }) {
+  const askFn = useServerFn(askFollowUp);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const scrollToBottom = () => {
+    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+  };
+
+  const send = async () => {
+    const question = input.trim();
+    if (!question || loading) return;
+
+    const newMessages: ChatMessage[] = [...messages, { role: "user", content: question }];
+    setMessages(newMessages);
+    setInput("");
+    setLoading(true);
+    scrollToBottom();
+
+    try {
+      const data = await askFn({
+        data: { ticker, analysisText, messages: newMessages },
+      });
+      setMessages(prev => [...prev, { role: "assistant", content: (data as any).answer }]);
+      scrollToBottom();
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao responder pergunta");
+    } finally {
+      setLoading(false);
+      inputRef.current?.focus();
+    }
+  };
+
+  return (
+    <div className="border-t border-border pt-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <Brain className="h-4 w-4 text-primary" />
+        <span className="text-sm font-medium text-foreground">Perguntas sobre a análise</span>
+        <span className="text-xs text-muted-foreground">— tire dúvidas com base no que foi analisado</span>
+      </div>
+
+      {/* Histórico de mensagens */}
+      {messages.length > 0 && (
+        <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
+          {messages.map((msg, i) => (
+            <div key={i} className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}>
+              <div className={`h-7 w-7 rounded-full shrink-0 grid place-items-center text-xs font-bold ${
+                msg.role === "user"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground"
+              }`}>
+                {msg.role === "user" ? "V" : "IA"}
+              </div>
+              <div className={`flex-1 rounded-xl px-3 py-2 text-sm max-w-[85%] ${
+                msg.role === "user"
+                  ? "bg-primary/10 text-foreground ml-auto"
+                  : "bg-muted/50 text-foreground"
+              }`}>
+                {msg.role === "assistant"
+                  ? <AnalysisResult text={msg.content} />
+                  : <p>{msg.content}</p>
+                }
+              </div>
+            </div>
+          ))}
+          {loading && (
+            <div className="flex gap-3">
+              <div className="h-7 w-7 rounded-full shrink-0 grid place-items-center bg-muted">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+              </div>
+              <div className="bg-muted/50 rounded-xl px-3 py-2 text-sm text-muted-foreground">
+                Analisando sua pergunta…
+              </div>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
+      )}
+
+      {/* Input */}
+      <div className="flex gap-2">
+        <Input
+          ref={inputRef}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send()}
+          placeholder={`Pergunte sobre a análise de ${ticker}… (ex: O que é NIM ajustado ao risco?)`}
+          disabled={loading}
+          className="flex-1 text-sm"
+        />
+        <Button
+          onClick={send}
+          disabled={!input.trim() || loading}
+          size="icon"
+          className="shrink-0"
+        >
+          {loading
+            ? <Loader2 className="h-4 w-4 animate-spin" />
+            : <Search className="h-4 w-4" />
+          }
+        </Button>
+      </div>
+
+      {messages.length === 0 && (
+        <div className="flex flex-wrap gap-2">
+          {[
+            "O que significa NIM ajustado ao risco?",
+            "Como o NPL 15-90 impacta o resultado?",
+            "Explique o coverage ratio em mais detalhes",
+            "Quais são os principais riscos identificados?",
+          ].map((suggestion) => (
+            <button
+              key={suggestion}
+              onClick={() => { setInput(suggestion); inputRef.current?.focus(); }}
+              className="text-xs px-3 py-1.5 rounded-full border border-border text-muted-foreground hover:border-primary/50 hover:text-foreground transition-colors"
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Página principal ──────────────────────────────────────────────────────────
 
 function AnalisePage() {
@@ -477,7 +615,7 @@ function AnalisePage() {
         </CardContent>
       </Card>
 
-      {/* Resultado atual */}
+      {/* Resultado atual + chat de follow-up */}
       {result && (
         <Card className="border-primary/20">
           <CardHeader className="pb-2">
@@ -486,8 +624,9 @@ function AnalisePage() {
               Análise de {ticker} — {selectedFramework?.label}
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <AnalysisResult text={result} />
+            <FollowUpChat analysisText={result} ticker={ticker} />
           </CardContent>
         </Card>
       )}

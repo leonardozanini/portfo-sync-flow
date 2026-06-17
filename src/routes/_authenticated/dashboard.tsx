@@ -304,7 +304,7 @@ function Dashboard() {
                         tickFormatter={(v) => formatMoney(Number(v), currency).replace(/[,.]00$/, "")} />
                       <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
                       <ReferenceLine y={0} stroke="#9ca3af" strokeWidth={1} />
-                      <Bar dataKey="aplicado" stackId="a" fill="hsl(142 71% 45%)" />
+                      <Bar dataKey="aplicado" stackId="a" fill="hsl(142 71% 45%)" radius={[8, 8, 0, 0]} />
                       <Bar dataKey="ganhoPos" stackId="a" fill="hsl(142 71% 75%)" radius={[8, 8, 0, 0]} />
                       <Bar dataKey="ganhoNeg" fill="#fca5a5" radius={[8, 8, 0, 0]} />
                     </BarChart>

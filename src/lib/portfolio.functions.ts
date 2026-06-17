@@ -470,13 +470,24 @@ export const getDashboard = createServerFn({ method: "GET" })
     }
     brokerAllocation.sort((a, b) => b.valueBRL - a.valueBRL);
 
+    // Variação do dia: compara valor atual com snapshot de ontem
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayKey = yesterday.toISOString().slice(0, 10);
+    const yesterdaySnapshot = snapshots
+      .filter(s => s.snapshot_date <= yesterdayKey)
+      .sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date))[0];
+    const dayVariation = yesterdaySnapshot && Number(yesterdaySnapshot.total_value) > 0
+      ? ((totalValueBRL - Number(yesterdaySnapshot.total_value)) / Number(yesterdaySnapshot.total_value)) * 100
+      : 0;
+
     return {
       totalsBRL: {
         patrimonio: totalValueBRL,
         invested: totalInvestedBRL,
         pnl,
         yieldPct,
-        dayVariation: 0,
+        dayVariation,
         dividends12m: totalDividends12mBRL,
       },
       allocation,

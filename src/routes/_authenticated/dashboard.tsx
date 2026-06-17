@@ -188,7 +188,6 @@ function Dashboard() {
           icon={Wallet}
           title="Patrimônio total"
           value={formatMoney(total, currency)}
-          delta={t.dayVariation}
           subLabel="Valor investido"
           subValue={formatMoney(invested, currency)}
         />

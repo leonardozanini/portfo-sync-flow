@@ -1722,3 +1722,248 @@ export const deleteUserStrategy = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true as const };
   });
+
+// ---------- Asset Analysis (IA) ----------
+
+const ANALYSIS_PROMPTS: Record<string, string> = {
+  fundamentalista: `Você é um analista fundamentalista experiente. Analise o ativo fornecido seguindo rigorosamente estes três pilares:
+
+## Pilar 1 — Qualidade do Lucro
+- O lucro é recorrente ou há itens não-recorrentes distorcendo o resultado?
+- O crescimento de receita é orgânico ou via aquisições?
+- A margem está expandindo ou comprimindo?
+- O fluxo de caixa confirma o lucro reportado?
+
+## Pilar 2 — Retorno sobre Capital
+- Qual o ROIC/ROE nos últimos anos? Está acima do custo de capital?
+- A empresa consegue reinvestir o capital com bons retornos?
+- Qual o histórico de alocação de capital (dividendos, recompras, M&A)?
+
+## Pilar 3 — Risco
+- Qual o nível de endividamento? A empresa consegue honrar seus compromissos?
+- Há riscos regulatórios, competitivos ou macroeconômicos relevantes?
+- A gestão tem histórico de entrega e alinhamento com acionistas?
+
+Ao final, dê um veredito: EXCELENTE / BOM+ / BOM / NEUTRO / EVITAR, com justificativa em 2-3 linhas.`,
+
+  bancos: `Você é um analista especializado em instituições financeiras. Analise o banco/financeira seguindo:
+
+## Rentabilidade
+- ROTCE (Return on Tangible Common Equity): está acima de 15%?
+- NIM (Net Interest Margin) e tendência
+- Índice de eficiência operacional
+
+## Qualidade de Crédito
+- NPL ratio (inadimplência): nível e tendência
+- Coverage ratio (provisões/NPL)
+- NCO (Net Charge-Off rate)
+- Composição da carteira de crédito (PF, PJ, corporate)
+
+## Solidez de Capital
+- CET1 ratio vs mínimo regulatório
+- RWA growth vs capital growth
+- Capacidade de distribuição de dividendos/JCP
+
+## Posicionamento
+- Market share e tendência
+- Vantagens competitivas (funding, relacionamento, tecnologia)
+- Exposição macro (juros, câmbio, ciclo de crédito)
+
+Veredito final: EXCELENTE / BOM+ / BOM / NEUTRO / EVITAR`,
+
+  fiis: `Você é um analista especializado em fundos imobiliários e REITs. Analise seguindo:
+
+## Qualidade dos Ativos
+- Tipo de ativo (lajes, galpões, shopping, recebíveis, híbrido)
+- Localização e qualidade dos imóveis
+- Idade e estado de conservação
+
+## Métricas Operacionais
+- Taxa de vacância física e financeira
+- Prazo médio dos contratos (WAULT)
+- Qualidade e diversificação dos locatários
+- Índice de inadimplência
+
+## Métricas Financeiras
+- Dividend yield anualizado
+- P/VP (preço vs valor patrimonial)
+- Cap rate implícito
+- FFO (Funds From Operations)
+
+## Gestão
+- Histórico do gestor
+- Alinhamento com cotistas
+- Pipeline de novos ativos
+
+Veredito: EXCELENTE / BOM+ / BOM / NEUTRO / EVITAR`,
+
+  tech: `Você é um analista especializado em empresas de tecnologia. Analise seguindo:
+
+## Crescimento
+- Revenue growth YoY e tendência
+- ARR/MRR e crescimento de assinantes/usuários
+- Net Revenue Retention (NRR)
+
+## Unit Economics
+- LTV/CAC ratio
+- Payback period
+- Contribuição marginal por cliente
+
+## Margens e Escalabilidade
+- Margem bruta e tendência
+- Burn rate e runway (se pre-lucro)
+- Path to profitability
+
+## Moat e Competitividade
+- Switching costs
+- Network effects
+- Vantagem tecnológica sustentável
+
+Veredito: EXCELENTE / BOM+ / BOM / NEUTRO / EVITAR`,
+
+  macro: `Você é um economista e estrategista de investimentos. Faça uma análise macro do ativo:
+
+## Sensibilidade Macroeconômica
+- Como o ativo performa em cenários de juros altos vs baixos?
+- Exposição cambial (USD, EUR, BRL)
+- Correlação com commodities ou ciclo econômico
+
+## Posicionamento no Ciclo
+- Em que fase do ciclo econômico esse ativo tende a performar melhor?
+- Qual o consenso atual de mercado e há divergência relevante?
+
+## Riscos Geopolíticos e Regulatórios
+- Exposição a riscos geopolíticos
+- Risco regulatório no setor
+
+## Conclusão Estratégica
+- O ativo é defensivo, cíclico ou de crescimento?
+- Faz sentido no portfólio atual dado o cenário macro?
+
+Veredito: INTERESSANTE AGORA / AGUARDAR / EVITAR NO CICLO ATUAL`,
+};
+
+export const analyzeAsset = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({
+      ticker: z.string().min(1).max(20),
+      framework: z.string().default("fundamentalista"),
+      mode: z.enum(["web", "pdf", "both"]).default("web"),
+      pdfBase64: z.string().optional(),
+      pdfName: z.string().optional(),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+
+    const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+    if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY não configurada");
+
+    const systemPrompt = ANALYSIS_PROMPTS[data.framework] ?? ANALYSIS_PROMPTS.fundamentalista;
+
+    const userMessage: any[] = [];
+
+    // Se tiver PDF, inclui como documento
+    if ((data.mode === "pdf" || data.mode === "both") && data.pdfBase64) {
+      userMessage.push({
+        type: "document",
+        source: {
+          type: "base64",
+          media_type: "application/pdf",
+          data: data.pdfBase64,
+        },
+        title: data.pdfName ?? "Documento de análise",
+      });
+    }
+
+    // Texto da requisição
+    const searchContext = data.mode === "web" || data.mode === "both"
+      ? `Por favor, use a ferramenta de busca web para encontrar informações recentes sobre ${data.ticker}: últimos resultados trimestrais, notícias relevantes, dados fundamentalistas atualizados. `
+      : "";
+
+    userMessage.push({
+      type: "text",
+      text: `${searchContext}Analise o ativo ${data.ticker} usando o framework solicitado. Seja objetivo, use dados concretos quando disponíveis, e termine com um veredito claro. Responda em português brasileiro.`,
+    });
+
+    // Configura ferramentas baseado no modo
+    const tools: any[] = [];
+    if (data.mode === "web" || data.mode === "both") {
+      tools.push({ type: "web_search_20250305", name: "web_search" });
+    }
+
+    const body: any = {
+      model: "claude-sonnet-4-6",
+      max_tokens: 4000,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userMessage }],
+    };
+
+    if (tools.length > 0) body.tools = tools;
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "pdfs-2024-09-25",
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`Anthropic API error: ${err}`);
+    }
+
+    const apiData = await response.json();
+
+    // Extrai o texto da resposta (pode ter blocos de tool_use intercalados)
+    const resultText = apiData.content
+      .filter((c: any) => c.type === "text")
+      .map((c: any) => c.text)
+      .join("\n");
+
+    if (!resultText) throw new Error("Nenhuma análise gerada");
+
+    // Salva no histórico
+    await supabase.from("asset_analyses").insert({
+      user_id: userId,
+      ticker: data.ticker,
+      framework: data.framework,
+      mode: data.mode,
+      result: resultText,
+    });
+
+    return { ok: true as const, result: resultText };
+  });
+
+export const listAnalyses = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    const { data, error } = await supabase
+      .from("asset_analyses")
+      .select("id, ticker, framework, mode, result, created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+
+export const deleteAnalysis = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { error } = await supabase
+      .from("asset_analyses")
+      .delete()
+      .eq("id", data.id)
+      .eq("user_id", userId);
+    if (error) throw new Error(error.message);
+    return { ok: true as const };
+  });

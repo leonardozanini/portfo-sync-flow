@@ -485,30 +485,38 @@ function buildEquityHistory(
   toBRL: (amount: number, cur: CurrencyCode) => number,
   totalCurrentValueBRL: number,
 ) {
-  const months = new Map<string, { aplicado: number; ganho: number }>();
-  let cumInvested = 0;
-
-  // Descobre o mês do primeiro lançamento
+  // 1. Ordena todas as transações por data
   const sortedTxs = [...txs].sort((a, b) =>
     new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime()
   );
-  const firstDate = sortedTxs.length > 0 ? new Date(sortedTxs[0].occurred_at) : new Date();
-  firstDate.setDate(1);
 
-  // Janela: do primeiro lançamento até hoje (máximo 24 meses para não sobrecarregar)
+  if (sortedTxs.length === 0) return [];
+
+  // 2. Descobre o mês do primeiro lançamento
+  const firstDate = new Date(sortedTxs[0].occurred_at);
+  firstDate.setDate(1);
+  firstDate.setHours(0, 0, 0, 0);
+
+  // 3. Monta o mapa de meses (máximo 24)
   const now = new Date();
   const totalMonths = Math.min(
     (now.getFullYear() - firstDate.getFullYear()) * 12 + (now.getMonth() - firstDate.getMonth()) + 1,
     24
   );
 
-  const start = new Date(firstDate);
+  // Mapeia monthKey -> cumInvested ao final daquele mês
+  const monthKeys: string[] = [];
   for (let i = 0; i < totalMonths; i++) {
-    const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
+    const d = new Date(firstDate.getFullYear(), firstDate.getMonth() + i, 1);
     const key = `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getFullYear()).slice(2)}`;
-    months.set(key, { aplicado: 0, ganho: 0 });
+    monthKeys.push(key);
   }
-  for (const t of txs) {
+
+  // 4. Acumula o investido por mês — somando TODAS as transações do mês
+  const monthlyInvested = new Map<string, number>();
+  let cumInvested = 0;
+
+  for (const t of sortedTxs) {
     const d = new Date(t.occurred_at);
     const cur = t.currency as CurrencyCode;
     const qty = Number(t.quantity);
@@ -517,20 +525,28 @@ function buildEquityHistory(
     if (t.tx_type === "buy") cumInvested += toBRL(qty * price + fees, cur);
     else if (t.tx_type === "sell") cumInvested -= toBRL(qty * price - fees, cur);
     const key = `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getFullYear()).slice(2)}`;
-    if (months.has(key)) months.set(key, { aplicado: cumInvested, ganho: 0 });
+    // Atualiza sempre — ao final do loop cada key terá o cum ao final do mês
+    monthlyInvested.set(key, cumInvested);
   }
-  // Propagate cum forward and distribute current PnL proportionally
-  const currentPnL = totalCurrentValueBRL - cumInvested;
-  let last = 0;
+
+  // 5. Propaga para frente (meses sem transação herdam o valor anterior)
+  const finalCumInvested = cumInvested;
+  const currentPnL = totalCurrentValueBRL - finalCumInvested;
   const out: { date: string; aplicado: number; ganho: number }[] = [];
-  for (const [date, v] of months) {
-    const aplicado = v.aplicado || last;
-    last = aplicado;
-    const ganho = cumInvested > 0 && aplicado > 0
-      ? currentPnL * (aplicado / cumInvested)
+  let lastInvested = 0;
+
+  for (const key of monthKeys) {
+    if (monthlyInvested.has(key)) {
+      lastInvested = monthlyInvested.get(key)!;
+    }
+    const aplicado = lastInvested;
+    // Ganho proporcional ao investido acumulado naquele mês vs total final
+    const ganho = finalCumInvested > 0 && aplicado > 0
+      ? currentPnL * (aplicado / finalCumInvested)
       : 0;
-    out.push({ date, aplicado, ganho });
+    out.push({ date: key, aplicado, ganho });
   }
+
   return out;
 }
 

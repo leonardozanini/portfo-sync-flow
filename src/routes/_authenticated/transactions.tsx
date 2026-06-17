@@ -133,7 +133,10 @@ function TransactionsPage() {
     return Array.from(map.entries());
   }, [visible]);
 
-  const chartData = useMemo(() => buildChartData(visible, currency), [visible, currency]);
+  const [chartPeriod, setChartPeriod] = useState<"6" | "12" | "24">("12");
+
+  const allChartData = useMemo(() => buildChartData(visible, currency), [visible, currency]);
+  const chartData = useMemo(() => allChartData.slice(-parseInt(chartPeriod)), [allChartData, chartPeriod]);
 
   const hasChart = chartData.some((d) => d.compras !== 0 || d.vendas !== 0);
 
@@ -233,12 +236,20 @@ function TransactionsPage() {
       {/* Chart */}
       {hasChart && (
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-base">Consolidação de aportes</CardTitle>
+            <Select value={chartPeriod} onValueChange={(v) => setChartPeriod(v as "6" | "12" | "24")}>
+              <SelectTrigger className="h-8 w-[120px] text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="6">6 Meses</SelectItem>
+                <SelectItem value="12">12 Meses</SelectItem>
+                <SelectItem value="24">24 Meses</SelectItem>
+              </SelectContent>
+            </Select>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={chartData} barCategoryGap="35%" margin={{ top: 4, right: 12, left: 8, bottom: 0 }}>
+              <BarChart data={chartData} barCategoryGap="4%" barGap={1} barSize={chartPeriod === "6" ? 48 : chartPeriod === "12" ? 28 : 14} margin={{ top: 4, right: 12, left: 8, bottom: 0 }}>
                 <XAxis
                   dataKey="month"
                   tick={{ fontSize: 11, fill: "#888" }}
@@ -260,8 +271,8 @@ function TransactionsPage() {
                   )}
                 />
                 <ReferenceLine y={0} stroke="hsl(var(--border))" strokeWidth={1} />
-                <Bar dataKey="compras" name="Compras" fill="#22c55e" radius={[3, 3, 0, 0]} maxBarSize={40} />
-                <Bar dataKey="vendas" name="Vendas" fill="#f43f5e" radius={[0, 0, 3, 3]} maxBarSize={40} />
+                <Bar dataKey="compras" name="Compras" fill="#22c55e" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="vendas" name="Vendas" fill="#f43f5e" radius={[0, 0, 3, 3]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

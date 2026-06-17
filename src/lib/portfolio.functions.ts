@@ -1605,3 +1605,64 @@ export const removeAssetFromPortfolio = createServerFn({ method: "POST" })
 
     return { ok: true as const };
   });
+
+// ---------- User Strategies ----------
+
+export const listUserStrategies = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    const { data, error } = await supabase
+      .from("user_strategies")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true });
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+
+export const saveUserStrategy = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({
+      id: z.string().uuid().optional(),
+      name: z.string().min(1),
+      buckets: z.array(z.object({
+        label: z.string(),
+        target: z.number(),
+        classes: z.array(z.string()),
+        color: z.string(),
+      })),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    if (data.id) {
+      const { error } = await supabase
+        .from("user_strategies")
+        .update({ name: data.name, buckets: data.buckets, updated_at: new Date().toISOString() })
+        .eq("id", data.id)
+        .eq("user_id", userId);
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await supabase
+        .from("user_strategies")
+        .insert({ user_id: userId, name: data.name, buckets: data.buckets });
+      if (error) throw new Error(error.message);
+    }
+    return { ok: true as const };
+  });
+
+export const deleteUserStrategy = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { error } = await supabase
+      .from("user_strategies")
+      .delete()
+      .eq("id", data.id)
+      .eq("user_id", userId);
+    if (error) throw new Error(error.message);
+    return { ok: true as const };
+  });

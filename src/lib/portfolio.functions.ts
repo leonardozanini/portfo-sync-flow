@@ -487,11 +487,23 @@ function buildEquityHistory(
 ) {
   const months = new Map<string, { aplicado: number; ganho: number }>();
   let cumInvested = 0;
-  // Last 12 months window
-  const start = new Date();
-  start.setMonth(start.getMonth() - 11);
-  start.setDate(1);
-  for (let i = 0; i < 12; i++) {
+
+  // Descobre o mês do primeiro lançamento
+  const sortedTxs = [...txs].sort((a, b) =>
+    new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime()
+  );
+  const firstDate = sortedTxs.length > 0 ? new Date(sortedTxs[0].occurred_at) : new Date();
+  firstDate.setDate(1);
+
+  // Janela: do primeiro lançamento até hoje (máximo 24 meses para não sobrecarregar)
+  const now = new Date();
+  const totalMonths = Math.min(
+    (now.getFullYear() - firstDate.getFullYear()) * 12 + (now.getMonth() - firstDate.getMonth()) + 1,
+    24
+  );
+
+  const start = new Date(firstDate);
+  for (let i = 0; i < totalMonths; i++) {
     const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
     const key = `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getFullYear()).slice(2)}`;
     months.set(key, { aplicado: 0, ganho: 0 });

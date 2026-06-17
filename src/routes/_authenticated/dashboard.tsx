@@ -125,6 +125,7 @@ function Dashboard() {
   const qc = useQueryClient();
 
   const [removeAsset, setRemoveAsset] = useState<{ assetId: string; symbol: string; currentPrice: number; currency: string; qty: number } | null>(null);
+  const [equityPeriod, setEquityPeriod] = useState<"6" | "12" | "24">("12");
   const openNew = (p?: TxPreset) => { setPreset(p); setOpen(true); };
   const openLots = (a: { id: string; symbol: string }) => setLotsAsset(a);
 
@@ -235,7 +236,7 @@ function Dashboard() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-base">Evolução do Patrimônio</CardTitle>
-            <Select defaultValue="12">
+            <Select value={equityPeriod} onValueChange={(v) => setEquityPeriod(v as "6" | "12" | "24")}>
               <SelectTrigger className="h-8 w-[120px] text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="6">6 Meses</SelectItem>
@@ -248,7 +249,9 @@ function Dashboard() {
             {data.equity.length === 0 || data.equity.every((e) => e.aplicado === 0) ? (
               <EmptyChart label="Adicione lançamentos para ver a evolução." />
             ) : (() => {
-              const equityData = data.equity.map(d => {
+              const monthsToShow = parseInt(equityPeriod);
+              const filteredEquity = data.equity.slice(-monthsToShow);
+              const equityData = filteredEquity.map(d => {
                 const aplicado = convert(d.aplicado, currency);
                 const ganho = convert(d.ganho, currency);
                 return {

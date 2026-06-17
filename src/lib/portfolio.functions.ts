@@ -1967,3 +1967,62 @@ export const deleteAnalysis = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true as const };
   });
+
+export const askFollowUp = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({
+      ticker: z.string().min(1).max(20),
+      analysisText: z.string(),
+      messages: z.array(z.object({
+        role: z.enum(["user", "assistant"]),
+        content: z.string(),
+      })),
+    }).parse(input)
+  )
+  .handler(async ({ data }) => {
+    const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+    if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY não configurada");
+
+    const systemPrompt = `Você é um analista financeiro especializado. O usuário acabou de receber uma análise fundamentalista do ativo ${data.ticker} e tem perguntas sobre ela.
+
+Contexto da análise gerada:
+---
+${data.analysisText.slice(0, 6000)}
+---
+
+Responda as perguntas do usuário de forma clara, objetiva e em português brasileiro. Use os dados da análise como base. Se a pergunta for sobre algo não coberto na análise, pode complementar com seu conhecimento geral sobre o ativo ou o setor. Sempre que possível, use exemplos numéricos concretos. Nunca faça recomendações de compra ou venda.`;
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1500,
+        system: systemPrompt,
+        messages: data.messages.map(m => ({
+          role: m.role,
+          content: m.content,
+        })),
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`Anthropic API error: ${err}`);
+    }
+
+    const apiData = await response.json();
+    const answer = apiData.content
+      .filter((c: any) => c.type === "text")
+      .map((c: any) => c.text)
+      .join("\n");
+
+    if (!answer) throw new Error("Nenhuma resposta gerada");
+
+    return { ok: true as const, answer };
+  });

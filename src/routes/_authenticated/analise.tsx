@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useRef } from "react";
+import React, { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,22 +59,161 @@ export const Route = createFileRoute("/_authenticated/analise")({
 
 // ── Formatação do resultado em markdown simples ───────────────────────────────
 
+// Renderiza inline: **negrito**, *itálico*, emojis
+function renderInline(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  let last = 0;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > last) parts.push(text.slice(last, match.index));
+    const raw = match[0];
+    if (raw.startsWith("**")) {
+      parts.push(<strong key={match.index} className="font-semibold text-foreground">{raw.slice(2, -2)}</strong>);
+    } else {
+      parts.push(<em key={match.index} className="italic">{raw.slice(1, -1)}</em>);
+    }
+    last = match.index + raw.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
+
+// Detecta se uma linha faz parte de uma tabela markdown
+function isTableRow(line: string) {
+  return line.trim().startsWith("|") && line.trim().endsWith("|");
+}
+
+function isSeparatorRow(line: string) {
+  return /^\|[\s\-|:]+\|$/.test(line.trim());
+}
+
 function AnalysisResult({ text }: { text: string }) {
-  return (
-    <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed space-y-3">
-      {text.split("\n").map((line, i) => {
-        if (line.startsWith("## ")) return <h2 key={i} className="text-base font-bold mt-4 mb-1 text-foreground">{line.slice(3)}</h2>;
-        if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-semibold mt-3 mb-1 text-foreground">{line.slice(4)}</h3>;
-        if (line.startsWith("**") && line.endsWith("**")) return <p key={i} className="font-semibold text-foreground">{line.slice(2, -2)}</p>;
-        if (line.startsWith("- ") || line.startsWith("• ")) return <li key={i} className="ml-4 text-muted-foreground">{line.slice(2)}</li>;
-        if (line.startsWith("⚠️") || line.startsWith("✅") || line.startsWith("❌") || line.startsWith("📊")) {
-          return <p key={i} className="text-muted-foreground">{line}</p>;
-        }
-        if (line.trim() === "") return <div key={i} className="h-1" />;
-        return <p key={i} className="text-muted-foreground">{line}</p>;
-      })}
-    </div>
-  );
+  const lines = text.split("\n");
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Título H2
+    if (line.startsWith("## ")) {
+      elements.push(
+        <h2 key={i} className="text-base font-bold mt-5 mb-2 text-foreground border-b border-border pb-1">
+          {renderInline(line.slice(3))}
+        </h2>
+      );
+      i++; continue;
+    }
+
+    // Título H3
+    if (line.startsWith("### ")) {
+      elements.push(
+        <h3 key={i} className="text-sm font-semibold mt-4 mb-1 text-foreground">
+          {renderInline(line.slice(4))}
+        </h3>
+      );
+      i++; continue;
+    }
+
+    // Título H4
+    if (line.startsWith("#### ")) {
+      elements.push(
+        <h4 key={i} className="text-sm font-medium mt-3 mb-1 text-foreground">
+          {renderInline(line.slice(5))}
+        </h4>
+      );
+      i++; continue;
+    }
+
+    // Tabela markdown — agrupa todas as linhas da tabela
+    if (isTableRow(line)) {
+      const tableLines: string[] = [];
+      while (i < lines.length && (isTableRow(lines[i]) || isSeparatorRow(lines[i]))) {
+        tableLines.push(lines[i]);
+        i++;
+      }
+      const rows = tableLines.filter(l => !isSeparatorRow(l));
+      const headers = rows[0]?.split("|").filter(c => c.trim() !== "").map(c => c.trim()) ?? [];
+      const bodyRows = rows.slice(1);
+      elements.push(
+        <div key={`table-${i}`} className="overflow-x-auto my-3 rounded-lg border border-border">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-muted/50">
+                {headers.map((h, j) => (
+                  <th key={j} className="px-3 py-2 text-left font-semibold text-foreground whitespace-nowrap">
+                    {renderInline(h)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {bodyRows.map((row, ri) => {
+                const cells = row.split("|").filter(c => c.trim() !== "").map(c => c.trim());
+                return (
+                  <tr key={ri} className="border-t border-border hover:bg-muted/20">
+                    {cells.map((cell, ci) => (
+                      <td key={ci} className="px-3 py-2 text-muted-foreground whitespace-nowrap">
+                        {renderInline(cell)}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      );
+      continue;
+    }
+
+    // Lista com bullet
+    if (line.startsWith("- ") || line.startsWith("• ") || line.match(/^\d+\.\s/)) {
+      const listItems: string[] = [];
+      const isOrdered = line.match(/^\d+\.\s/);
+      while (i < lines.length && (lines[i].startsWith("- ") || lines[i].startsWith("• ") || lines[i].match(/^\d+\.\s/))) {
+        const l = lines[i];
+        listItems.push(l.replace(/^[-•]\s/, "").replace(/^\d+\.\s/, ""));
+        i++;
+      }
+      const Tag = isOrdered ? "ol" : "ul";
+      elements.push(
+        <Tag key={`list-${i}`} className={`my-2 space-y-1 pl-5 ${isOrdered ? "list-decimal" : "list-disc"}`}>
+          {listItems.map((item, j) => (
+            <li key={j} className="text-sm text-muted-foreground">{renderInline(item)}</li>
+          ))}
+        </Tag>
+      );
+      continue;
+    }
+
+    // Linha em branco
+    if (line.trim() === "") {
+      elements.push(<div key={i} className="h-2" />);
+      i++; continue;
+    }
+
+    // Linha só com negrito (funciona como subtítulo)
+    if (line.trim().startsWith("**") && line.trim().endsWith("**")) {
+      elements.push(
+        <p key={i} className="text-sm font-semibold text-foreground mt-2">
+          {renderInline(line.trim())}
+        </p>
+      );
+      i++; continue;
+    }
+
+    // Parágrafo normal
+    elements.push(
+      <p key={i} className="text-sm text-muted-foreground leading-relaxed">
+        {renderInline(line)}
+      </p>
+    );
+    i++;
+  }
+
+  return <div className="space-y-1">{elements}</div>;
 }
 
 // ── Card de análise salva ─────────────────────────────────────────────────────

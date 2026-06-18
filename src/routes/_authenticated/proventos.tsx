@@ -26,6 +26,7 @@ import {
 import { toast } from "sonner";
 import { useDisplayCurrency } from "@/components/CurrencySwitcher";
 import { convert, formatMoney } from "@/lib/currency";
+import { supabase } from "@/integrations/supabase/client";
 import {
   listDividends, saveDividend, deleteDividend, parseDividendText, importDividendFile,
   type DividendRow,
@@ -399,6 +400,7 @@ function ProventosPage() {
   const [parseOpen, setParseOpen] = useState(false);
   const [importingExcel, setImportingExcel] = useState(false);
   const [importingPdf, setImportingPdf] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState<string | null>(null);
   const excelRef = useRef<HTMLInputElement>(null);
   const pdfRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<DividendRow | null>(null);
@@ -484,6 +486,7 @@ function ProventosPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setImportingPdf(true);
+    setPdfProgress("Lendo arquivo...");
     try {
       const base64 = await new Promise<string>((res, rej) => {
         const reader = new FileReader();
@@ -491,11 +494,30 @@ function ProventosPage() {
         reader.onerror = () => rej(new Error("Erro ao ler arquivo"));
         reader.readAsDataURL(file);
       });
-      const result = await importFn({ data: { fileBase64: base64, fileName: file.name, fileType: "pdf" } }) as any;
-      if (result.rows?.length) {
-        for (const row of result.rows) await saveFn({ data: row });
+
+      setPdfProgress("Processando com IA...");
+
+      // Chama a Edge Function do Supabase — sem timeout!
+      const { data: { session } } = await supabase.auth.getSession();
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      const edgeUrl = `${supabaseUrl}/functions/v1/import-dividends-pdf`;
+
+      const res = await fetch(edgeUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ fileBase64: base64, fileName: file.name }),
+      });
+
+      const result = await res.json();
+
+      if (!res.ok) throw new Error(result.error ?? "Erro na Edge Function");
+
+      if (result.saved > 0) {
         qc.invalidateQueries({ queryKey: ["dividends"] });
-        toast.success(`${result.rows.length} proventos importados do PDF!`);
+        toast.success(`${result.saved} proventos importados!${result.skipped > 0 ? ` (${result.skipped} ignorados)` : ""}`);
       } else {
         toast.error("Nenhum provento encontrado no arquivo.");
       }
@@ -503,11 +525,12 @@ function ProventosPage() {
       toast.error(err.message ?? "Erro ao importar PDF");
     } finally {
       setImportingPdf(false);
+      setPdfProgress(null);
       e.target.value = "";
     }
   };
 
-  return (
+ return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -522,7 +545,7 @@ function ProventosPage() {
           </Button>
           <Button variant="outline" size="sm" onClick={() => pdfRef.current?.click()} disabled={importingPdf}>
             {importingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
-            Importar PDF
+            {pdfProgress ?? "Importar PDF"}
           </Button>
           <Button variant="outline" size="sm" onClick={() => setParseOpen(true)}>
             <ClipboardPaste className="mr-2 h-4 w-4" /> Colar texto

@@ -2174,3 +2174,106 @@ ${data.text}` }],
       throw new Error("Não foi possível interpretar o extrato. Tente reformatar o texto.");
     }
   });
+
+export const importDividendFile = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({
+      fileBase64: z.string(),
+      fileName: z.string(),
+      fileType: z.enum(["excel", "pdf"]),
+    }).parse(input)
+  )
+  .handler(async ({ data }) => {
+    const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+    if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY não configurada");
+
+    const messages: any[] = [];
+
+    if (data.fileType === "pdf") {
+      // PDF — envia como documento direto
+      messages.push({
+        role: "user",
+        content: [
+          {
+            type: "document",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: data.fileBase64,
+            },
+            title: data.fileName,
+          },
+          {
+            type: "text",
+            text: "Extraia todos os proventos deste documento e retorne APENAS JSON válido conforme o formato especificado.",
+          },
+        ],
+      });
+    } else {
+      // Excel/CSV — converte base64 para texto e envia como texto
+      messages.push({
+        role: "user",
+        content: `Arquivo Excel/CSV em base64: ${data.fileName}
+
+Conteúdo (base64): ${data.fileBase64.slice(0, 50000)}
+
+Extraia todos os proventos e retorne APENAS JSON válido conforme o formato especificado.`,
+      });
+    }
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "pdfs-2024-09-25",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 4000,
+        system: `Você é um parser de extratos de proventos de investimentos brasileiros da B3 e outras bolsas.
+Analise o arquivo fornecido e extraia TODOS os proventos encontrados.
+Retorne APENAS um JSON válido no formato:
+{
+  "rows": [
+    {
+      "asset_symbol": "CPTS11",
+      "dividend_type": "rendimento",
+      "ex_date": "2026-05-12",
+      "payment_date": "2026-05-20",
+      "amount_per_share": 0.10,
+      "quantity_held": 170,
+      "ir_withheld": 0,
+      "gross_amount": 17.00,
+      "amount": 17.00,
+      "currency": "BRL"
+    }
+  ]
+}
+
+Tipos válidos: dividendo, jcp, rendimento, amortizacao, bonificacao
+Datas no formato YYYY-MM-DD.
+Se não encontrar a quantidade de cotas, use 1 e coloque o valor total em amount_per_share.
+Se não houver IR, use 0.
+Não inclua markdown, apenas JSON puro.`,
+        messages,
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`Erro na API: ${err}`);
+    }
+
+    const apiData = await response.json();
+    const text = apiData.content?.filter((c: any) => c.type === "text").map((c: any) => c.text).join("") ?? "{}";
+
+    try {
+      const clean = text.replace(/```json?|```/g, "").trim();
+      return JSON.parse(clean);
+    } catch {
+      throw new Error("Não foi possível interpretar o arquivo. Tente o modo de colar texto.");
+    }
+  });

@@ -2074,14 +2074,37 @@ export const saveDividend = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
 
-    // Resolve asset_id from symbol
-    const { data: asset } = await supabase
+    // Resolve asset_id from symbol — cria o ativo automaticamente se não existir
+    let { data: asset } = await supabase
       .from("assets")
       .select("id")
       .eq("symbol", data.asset_symbol)
       .maybeSingle();
 
-    if (!asset) throw new Error(`Ativo "${data.asset_symbol}" não encontrado. Adicione-o primeiro via lançamento.`);
+    if (!asset) {
+      // Infere classe e moeda pelo sufixo do ticker
+      const sym = data.asset_symbol.toUpperCase();
+      const isFII = sym.endsWith("11") && !["BOVA11","IVVB11","SMAL11","HASH11"].includes(sym);
+      const assetClass = isFII ? "reit" : sym.length <= 5 && /[0-9]$/.test(sym) ? "stock" : "etf";
+      const currency = data.currency ?? "BRL";
+
+      const { data: newAsset, error: createErr } = await (supabase as any)
+        .from("assets")
+        .insert({
+          symbol: sym,
+          name: sym,
+          asset_class: assetClass,
+          currency,
+          country: currency === "BRL" ? "BR" : currency === "EUR" ? "EU" : "US",
+          status: "pending",
+          requested_by: userId,
+        })
+        .select("id")
+        .single();
+
+      if (createErr) throw new Error(`Erro ao criar ativo "${sym}": ${createErr.message}`);
+      asset = newAsset;
+    }
 
     // Usa hoje como data EX se não vier do arquivo
     const today = new Date().toISOString().slice(0, 10);

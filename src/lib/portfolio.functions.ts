@@ -76,6 +76,24 @@ export type AssetGroup = {
   pctWallet: number;
 };
 
+export type DividendRow = {
+  id: string;
+  user_id: string;
+  asset_id: string;
+  symbol?: string;
+  ex_date: string;
+  payment_date?: string | null;
+  amount: number;
+  currency: string;
+  dividend_type: string;
+  amount_per_share?: number | null;
+  quantity_held?: number | null;
+  ir_withheld?: number | null;
+  gross_amount?: number | null;
+  notes?: string | null;
+  created_at?: string;
+};
+
 export type DashboardData = {
   totalsBRL: {
     patrimonio: number;
@@ -2040,4 +2058,147 @@ Responda as perguntas do usuário de forma clara, objetiva e em português brasi
     if (!answer) throw new Error("Nenhuma resposta gerada");
 
     return { ok: true as const, answer };
+  });
+
+// ---------- Dividends / Proventos ----------
+
+export const listDividends = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    const { data, error } = await (supabase as any)
+      .from("dividends")
+      .select(`
+        *,
+        assets(symbol)
+      `)
+      .eq("user_id", userId)
+      .order("ex_date", { ascending: false });
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((r: any) => ({
+      ...r,
+      symbol: r.assets?.symbol ?? null,
+    }));
+  });
+
+export const saveDividend = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({
+      id: z.string().uuid().optional(),
+      asset_symbol: z.string().min(1),
+      dividend_type: z.string().default("dividendo"),
+      ex_date: z.string(),
+      payment_date: z.string().nullable().optional(),
+      amount_per_share: z.number().default(0),
+      quantity_held: z.number().default(0),
+      ir_withheld: z.number().default(0),
+      gross_amount: z.number().default(0),
+      amount: z.number(),
+      currency: z.string().default("BRL"),
+      notes: z.string().optional(),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+
+    // Resolve asset_id from symbol
+    const { data: asset } = await supabase
+      .from("assets")
+      .select("id")
+      .eq("symbol", data.asset_symbol)
+      .maybeSingle();
+
+    if (!asset) throw new Error(`Ativo "${data.asset_symbol}" não encontrado. Adicione-o primeiro via lançamento.`);
+
+    const payload = {
+      user_id: userId,
+      asset_id: asset.id,
+      dividend_type: data.dividend_type,
+      ex_date: data.ex_date,
+      payment_date: data.payment_date || null,
+      amount_per_share: data.amount_per_share,
+      quantity_held: data.quantity_held,
+      ir_withheld: data.ir_withheld,
+      gross_amount: data.gross_amount,
+      amount: data.amount,
+      currency: data.currency,
+      notes: data.notes || null,
+      source: "manual",
+    };
+
+    if (data.id) {
+      const { error } = await (supabase as any).from("dividends").update(payload).eq("id", data.id).eq("user_id", userId);
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await (supabase as any).from("dividends").insert(payload);
+      if (error) throw new Error(error.message);
+    }
+    return { ok: true as const };
+  });
+
+export const deleteDividend = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { error } = await (supabase as any).from("dividends").delete().eq("id", data.id).eq("user_id", userId);
+    if (error) throw new Error(error.message);
+    return { ok: true as const };
+  });
+
+export const parseDividendText = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ text: z.string().min(1) }).parse(input))
+  .handler(async ({ data }) => {
+    const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+    if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY não configurada");
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 2000,
+        system: `Você é um parser de extratos de proventos de investimentos brasileiros. 
+Extraia os dados e retorne APENAS um JSON válido no formato:
+{
+  "rows": [
+    {
+      "asset_symbol": "CPTS11",
+      "dividend_type": "rendimento",
+      "ex_date": "2026-05-12",
+      "payment_date": "2026-05-20",
+      "amount_per_share": 0.10,
+      "quantity_held": 170,
+      "ir_withheld": 0,
+      "gross_amount": 17.00,
+      "amount": 17.00,
+      "currency": "BRL"
+    }
+  ]
+}
+
+Tipos válidos: dividendo, jcp, rendimento, amortizacao, bonificacao
+Datas no formato YYYY-MM-DD.
+Não inclua markdown, apenas JSON puro.`,
+        messages: [{ role: "user", content: `Parse este extrato de proventos:
+
+${data.text}` }],
+      }),
+    });
+
+    if (!response.ok) throw new Error("Erro ao chamar API de IA");
+    const apiData = await response.json();
+    const text = apiData.content?.[0]?.text ?? "{}";
+    try {
+      const clean = text.replace(/```json?|```/g, "").trim();
+      return JSON.parse(clean);
+    } catch {
+      throw new Error("Não foi possível interpretar o extrato. Tente reformatar o texto.");
+    }
   });

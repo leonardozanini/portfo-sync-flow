@@ -27,7 +27,7 @@ import { toast } from "sonner";
 import { useDisplayCurrency } from "@/components/CurrencySwitcher";
 import { convert, formatMoney } from "@/lib/currency";
 import {
-  listDividends, saveDividend, deleteDividend, parseDividendText,
+  listDividends, saveDividend, deleteDividend, parseDividendText, importDividendFile,
   type DividendRow,
 } from "@/lib/portfolio.functions";
 
@@ -392,9 +392,15 @@ function ProventosPage() {
   const qc = useQueryClient();
   const listFn = useServerFn(listDividends);
   const deleteFn = useServerFn(deleteDividend);
+  const importFn = useServerFn(importDividendFile);
+  const saveFn = useServerFn(saveDividend);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [parseOpen, setParseOpen] = useState(false);
+  const [importingExcel, setImportingExcel] = useState(false);
+  const [importingPdf, setImportingPdf] = useState(false);
+  const excelRef = useRef<HTMLInputElement>(null);
+  const pdfRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<DividendRow | null>(null);
   const [year, setYear] = useState(new Date().getFullYear());
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -446,6 +452,56 @@ function ProventosPage() {
     });
   };
 
+  const handleExcelImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingExcel(true);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+      const result = await importFn({ data: { fileBase64: base64, fileName: file.name, fileType: "excel" } }) as any;
+      if (result.rows?.length) {
+        for (const row of result.rows) await saveFn({ data: row });
+        qc.invalidateQueries({ queryKey: ["dividends"] });
+        toast.success(`${result.rows.length} proventos importados do Excel!`);
+      } else {
+        toast.error("Nenhum provento encontrado no arquivo.");
+      }
+    } catch (err: any) {
+      toast.error(err.message ?? "Erro ao importar Excel");
+    } finally {
+      setImportingExcel(false);
+      e.target.value = "";
+    }
+  };
+
+  const handlePdfImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingPdf(true);
+    try {
+      const base64 = await new Promise<string>((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = () => res((reader.result as string).split(",")[1]);
+        reader.onerror = () => rej(new Error("Erro ao ler arquivo"));
+        reader.readAsDataURL(file);
+      });
+      const result = await importFn({ data: { fileBase64: base64, fileName: file.name, fileType: "pdf" } }) as any;
+      if (result.rows?.length) {
+        for (const row of result.rows) await saveFn({ data: row });
+        qc.invalidateQueries({ queryKey: ["dividends"] });
+        toast.success(`${result.rows.length} proventos importados do PDF!`);
+      } else {
+        toast.error("Nenhum provento encontrado no arquivo.");
+      }
+    } catch (err: any) {
+      toast.error(err.message ?? "Erro ao importar PDF");
+    } finally {
+      setImportingPdf(false);
+      e.target.value = "";
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -455,12 +511,22 @@ function ProventosPage() {
           <p className="text-sm text-muted-foreground mt-1">Dividendos, JCP, rendimentos e outros proventos recebidos</p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={() => excelRef.current?.click()} disabled={importingExcel}>
+            {importingExcel ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
+            Importar Excel
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => pdfRef.current?.click()} disabled={importingPdf}>
+            {importingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
+            Importar PDF
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setParseOpen(true)}>
-            <ClipboardPaste className="mr-2 h-4 w-4" /> Importar texto
+            <ClipboardPaste className="mr-2 h-4 w-4" /> Colar texto
           </Button>
           <Button size="sm" onClick={() => { setEditing(null); setDialogOpen(true); }}>
             <Plus className="mr-2 h-4 w-4" /> Adicionar provento
           </Button>
+          <input ref={excelRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleExcelImport} />
+          <input ref={pdfRef} type="file" accept=".pdf" className="hidden" onChange={handlePdfImport} />
         </div>
       </div>
 

@@ -1117,34 +1117,6 @@ export const syncAssetDividends = createServerFn({ method: "POST" }) // v2 2026-
 // Keep for backwards compat
 export const syncDividends = getDividendSyncQueue;
 
-export const listDividends = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    const { supabase, userId } = context;
-    const { data, error } = await (supabase as any)
-      .from("dividends")
-      .select(`
-        id, ex_date, payment_date, amount, currency, source,
-        assets(symbol, name, asset_class)
-      `)
-      .eq("user_id", userId)
-      .order("ex_date", { ascending: false });
-
-    if (error) throw new Error(error.message);
-    return (data ?? []).map((d: any) => ({
-      id: d.id,
-      exDate: d.ex_date,
-      paymentDate: d.payment_date,
-      amount: Number(d.amount),
-      currency: d.currency as CurrencyCode,
-      source: d.source,
-      symbol: d.assets?.symbol ?? "?",
-      name: d.assets?.name ?? null,
-      assetClass: d.assets?.asset_class ?? "other",
-    }));
-  });
-
-// ---------- adminListUsers ----------
 export const adminListUsers = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {

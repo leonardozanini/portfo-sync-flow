@@ -2106,7 +2106,8 @@ export const saveDividend = createServerFn({ method: "POST" })
       const { error } = await (supabase as any).from("dividends").update(payload).eq("id", data.id).eq("user_id", userId);
       if (error) throw new Error(error.message);
     } else {
-      const { error } = await (supabase as any).from("dividends").insert(payload);
+      const { error } = await (supabase as any).from("dividends")
+        .upsert(payload, { onConflict: "asset_id,ex_date,user_id", ignoreDuplicates: true });
       if (error) throw new Error(error.message);
     }
     return { ok: true as const };

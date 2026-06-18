@@ -2060,15 +2060,15 @@ export const saveDividend = createServerFn({ method: "POST" })
       id: z.string().uuid().optional(),
       asset_symbol: z.string().min(1),
       dividend_type: z.string().default("dividendo"),
-      ex_date: z.string(),
+      ex_date: z.string().nullable().optional(),
       payment_date: z.string().nullable().optional(),
       amount_per_share: z.number().default(0),
-      quantity_held: z.number().default(0),
+      quantity_held: z.number().nullable().optional(),
       ir_withheld: z.number().default(0),
-      gross_amount: z.number().default(0),
+      gross_amount: z.number().nullable().optional(),
       amount: z.number(),
       currency: z.string().default("BRL"),
-      notes: z.string().optional(),
+      notes: z.string().nullable().optional(),
     }).parse(input)
   )
   .handler(async ({ data, context }) => {
@@ -2083,18 +2083,21 @@ export const saveDividend = createServerFn({ method: "POST" })
 
     if (!asset) throw new Error(`Ativo "${data.asset_symbol}" não encontrado. Adicione-o primeiro via lançamento.`);
 
+    // Usa hoje como data EX se não vier do arquivo
+    const today = new Date().toISOString().slice(0, 10);
+
     const payload = {
       user_id: userId,
       asset_id: asset.id,
-      dividend_type: data.dividend_type,
-      ex_date: data.ex_date,
+      dividend_type: data.dividend_type ?? "dividendo",
+      ex_date: data.ex_date ?? today,
       payment_date: data.payment_date || null,
-      amount_per_share: data.amount_per_share,
-      quantity_held: data.quantity_held,
-      ir_withheld: data.ir_withheld,
-      gross_amount: data.gross_amount,
+      amount_per_share: data.amount_per_share ?? 0,
+      quantity_held: data.quantity_held ?? 0,
+      ir_withheld: data.ir_withheld ?? 0,
+      gross_amount: data.gross_amount ?? data.amount,
       amount: data.amount,
-      currency: data.currency,
+      currency: data.currency ?? "BRL",
       notes: data.notes || null,
       source: "manual",
     };

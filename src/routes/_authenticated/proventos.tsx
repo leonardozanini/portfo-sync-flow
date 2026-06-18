@@ -414,14 +414,17 @@ function ProventosPage() {
   const rows = dividends as DividendRow[];
 
   // KPIs
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
+
   const thisYear = rows.filter(r => {
     const d = r.payment_date || r.ex_date;
-    return d?.startsWith(String(year));
+    return d?.startsWith(String(currentYear));
   });
   const totalYear = thisYear.reduce((s, r) => s + convert(Number(r.amount), currency), 0);
   const thisMonth = thisYear.filter(r => {
     const d = r.payment_date || r.ex_date;
-    return d?.startsWith(`${year}-${String(new Date().getMonth() + 1).padStart(2, "0")}`);
+    return d?.startsWith(`${currentYear}-${String(currentMonth).padStart(2, "0")}`);
   });
   const totalMonth = thisMonth.reduce((s, r) => s + convert(Number(r.amount), currency), 0);
   const uniqueAssets = new Set(rows.map(r => r.asset_id)).size;
@@ -434,8 +437,10 @@ function ProventosPage() {
   const years = [...new Set(rows.map(r => {
     const d = r.payment_date || r.ex_date;
     return d ? parseInt(d.slice(0, 4)) : null;
-  }).filter(Boolean))].sort((a, b) => b! - a!);
+  }).filter(Boolean))].sort((a, b) => b! - a!) as number[];
   if (!years.includes(year)) years.unshift(year);
+  // Auto-select most recent year with data on first render
+  const mostRecentYear = years[0] ?? new Date().getFullYear();
 
   const handleDelete = async (id: string) => {
     if (!confirm("Excluir este provento?")) return;
@@ -561,9 +566,12 @@ function ProventosPage() {
           </Select>
         </CardHeader>
         <CardContent>
-          {chartData.every(d => d.total === 0) ? (
-            <div className="grid h-40 place-items-center text-sm text-muted-foreground">
-              Nenhum provento registrado em {year}.
+          {chartData.every(d => d.total === 0) && years.filter(y => y !== year).length > 0 ? (
+            <div className="grid h-40 place-items-center text-sm text-muted-foreground space-y-2">
+              <p>Nenhum provento registrado em {year}.</p>
+              <button className="text-primary underline text-xs" onClick={() => setYear(mostRecentYear)}>
+                Ver {mostRecentYear} →
+              </button>
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={280}>

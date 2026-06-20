@@ -265,7 +265,11 @@ export const getDashboard = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<DashboardData> => {
     const { supabase, userId } = context;
 
-    const [txRes, assetsRes, pricesRes, fxRes, rolesRes, brokersRes, snapshotsRes] = await Promise.all([
+    const since12m = new Date();
+    since12m.setMonth(since12m.getMonth() - 12);
+    const since12mStr = since12m.toISOString().slice(0, 10);
+
+    const [txRes, assetsRes, pricesRes, fxRes, rolesRes, brokersRes, snapshotsRes, dividendsRes] = await Promise.all([
       supabase.from("transactions").select("*").eq("user_id", userId).order("occurred_at", { ascending: true }),
       supabase.from("assets").select("*"),
       supabase.from("asset_prices").select("asset_id, close_price, price_date, fetched_at").order("fetched_at", { ascending: false }),
@@ -273,10 +277,12 @@ export const getDashboard = createServerFn({ method: "GET" })
       supabase.from("user_roles").select("role").eq("user_id", userId),
       (supabase as any).from("brokers").select("id, name, color").eq("user_id", userId),
       supabase.from("portfolio_snapshots").select("snapshot_date, total_value, total_invested, pnl").eq("user_id", userId).order("snapshot_date", { ascending: true }),
+      (supabase as any).from("dividends").select("amount, currency, payment_date, ex_date").eq("user_id", userId).gte("payment_date", since12mStr),
     ]);
     if (txRes.error) throw new Error(txRes.error.message);
 
     const txs = txRes.data ?? [];
+    const dividendRows = (dividendsRes.data ?? []) as Array<{ amount: number; currency: string; payment_date: string | null; ex_date: string }>;
     const assets = assetsRes.data ?? [];
     const prices = pricesRes.data ?? [];
     const fxRows = fxRes.data ?? [];
@@ -356,21 +362,19 @@ export const getDashboard = createServerFn({ method: "GET" })
     // Aggregate per asset
     type Agg = { qty: number; invested: number; lastPrice: number; currency: CurrencyCode };
     const perAsset = new Map<string, Agg>();
-    let totalDividends12mBRL = 0;
-    const since12m = new Date();
-    since12m.setMonth(since12m.getMonth() - 12);
+
+    // Proventos dos últimos 12 meses — soma da tabela dividends (já filtrada por payment_date na query)
+    const totalDividends12mBRL = dividendRows.reduce((sum, d) => {
+      return sum + toBRL(Number(d.amount), d.currency as CurrencyCode);
+    }, 0);
 
     for (const t of txs) {
       const cur = t.currency as CurrencyCode;
       const qty = Number(t.quantity);
       const price = Number(t.unit_price);
       const fees = Number(t.fees ?? 0);
-      const occurredAt = new Date(t.occurred_at);
 
-      if (t.tx_type === "dividend") {
-        if (occurredAt >= since12m) totalDividends12mBRL += toBRL(qty * price, cur);
-        continue;
-      }
+      if (t.tx_type === "dividend") continue; // legado — proventos agora vêm da tabela dividends
       if (t.tx_type === "deposit" || t.tx_type === "withdraw") continue;
 
       const agg = perAsset.get(t.asset_id) ?? { qty: 0, invested: 0, lastPrice: price, currency: cur };

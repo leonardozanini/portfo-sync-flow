@@ -87,10 +87,140 @@ function DashboardErrorFallback({ error, reset }: { error: Error; reset: () => v
   );
 }
 
+// ── Skeleton do Dashboard ────────────────────────────────────────────────────
+
+function Shimmer({ className }: { className?: string }) {
+  return (
+    <div
+      className={`animate-pulse rounded-md bg-muted/60 ${className ?? ""}`}
+    />
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      {/* Botão topo */}
+      <div className="flex items-center justify-end">
+        <Shimmer className="h-10 w-48 rounded-xl" />
+      </div>
+
+      {/* KPIs */}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="rounded-xl border border-border bg-card p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <Shimmer className="h-7 w-7 rounded-md" />
+              <Shimmer className="h-4 w-28" />
+            </div>
+            <Shimmer className="h-8 w-36" />
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <div className="space-y-1.5">
+                <Shimmer className="h-3 w-20" />
+                <Shimmer className="h-4 w-24" />
+              </div>
+              <div className="space-y-1.5">
+                <Shimmer className="h-3 w-20" />
+                <Shimmer className="h-4 w-24" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Gráficos */}
+      <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+        {/* Evolução do Patrimônio */}
+        <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <Shimmer className="h-5 w-44" />
+            <Shimmer className="h-8 w-28 rounded-md" />
+          </div>
+          <div className="flex items-end gap-1.5 h-[260px] pt-4">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <div key={i} className="flex-1 flex flex-col justify-end gap-0.5">
+                <Shimmer
+                  className="w-full rounded-t-md"
+                  style={{ height: `${30 + Math.random() * 60}%` } as React.CSSProperties}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Ativos na Carteira */}
+        <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+          <Shimmer className="h-5 w-36" />
+          <div className="flex flex-col items-center gap-4">
+            <Shimmer className="h-[180px] w-[180px] rounded-full" />
+            <div className="w-full space-y-2.5">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Shimmer className="h-2.5 w-2.5 rounded-sm" />
+                    <Shimmer className="h-3.5 w-24" />
+                  </div>
+                  <Shimmer className="h-3.5 w-10" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Meus Ativos */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Shimmer className="h-6 w-32" />
+          <Shimmer className="h-5 w-8 rounded-full" />
+        </div>
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="rounded-xl border border-border bg-card overflow-hidden">
+            {/* Cabeçalho do grupo */}
+            <div className="flex items-center gap-4 px-4 py-3">
+              <Shimmer className="h-4 w-4 rounded" />
+              <Shimmer className="h-9 w-9 rounded-lg" />
+              <Shimmer className="h-4 w-24" />
+              <div className="hidden md:flex flex-1 items-center justify-around">
+                {Array.from({ length: 5 }).map((_, j) => (
+                  <div key={j} className="text-center space-y-1">
+                    <Shimmer className="h-3 w-16 mx-auto" />
+                    <Shimmer className="h-4 w-20 mx-auto" />
+                  </div>
+                ))}
+              </div>
+              <Shimmer className="h-8 w-8 rounded-md ml-auto" />
+            </div>
+            {/* Linhas da tabela */}
+            <div className="border-t border-border divide-y divide-border/50">
+              {Array.from({ length: i === 0 ? 3 : 2 }).map((_, j) => (
+                <div key={j} className="flex items-center gap-4 px-4 py-3">
+                  <div className="flex items-center gap-2 w-28">
+                    <Shimmer className="h-7 w-7 rounded" />
+                    <Shimmer className="h-4 w-16" />
+                  </div>
+                  <div className="flex-1 grid grid-cols-7 gap-3">
+                    {Array.from({ length: 7 }).map((_, k) => (
+                      <Shimmer key={k} className="h-4 w-full" />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({ meta: [{ title: "Resumo — Folio" }] }),
   loader: ({ context }) => context.queryClient.ensureQueryData(dashboardQueryOptions),
   component: Dashboard,
+  pendingComponent: DashboardSkeleton,
+  pendingMs: 0,
+  pendingMinMs: 300,
   errorComponent: ({ error, reset }) => (
     <DashboardErrorFallback error={error} reset={reset} />
   ),

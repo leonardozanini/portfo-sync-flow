@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +9,6 @@ import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -18,11 +17,11 @@ import {
 } from "@/components/ui/table";
 import {
   Plus, Coins, TrendingUp, FileUp, ClipboardPaste, Pencil, Trash2,
-  Loader2, ChevronDown, ChevronUp, Brain,
+  Loader2, ChevronDown, ChevronUp, Brain, Clock,
 } from "lucide-react";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid,
-  AreaChart, Area,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
+  CartesianGrid, AreaChart, Area,
 } from "recharts";
 import { toast } from "sonner";
 import { useDisplayCurrency } from "@/components/CurrencySwitcher";
@@ -65,15 +64,9 @@ function fmtDate(iso: string) {
   return `${d}/${m}/${y}`;
 }
 
-// Gráfico mensal por tipo — aplica convert() em cada provento
-function buildChartData(
-  rows: DividendRow[],
-  year: number,
-  currency: string,
-) {
+function buildChartData(rows: DividendRow[], year: number, currency: string) {
   const map = new Map<number, Record<string, number>>();
   for (let m = 1; m <= 12; m++) map.set(m, {});
-
   for (const r of rows) {
     const date = r.payment_date || r.ex_date;
     if (!date) continue;
@@ -81,11 +74,9 @@ function buildChartData(
     if (y !== year) continue;
     const bucket = map.get(m)!;
     const key = r.dividend_type;
-    // Converte cada provento para a moeda de exibição
     const converted = convert(Number(r.amount), currency, r.currency as string);
     bucket[key] = (bucket[key] ?? 0) + converted;
   }
-
   return Array.from(map.entries()).map(([m, vals]) => ({
     month: MONTHS_PT[m - 1],
     ...vals,
@@ -93,20 +84,15 @@ function buildChartData(
   }));
 }
 
-// Gráfico de evolução acumulada mês a mês (todos os anos, linha do tempo)
 function buildCumulativeData(rows: DividendRow[], currency: string) {
-  // Agrupa por "YYYY-MM"
   const map = new Map<string, number>();
-
   for (const r of rows) {
     const date = r.payment_date || r.ex_date;
     if (!date) continue;
-    const key = date.slice(0, 7); // "2024-05"
+    const key = date.slice(0, 7);
     const converted = convert(Number(r.amount), currency, r.currency as string);
     map.set(key, (map.get(key) ?? 0) + converted);
   }
-
-  // Ordena cronologicamente e acumula
   const sorted = [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   let cumulative = 0;
   return sorted.map(([key, monthly]) => {
@@ -126,7 +112,6 @@ function getRollingWindow(rows: DividendRow[], currency: string) {
   const now = new Date();
   const twelveMonthsAgo = new Date(now);
   twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
-
   return rows
     .filter(r => {
       const d = r.payment_date || r.ex_date;
@@ -138,24 +123,208 @@ function getRollingWindow(rows: DividendRow[], currency: string) {
 
 function getLastClosedMonth(rows: DividendRow[], currency: string) {
   const now = new Date();
-  // Último mês fechado = mês anterior
   const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const y = lastMonth.getFullYear();
   const m = String(lastMonth.getMonth() + 1).padStart(2, "0");
   const prefix = `${y}-${m}`;
-
   return rows
-    .filter(r => {
-      const d = r.payment_date || r.ex_date;
-      return d?.startsWith(prefix);
-    })
+    .filter(r => (r.payment_date || r.ex_date)?.startsWith(prefix))
     .reduce((s, r) => s + convert(Number(r.amount), currency, r.currency as string), 0);
 }
 
 function getLastClosedMonthLabel() {
   const now = new Date();
-  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  return MONTHS_PT[lastMonth.getMonth()];
+  return MONTHS_PT[new Date(now.getFullYear(), now.getMonth() - 1, 1).getMonth()];
+}
+
+// ── Tabela Histórico Mensal ───────────────────────────────────────────────────
+
+type MonthlyFilter = {
+  status: "all" | "received" | "pending";
+  assetClass: string;
+  asset: string;
+};
+
+function MonthlyHistoryTable({ rows, currency }: { rows: DividendRow[]; currency: string }) {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
+  const [filter, setFilter] = useState<MonthlyFilter>({ status: "all", assetClass: "all", asset: "all" });
+
+  const assetClasses = useMemo(() => {
+    const set = new Set(rows.map(r => r.asset_class).filter(Boolean) as string[]);
+    return ["all", ...Array.from(set).sort()];
+  }, [rows]);
+
+  const assets = useMemo(() => {
+    const set = new Set(rows.map(r => r.symbol).filter(Boolean) as string[]);
+    return ["all", ...Array.from(set).sort()];
+  }, [rows]);
+
+  const filteredRows = useMemo(() => rows.filter(r => {
+    const date = r.payment_date || r.ex_date;
+    if (!date) return false;
+    const [y, m] = date.split("-").map(Number);
+    const isPast = y < currentYear || (y === currentYear && m < currentMonth);
+    const isFuture = !isPast;
+    if (filter.status === "received" && !isPast) return false;
+    if (filter.status === "pending" && !isFuture) return false;
+    if (filter.assetClass !== "all" && r.asset_class !== filter.assetClass) return false;
+    if (filter.asset !== "all" && r.symbol !== filter.asset) return false;
+    return true;
+  }), [rows, filter, currentYear, currentMonth]);
+
+  const { years, grid, totals } = useMemo(() => {
+    const yearSet = new Set<number>();
+    const map = new Map<number, Map<number, number>>();
+    for (const r of filteredRows) {
+      const date = r.payment_date || r.ex_date;
+      if (!date) continue;
+      const [y, mo] = date.split("-").map(Number);
+      yearSet.add(y);
+      if (!map.has(y)) map.set(y, new Map());
+      const mmap = map.get(y)!;
+      const converted = convert(Number(r.amount), currency, r.currency as string);
+      mmap.set(mo, (mmap.get(mo) ?? 0) + converted);
+    }
+    const years = [...yearSet].sort((a, b) => b - a);
+    const grid: Record<number, Record<number, number>> = {};
+    for (const y of years) {
+      grid[y] = {};
+      for (let m = 1; m <= 12; m++) grid[y][m] = map.get(y)?.get(m) ?? 0;
+    }
+    const totals: Record<number, number> = {};
+    for (let m = 1; m <= 12; m++) totals[m] = years.reduce((s, y) => s + (grid[y][m] ?? 0), 0);
+    return { years, grid, totals };
+  }, [filteredRows, currency]);
+
+  function rowTotal(y: number) {
+    return Object.values(grid[y] ?? {}).reduce((s, v) => s + v, 0);
+  }
+
+  function rowAvg(y: number) {
+    const vals = Object.entries(grid[y] ?? {})
+      .filter(([m, v]) => {
+        const mo = Number(m);
+        if (y < currentYear) return v > 0;
+        return mo < currentMonth && v > 0;
+      })
+      .map(([, v]) => v);
+    if (!vals.length) return 0;
+    return vals.reduce((s, v) => s + v, 0) / vals.length;
+  }
+
+  const grandTotal = years.reduce((s, y) => s + rowTotal(y), 0);
+
+  function isFutureCell(y: number, m: number) {
+    return y === currentYear && m >= currentMonth;
+  }
+
+  function fmtNum(v: number) {
+    return v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <CardTitle className="text-base">Histórico mensal</CardTitle>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold whitespace-nowrap">
+              Total <span className="text-primary">{formatMoney(grandTotal, currency)}</span>
+            </span>
+            <Select value={filter.status} onValueChange={v => setFilter(f => ({ ...f, status: v as MonthlyFilter["status"] }))}>
+              <SelectTrigger className="h-8 text-xs w-[130px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="received">Recebidos</SelectItem>
+                <SelectItem value="pending">Pendentes</SelectItem>
+              </SelectContent>
+            </Select>
+            {assetClasses.length > 2 && (
+              <Select value={filter.assetClass} onValueChange={v => setFilter(f => ({ ...f, assetClass: v }))}>
+                <SelectTrigger className="h-8 text-xs w-[140px]"><SelectValue placeholder="Tipo de ativo" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tipo de ativo</SelectItem>
+                  {assetClasses.filter(c => c !== "all").map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
+            <Select value={filter.asset} onValueChange={v => setFilter(f => ({ ...f, asset: v }))}>
+              <SelectTrigger className="h-8 text-xs w-[130px]"><SelectValue placeholder="Ativos" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Ativos</SelectItem>
+                {assets.filter(a => a !== "all").map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="p-0 overflow-x-auto">
+        {years.length === 0 ? (
+          <div className="py-10 text-center text-sm text-muted-foreground">
+            Nenhum provento encontrado com os filtros selecionados.
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/20">
+                <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground text-xs w-16">Ano</th>
+                {MONTHS_PT.map(m => (
+                  <th key={m} className="px-2 py-2.5 text-center font-semibold text-muted-foreground text-xs min-w-[72px]">{m}</th>
+                ))}
+                <th className="px-3 py-2.5 text-right font-semibold text-muted-foreground text-xs min-w-[80px]">
+                  <span className="flex items-center justify-end gap-1"><Clock className="h-3 w-3" />Média</span>
+                </th>
+                <th className="px-4 py-2.5 text-right font-semibold text-muted-foreground text-xs min-w-[88px]">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {years.map((y, yi) => (
+                <tr key={y} className={`border-b border-border/50 hover:bg-muted/10 transition-colors ${yi % 2 !== 0 ? "bg-muted/5" : ""}`}>
+                  <td className="px-4 py-3 font-bold text-sm">{y}</td>
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map(m => {
+                    const val = grid[y][m] ?? 0;
+                    const future = isFutureCell(y, m);
+                    return (
+                      <td key={m} className={`px-2 py-3 text-center tabular-nums text-xs ${
+                        future ? "text-muted-foreground/30" : val > 0 ? "text-foreground" : "text-muted-foreground/40"
+                      }`}>
+                        {val > 0 ? fmtNum(val) : "—"}
+                      </td>
+                    );
+                  })}
+                  <td className="px-3 py-3 text-right tabular-nums text-xs text-muted-foreground font-medium">
+                    {rowAvg(y) > 0 ? fmtNum(rowAvg(y)) : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-sm font-semibold">
+                    {fmtNum(rowTotal(y))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            {years.length > 1 && (
+              <tfoot>
+                <tr className="border-t-2 border-border bg-muted/10">
+                  <td className="px-4 py-2.5 text-xs font-semibold text-muted-foreground">Total</td>
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                    <td key={m} className="px-2 py-2.5 text-center tabular-nums text-xs text-muted-foreground font-medium">
+                      {totals[m] > 0 ? fmtNum(totals[m]) : "—"}
+                    </td>
+                  ))}
+                  <td />
+                  <td className="px-4 py-2.5 text-right tabular-nums text-sm font-bold text-primary">
+                    {fmtNum(grandTotal)}
+                  </td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 // ── Dialog de adicionar/editar provento ───────────────────────────────────────
@@ -184,18 +353,13 @@ const EMPTY_FORM: FormData = {
   notes: "",
 };
 
-function DividendDialog({
-  open, onOpenChange, editing,
-}: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  editing: DividendRow | null;
+function DividendDialog({ open, onOpenChange, editing }: {
+  open: boolean; onOpenChange: (v: boolean) => void; editing: DividendRow | null;
 }) {
   const qc = useQueryClient();
   const saveFn = useServerFn(saveDividend);
   const [form, setForm] = useState<FormData>(EMPTY_FORM);
 
-  // Preenche o form quando abre para edição
   useState(() => {
     if (editing) {
       setForm({
@@ -261,17 +425,14 @@ function DividendDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Ativo</Label>
-              <Input value={form.asset_symbol} onChange={set("asset_symbol")}
-                placeholder="Ex: CPTS11, GGRC11" className="font-mono uppercase" />
+              <Input value={form.asset_symbol} onChange={set("asset_symbol")} placeholder="Ex: CPTS11, GGRC11" className="font-mono uppercase" />
             </div>
             <div className="space-y-1.5">
               <Label>Tipo</Label>
               <Select value={form.dividend_type} onValueChange={v => setForm(f => ({ ...f, dividend_type: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {Object.entries(DIVIDEND_TYPE_LABELS).map(([v, l]) => (
-                    <SelectItem key={v} value={v}>{l}</SelectItem>
-                  ))}
+                  {Object.entries(DIVIDEND_TYPE_LABELS).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -285,18 +446,15 @@ function DividendDialog({
             </div>
             <div className="space-y-1.5">
               <Label>Valor por cota</Label>
-              <Input type="number" step="0.000001" value={form.amount_per_share}
-                onChange={set("amount_per_share")} placeholder="0,000000" />
+              <Input type="number" step="0.000001" value={form.amount_per_share} onChange={set("amount_per_share")} placeholder="0,000000" />
             </div>
             <div className="space-y-1.5">
               <Label>Cotas na data EX</Label>
-              <Input type="number" value={form.quantity_held}
-                onChange={set("quantity_held")} placeholder="0" />
+              <Input type="number" value={form.quantity_held} onChange={set("quantity_held")} placeholder="0" />
             </div>
             <div className="space-y-1.5">
               <Label>IR Retido <span className="text-muted-foreground text-xs">(opcional)</span></Label>
-              <Input type="number" step="0.01" value={form.ir_withheld}
-                onChange={set("ir_withheld")} placeholder="0,00" />
+              <Input type="number" step="0.01" value={form.ir_withheld} onChange={set("ir_withheld")} placeholder="0,00" />
             </div>
             <div className="space-y-1.5">
               <Label>Moeda</Label>
@@ -308,8 +466,6 @@ function DividendDialog({
               </Select>
             </div>
           </div>
-
-          {/* Preview do cálculo */}
           {grossAmount > 0 && (
             <div className="rounded-lg bg-muted/40 border border-border p-3 text-sm space-y-1">
               <div className="flex justify-between">
@@ -326,13 +482,11 @@ function DividendDialog({
               </div>
             </div>
           )}
-
           <div className="space-y-1.5">
             <Label>Observações <span className="text-muted-foreground text-xs">(opcional)</span></Label>
             <Input value={form.notes} onChange={set("notes")} placeholder="Ex: Rendimento referente a maio/2026" />
           </div>
         </div>
-
         <DialogFooter className="pt-2">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
           <Button onClick={() => mutation.mutate()} disabled={!isValid || mutation.isPending}>
@@ -363,30 +517,19 @@ function ParseTextDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
       const result = await parseFn({ data: { text } }) as any;
       setParsed(result.rows ?? []);
       setStep("preview");
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e: any) { toast.error(e.message); }
+    finally { setLoading(false); }
   };
 
   const handleSaveAll = async () => {
     setLoading(true);
     try {
-      for (const row of parsed) {
-        await saveFn({ data: row });
-      }
+      for (const row of parsed) await saveFn({ data: row });
       qc.invalidateQueries({ queryKey: ["dividends"] });
       toast.success(`${parsed.length} proventos importados!`);
-      onOpenChange(false);
-      setStep("input");
-      setText("");
-      setParsed([]);
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setLoading(false);
-    }
+      onOpenChange(false); setStep("input"); setText(""); setParsed([]);
+    } catch (e: any) { toast.error(e.message); }
+    finally { setLoading(false); }
   };
 
   return (
@@ -397,18 +540,12 @@ function ParseTextDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
             <Brain className="h-4 w-4 text-primary" /> Importar por texto (IA)
           </DialogTitle>
         </DialogHeader>
-
         {step === "input" ? (
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Cole o extrato de proventos da sua corretora. A IA vai identificar automaticamente o ativo, tipo, datas e valores.
-            </p>
-            <textarea
-              value={text}
-              onChange={e => setText(e.target.value)}
+            <p className="text-sm text-muted-foreground">Cole o extrato de proventos da sua corretora. A IA vai identificar automaticamente o ativo, tipo, datas e valores.</p>
+            <textarea value={text} onChange={e => setText(e.target.value)}
               className="w-full h-48 rounded-lg border border-border bg-muted/30 p-3 text-sm font-mono resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-              placeholder={"Exemplo:\nCPTS11 - Rendimento - Data EX: 12/05/2026 - Pgto: 20/05/2026 - R$ 0,10/cota - 170 cotas"}
-            />
+              placeholder={"Exemplo:\nCPTS11 - Rendimento - Data EX: 12/05/2026 - Pgto: 20/05/2026 - R$ 0,10/cota - 170 cotas"} />
             <DialogFooter>
               <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
               <Button onClick={handleParse} disabled={!text.trim() || loading}>
@@ -419,9 +556,7 @@ function ParseTextDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
           </div>
         ) : (
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              A IA identificou <strong>{parsed.length} proventos</strong>. Confira e confirme:
-            </p>
+            <p className="text-sm text-muted-foreground">A IA identificou <strong>{parsed.length} proventos</strong>. Confira e confirme:</p>
             <div className="overflow-x-auto rounded-lg border border-border">
               <table className="w-full text-xs">
                 <thead>
@@ -467,8 +602,6 @@ function ProventosPage() {
   const qc = useQueryClient();
   const listFn = useServerFn(listDividends);
   const deleteFn = useServerFn(deleteDividend);
-  const importFn = useServerFn(importDividendFile);
-  const saveFn = useServerFn(saveDividend);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [parseOpen, setParseOpen] = useState(false);
@@ -487,36 +620,23 @@ function ProventosPage() {
 
   const rows = dividends as DividendRow[];
 
-  // ── KPIs ──────────────────────────────────────────────────────────────────
-
-  // Últimos 12 meses (janela rolante)
+  // KPIs
   const totalLast12 = getRollingWindow(rows, currency);
-
-  // Último mês fechado (mês anterior ao atual)
   const totalLastClosedMonth = getLastClosedMonth(rows, currency);
   const lastClosedMonthLabel = getLastClosedMonthLabel();
-
   const uniqueAssets = new Set(rows.map(r => r.asset_id)).size;
 
-  // ── Gráfico mensal por tipo ────────────────────────────────────────────────
-
+  // Gráficos
   const chartData = buildChartData(rows, year, currency);
   const chartTypes = [...new Set(rows.map(r => r.dividend_type))];
-
-  // Gráfico de evolução acumulada
   const cumulativeData = buildCumulativeData(rows, currency);
-
-  // ── Anos disponíveis ──────────────────────────────────────────────────────
 
   const years = [...new Set(rows.map(r => {
     const d = r.payment_date || r.ex_date;
     return d ? parseInt(d.slice(0, 4)) : null;
   }).filter(Boolean))].sort((a, b) => b! - a!) as number[];
-
   if (!years.includes(year)) years.unshift(year);
   const mostRecentYear = years[0] ?? new Date().getFullYear();
-
-  // ── Handlers ──────────────────────────────────────────────────────────────
 
   const handleDelete = async (id: string) => {
     if (!confirm("Excluir este provento?")) return;
@@ -545,24 +665,17 @@ function ProventosPage() {
         reader.onerror = () => rej(new Error("Erro ao ler arquivo"));
         reader.readAsDataURL(file);
       });
-
       setPdfProgress("Processando com IA...");
       const { data: { session } } = await supabase.auth.getSession();
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
       const edgeUrl = `${supabaseUrl}/functions/v1/import-dividends-pdf`;
-
       const res = await fetch(edgeUrl, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session?.access_token}`,
-        },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
         body: JSON.stringify({ fileBase64: base64, fileName: file.name }),
       });
-
       const result = await res.json();
       if (!res.ok) throw new Error(result.error ?? "Erro na Edge Function");
-
       if (result.saved > 0) {
         qc.invalidateQueries({ queryKey: ["dividends"] });
         toast.success(`${result.saved} proventos importados!${result.skipped > 0 ? ` (${result.skipped} ignorados)` : ""}`);
@@ -604,30 +717,10 @@ function ProventosPage() {
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          {
-            label: "Últimos 12 meses",
-            value: formatMoney(totalLast12, currency),
-            icon: TrendingUp,
-            color: "text-emerald-500",
-          },
-          {
-            label: `${lastClosedMonthLabel} (último mês fechado)`,
-            value: formatMoney(totalLastClosedMonth, currency),
-            icon: Coins,
-            color: "text-blue-500",
-          },
-          {
-            label: "Ativos com proventos",
-            value: String(uniqueAssets),
-            icon: Coins,
-            color: "text-purple-500",
-          },
-          {
-            label: "Total de registros",
-            value: String(rows.length),
-            icon: Coins,
-            color: "text-muted-foreground",
-          },
+          { label: "Últimos 12 meses", value: formatMoney(totalLast12, currency), icon: TrendingUp, color: "text-emerald-500" },
+          { label: `${lastClosedMonthLabel} (último mês fechado)`, value: formatMoney(totalLastClosedMonth, currency), icon: Coins, color: "text-blue-500" },
+          { label: "Ativos com proventos", value: String(uniqueAssets), icon: Coins, color: "text-purple-500" },
+          { label: "Total de registros", value: String(rows.length), icon: Coins, color: "text-muted-foreground" },
         ].map(({ label, value, icon: Icon, color }) => (
           <Card key={label}>
             <CardContent className="pt-4 pb-3">
@@ -640,7 +733,7 @@ function ProventosPage() {
         ))}
       </div>
 
-      {/* Gráfico mensal por tipo */}
+      {/* Gráfico mensal */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-base">Proventos por mês</CardTitle>
@@ -655,36 +748,19 @@ function ProventosPage() {
           {chartData.every(d => d.total === 0) && years.filter(y => y !== year).length > 0 ? (
             <div className="grid h-40 place-items-center text-sm text-muted-foreground space-y-2">
               <p>Nenhum provento registrado em {year}.</p>
-              <button className="text-primary underline text-xs" onClick={() => setYear(mostRecentYear)}>
-                Ver {mostRecentYear} →
-              </button>
+              <button className="text-primary underline text-xs" onClick={() => setYear(mostRecentYear)}>Ver {mostRecentYear} →</button>
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={chartData} barCategoryGap="20%">
                 <CartesianGrid strokeDasharray="4 4" stroke="var(--color-border)" vertical={false} />
                 <XAxis dataKey="month" fontSize={11} stroke="var(--color-muted-foreground)" />
-                <YAxis
-                  fontSize={11}
-                  stroke="var(--color-muted-foreground)"
-                  tickFormatter={v => formatMoney(Number(v), currency).replace(/[,.]00$/, "")}
-                />
-                <Tooltip
-                  formatter={(v: number, name: string) => [
-                    formatMoney(v, currency),
-                    DIVIDEND_TYPE_LABELS[name] ?? name,
-                  ]}
-                  cursor={{ fill: "rgba(0,0,0,0.04)" }}
-                />
+                <YAxis fontSize={11} stroke="var(--color-muted-foreground)" tickFormatter={v => formatMoney(Number(v), currency).replace(/[,.]00$/, "")} />
+                <Tooltip formatter={(v: number, name: string) => [formatMoney(v, currency), DIVIDEND_TYPE_LABELS[name] ?? name]} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
                 <Legend formatter={name => DIVIDEND_TYPE_LABELS[name] ?? name} />
                 {chartTypes.map(type => (
-                  <Bar
-                    key={type}
-                    dataKey={type}
-                    stackId="a"
-                    fill={DIVIDEND_TYPE_COLORS[type] ?? "#6366f1"}
-                    radius={type === chartTypes[chartTypes.length - 1] ? [4, 4, 0, 0] : undefined}
-                  />
+                  <Bar key={type} dataKey={type} stackId="a" fill={DIVIDEND_TYPE_COLORS[type] ?? "#6366f1"}
+                    radius={type === chartTypes[chartTypes.length - 1] ? [4, 4, 0, 0] : undefined} />
                 ))}
               </BarChart>
             </ResponsiveContainer>
@@ -692,7 +768,7 @@ function ProventosPage() {
         </CardContent>
       </Card>
 
-      {/* Gráfico de evolução acumulada */}
+      {/* Gráfico acumulado */}
       {cumulativeData.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
@@ -712,51 +788,22 @@ function ProventosPage() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="4 4" stroke="var(--color-border)" vertical={false} />
-                <XAxis
-                  dataKey="label"
-                  fontSize={10}
-                  stroke="var(--color-muted-foreground)"
-                  interval="preserveStartEnd"
-                  tick={{ dy: 4 }}
-                />
-                <YAxis
-                  fontSize={11}
-                  stroke="var(--color-muted-foreground)"
-                  tickFormatter={v => formatMoney(Number(v), currency).replace(/[,.]00$/, "")}
-                />
-                <Tooltip
-                  formatter={(v: number, name: string) => [
-                    formatMoney(v, currency),
-                    name === "acumulado" ? "Acumulado" : "No mês",
-                  ]}
-                  cursor={{ stroke: "var(--color-border)", strokeWidth: 1 }}
-                />
-                <Legend
-                  formatter={name => name === "acumulado" ? "Acumulado" : "No mês"}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="mensal"
-                  stroke="#22c55e"
-                  strokeWidth={1.5}
-                  fill="url(#gradMensal)"
-                  dot={false}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="acumulado"
-                  stroke="#8b5cf6"
-                  strokeWidth={2}
-                  fill="url(#gradAcumulado)"
-                  dot={false}
-                />
+                <XAxis dataKey="label" fontSize={10} stroke="var(--color-muted-foreground)" interval="preserveStartEnd" tick={{ dy: 4 }} />
+                <YAxis fontSize={11} stroke="var(--color-muted-foreground)" tickFormatter={v => formatMoney(Number(v), currency).replace(/[,.]00$/, "")} />
+                <Tooltip formatter={(v: number, name: string) => [formatMoney(v, currency), name === "acumulado" ? "Acumulado" : "No mês"]} cursor={{ stroke: "var(--color-border)", strokeWidth: 1 }} />
+                <Legend formatter={name => name === "acumulado" ? "Acumulado" : "No mês"} />
+                <Area type="monotone" dataKey="mensal" stroke="#22c55e" strokeWidth={1.5} fill="url(#gradMensal)" dot={false} />
+                <Area type="monotone" dataKey="acumulado" stroke="#8b5cf6" strokeWidth={2} fill="url(#gradAcumulado)" dot={false} />
               </AreaChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
       )}
 
-      {/* Tabela */}
+      {/* ── Histórico mensal (tabela anos × meses) ── */}
+      {rows.length > 0 && <MonthlyHistoryTable rows={rows} currency={currency} />}
+
+      {/* Tabela de registros detalhados */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Histórico de proventos</CardTitle>
@@ -765,9 +812,7 @@ function ProventosPage() {
           {rows.length === 0 ? (
             <div className="py-12 text-center text-sm text-muted-foreground">
               Nenhum provento registrado ainda.{" "}
-              <button className="underline text-foreground" onClick={() => setDialogOpen(true)}>
-                Adicionar o primeiro
-              </button>
+              <button className="underline text-foreground" onClick={() => setDialogOpen(true)}>Adicionar o primeiro</button>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -789,13 +834,8 @@ function ProventosPage() {
                       <TableRow key={r.id} className="cursor-pointer" onClick={() => toggleRow(r.id)}>
                         <TableCell className="font-mono font-semibold">{r.symbol}</TableCell>
                         <TableCell>
-                          <span
-                            className="text-xs px-2 py-0.5 rounded-full font-medium"
-                            style={{
-                              background: `${DIVIDEND_TYPE_COLORS[r.dividend_type]}20`,
-                              color: DIVIDEND_TYPE_COLORS[r.dividend_type],
-                            }}
-                          >
+                          <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                            style={{ background: `${DIVIDEND_TYPE_COLORS[r.dividend_type]}20`, color: DIVIDEND_TYPE_COLORS[r.dividend_type] }}>
                             {DIVIDEND_TYPE_LABELS[r.dividend_type]}
                           </span>
                         </TableCell>
@@ -809,49 +849,26 @@ function ProventosPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-1">
-                            <Button
-                              variant="ghost" size="icon" className="h-7 w-7"
-                              onClick={e => { e.stopPropagation(); setEditing(r); setDialogOpen(true); }}
-                            >
+                            <Button variant="ghost" size="icon" className="h-7 w-7"
+                              onClick={e => { e.stopPropagation(); setEditing(r); setDialogOpen(true); }}>
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
-                            <Button
-                              variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
-                              onClick={e => { e.stopPropagation(); handleDelete(r.id); }}
-                            >
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                              onClick={e => { e.stopPropagation(); handleDelete(r.id); }}>
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
-                            {expandedRows.has(r.id)
-                              ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                              : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                            {expandedRows.has(r.id) ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                           </div>
                         </TableCell>
                       </TableRow>
-
                       {expandedRows.has(r.id) && (
                         <TableRow key={`${r.id}-detail`} className="bg-muted/20 hover:bg-muted/20">
                           <TableCell colSpan={7} className="py-3 px-6">
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                              <div>
-                                <span className="text-muted-foreground">Cotas</span><br />
-                                <span className="font-medium">{r.quantity_held ?? "—"}</span>
-                              </div>
-                              <div>
-                                <span className="text-muted-foreground">Bruto</span><br />
-                                <span className="font-medium">
-                                  {r.gross_amount ? `${r.currency} ${Number(r.gross_amount).toFixed(2)}` : "—"}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-muted-foreground">IR retido</span><br />
-                                <span className="font-medium text-red-500">
-                                  {r.ir_withheld ? `${r.currency} ${Number(r.ir_withheld).toFixed(2)}` : "R$ 0,00"}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-muted-foreground">Obs</span><br />
-                                <span className="font-medium">{r.notes || "—"}</span>
-                              </div>
+                              <div><span className="text-muted-foreground">Cotas</span><br /><span className="font-medium">{r.quantity_held ?? "—"}</span></div>
+                              <div><span className="text-muted-foreground">Bruto</span><br /><span className="font-medium">{r.gross_amount ? `${r.currency} ${Number(r.gross_amount).toFixed(2)}` : "—"}</span></div>
+                              <div><span className="text-muted-foreground">IR retido</span><br /><span className="font-medium text-red-500">{r.ir_withheld ? `${r.currency} ${Number(r.ir_withheld).toFixed(2)}` : "R$ 0,00"}</span></div>
+                              <div><span className="text-muted-foreground">Obs</span><br /><span className="font-medium">{r.notes || "—"}</span></div>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -865,7 +882,6 @@ function ProventosPage() {
         </CardContent>
       </Card>
 
-      {/* Dialogs */}
       <DividendDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} />
       <ParseTextDialog open={parseOpen} onOpenChange={setParseOpen} />
     </div>

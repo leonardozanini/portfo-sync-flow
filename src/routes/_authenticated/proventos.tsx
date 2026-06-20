@@ -57,6 +57,70 @@ const DIVIDEND_TYPE_COLORS: Record<string, string> = {
 
 const MONTHS_PT = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
 
+// ── Tooltip customizado (estilo dashboard) ────────────────────────────────────
+
+interface TooltipPayloadItem {
+  name: string;
+  value: number;
+  color?: string;
+}
+
+interface ChartTooltipProps {
+  active?: boolean;
+  payload?: TooltipPayloadItem[];
+  label?: string;
+  currency: string;
+  labelPrefix?: string;
+  nameMap?: Record<string, string>;
+}
+
+function ChartTooltip({ active, payload, label, currency, labelPrefix = "", nameMap }: ChartTooltipProps) {
+  if (!active || !payload?.length) return null;
+
+  // Filtra itens com valor > 0
+  const items = payload.filter(p => Number(p.value) > 0);
+  if (!items.length) return null;
+
+  return (
+    <div className="rounded-xl border border-border bg-card shadow-xl px-4 py-3 min-w-[180px]">
+      {/* Label (mês/período) */}
+      <p className="text-xs font-semibold text-muted-foreground mb-2 tracking-wide uppercase">
+        {labelPrefix}{label}
+      </p>
+      <div className="space-y-1.5">
+        {items.map((entry, i) => (
+          <div key={i} className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <span
+                className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
+                style={{ backgroundColor: entry.color ?? "#6366f1" }}
+              />
+              <span className="text-xs text-muted-foreground">
+                {nameMap?.[entry.name] ?? entry.name}
+              </span>
+            </div>
+            <span className="text-xs font-semibold tabular-nums text-foreground">
+              {formatMoney(Number(entry.value), currency)}
+            </span>
+          </div>
+        ))}
+        {/* Total quando há mais de 1 série */}
+        {items.length > 1 && (
+          <>
+            <div className="border-t border-border/50 my-1" />
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-xs text-muted-foreground pl-4">Total</span>
+              <span className="text-xs font-bold tabular-nums text-foreground">
+                {formatMoney(items.reduce((s, e) => s + Number(e.value), 0), currency)}
+              </span>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string) {
@@ -754,10 +818,24 @@ function ProventosPage() {
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={chartData} barCategoryGap="20%">
                 <CartesianGrid strokeDasharray="4 4" stroke="var(--color-border)" vertical={false} />
-                <XAxis dataKey="month" fontSize={11} stroke="var(--color-muted-foreground)" />
-                <YAxis fontSize={11} stroke="var(--color-muted-foreground)" tickFormatter={v => formatMoney(Number(v), currency).replace(/[,.]00$/, "")} />
-                <Tooltip formatter={(v: number, name: string) => [formatMoney(v, currency), DIVIDEND_TYPE_LABELS[name] ?? name]} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
-                <Legend formatter={name => DIVIDEND_TYPE_LABELS[name] ?? name} />
+                <XAxis dataKey="month" fontSize={11} stroke="var(--color-muted-foreground)" tickLine={false} axisLine={false} />
+                <YAxis fontSize={11} stroke="var(--color-muted-foreground)" tickLine={false} axisLine={false}
+                  tickFormatter={v => formatMoney(Number(v), currency).replace(/[,.]00$/, "")} />
+                <Tooltip
+                  content={(props) => (
+                    <ChartTooltip
+                      {...props}
+                      currency={currency}
+                      nameMap={DIVIDEND_TYPE_LABELS}
+                    />
+                  )}
+                  cursor={{ fill: "var(--color-muted)", opacity: 0.15, radius: 4 }}
+                />
+                <Legend
+                  formatter={name => (
+                    <span className="text-xs text-muted-foreground">{DIVIDEND_TYPE_LABELS[name] ?? name}</span>
+                  )}
+                />
                 {chartTypes.map(type => (
                   <Bar key={type} dataKey={type} stackId="a" fill={DIVIDEND_TYPE_COLORS[type] ?? "#6366f1"}
                     radius={type === chartTypes[chartTypes.length - 1] ? [4, 4, 0, 0] : undefined} />
@@ -788,10 +866,27 @@ function ProventosPage() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="4 4" stroke="var(--color-border)" vertical={false} />
-                <XAxis dataKey="label" fontSize={10} stroke="var(--color-muted-foreground)" interval="preserveStartEnd" tick={{ dy: 4 }} />
-                <YAxis fontSize={11} stroke="var(--color-muted-foreground)" tickFormatter={v => formatMoney(Number(v), currency).replace(/[,.]00$/, "")} />
-                <Tooltip formatter={(v: number, name: string) => [formatMoney(v, currency), name === "acumulado" ? "Acumulado" : "No mês"]} cursor={{ stroke: "var(--color-border)", strokeWidth: 1 }} />
-                <Legend formatter={name => name === "acumulado" ? "Acumulado" : "No mês"} />
+                <XAxis dataKey="label" fontSize={10} stroke="var(--color-muted-foreground)"
+                  tickLine={false} axisLine={false} interval="preserveStartEnd" tick={{ dy: 4 }} />
+                <YAxis fontSize={11} stroke="var(--color-muted-foreground)" tickLine={false} axisLine={false}
+                  tickFormatter={v => formatMoney(Number(v), currency).replace(/[,.]00$/, "")} />
+                <Tooltip
+                  content={(props) => (
+                    <ChartTooltip
+                      {...props}
+                      currency={currency}
+                      nameMap={{ mensal: "No mês", acumulado: "Acumulado" }}
+                    />
+                  )}
+                  cursor={{ stroke: "var(--color-border)", strokeWidth: 1 }}
+                />
+                <Legend
+                  formatter={name => (
+                    <span className="text-xs text-muted-foreground">
+                      {name === "acumulado" ? "Acumulado" : "No mês"}
+                    </span>
+                  )}
+                />
                 <Area type="monotone" dataKey="mensal" stroke="#22c55e" strokeWidth={1.5} fill="url(#gradMensal)" dot={false} />
                 <Area type="monotone" dataKey="acumulado" stroke="#8b5cf6" strokeWidth={2} fill="url(#gradAcumulado)" dot={false} />
               </AreaChart>
@@ -800,7 +895,7 @@ function ProventosPage() {
         </Card>
       )}
 
-      {/* ── Histórico mensal (tabela anos × meses) ── */}
+      {/* Histórico mensal (tabela anos × meses) */}
       {rows.length > 0 && <MonthlyHistoryTable rows={rows} currency={currency} />}
 
       {/* Tabela de registros detalhados */}

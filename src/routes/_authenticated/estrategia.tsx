@@ -115,10 +115,93 @@ const dashboardQueryOptions = queryOptions({
   staleTime: 30_000,
 });
 
+function Shimmer({ className }: { className?: string }) {
+  return <div className={`animate-pulse rounded-md bg-muted/60 ${className ?? ""}`} />;
+}
+
+function EstrategiaSkeleton() {
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="space-y-1.5">
+        <Shimmer className="h-7 w-40" />
+        <Shimmer className="h-4 w-72" />
+      </div>
+
+      {/* Seletor de estratégia */}
+      <div className="flex flex-wrap gap-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Shimmer key={i} className="h-9 w-28 rounded-lg" />
+        ))}
+      </div>
+
+      {/* Dois cards lado a lado */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* Pizza alocação alvo */}
+        <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+          <Shimmer className="h-5 w-36" />
+          <div className="flex items-center gap-6">
+            <Shimmer className="h-[180px] w-[180px] rounded-full shrink-0" />
+            <div className="flex-1 space-y-2.5">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Shimmer className="h-2.5 w-2.5 rounded-sm" />
+                    <Shimmer className="h-3.5 w-28" />
+                  </div>
+                  <Shimmer className="h-3.5 w-10" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Comparativo atual vs alvo */}
+        <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+          <Shimmer className="h-5 w-44" />
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="space-y-1.5">
+                <div className="flex justify-between">
+                  <Shimmer className="h-3.5 w-24" />
+                  <Shimmer className="h-3.5 w-16" />
+                </div>
+                <Shimmer className="h-2 w-full rounded-full" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Tabela de rebalanceamento */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="p-5 border-b border-border">
+          <Shimmer className="h-5 w-48" />
+        </div>
+        <div className="divide-y divide-border/50">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-4 px-5 py-3">
+              <Shimmer className="h-4 w-32" />
+              <div className="flex-1 grid grid-cols-4 gap-4">
+                {Array.from({ length: 4 }).map((_, j) => (
+                  <Shimmer key={j} className="h-4 w-full" />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export const Route = createFileRoute("/_authenticated/estrategia")({
   head: () => ({ meta: [{ title: "Estratégia — Folio" }] }),
   loader: ({ context }) => context.queryClient.ensureQueryData(dashboardQueryOptions),
   component: StrategyPage,
+  pendingComponent: EstrategiaSkeleton,
+  pendingMs: 0,
+  pendingMinMs: 300,
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

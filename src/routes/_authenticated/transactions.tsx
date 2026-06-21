@@ -280,9 +280,43 @@ function TransactionsPage() {
       )}
 
       {isLoading && (
-        <Card><CardContent className="flex items-center justify-center py-12 text-muted-foreground">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />Carregando…
-        </CardContent></Card>
+        <div className="space-y-4">
+          {/* Skeleton do gráfico */}
+          <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="h-5 w-40 animate-pulse rounded-md bg-muted/60" />
+              <div className="h-8 w-28 animate-pulse rounded-md bg-muted/60" />
+            </div>
+            <div className="flex items-end gap-2 h-[200px]">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <div key={i} className="flex-1 flex flex-col justify-end gap-0.5">
+                  <div
+                    className="w-full animate-pulse rounded-t-md bg-muted/60"
+                    style={{ height: `${25 + Math.random() * 60}%` }}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Skeleton da tabela */}
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="border-b border-border px-4 py-3 flex gap-4">
+              {Array.from({ length: 7 }).map((_, i) => (
+                <div key={i} className="h-4 animate-pulse rounded bg-muted/60 flex-1" />
+              ))}
+            </div>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="border-b border-border/50 px-4 py-3 flex items-center gap-4">
+                <div className="h-7 w-7 animate-pulse rounded bg-muted/60 shrink-0" />
+                <div className="flex-1 grid grid-cols-6 gap-4">
+                  {Array.from({ length: 6 }).map((_, j) => (
+                    <div key={j} className="h-4 animate-pulse rounded bg-muted/60" />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {!isLoading && visible.length === 0 && (

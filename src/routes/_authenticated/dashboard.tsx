@@ -246,6 +246,144 @@ const PIE_COLORS = [
   "#FB923C", "#F87171", "#E879F9", "#A78BFA",
 ];
 
+// ── Onboarding Modal ──────────────────────────────────────────────────────────
+
+const ONBOARDING_KEY = "folio_onboarding_done";
+
+const STEPS = [
+  {
+    icon: "📥",
+    title: "Adicione seus lançamentos",
+    description:
+      "Registre suas compras e vendas de ações, FIIs, ETFs, criptomoedas e outros ativos. O Folio busca os preços automaticamente e calcula seu patrimônio em tempo real.",
+    action: "Ir para Lançamentos",
+    to: "/transactions",
+  },
+  {
+    icon: "💰",
+    title: "Registre seus proventos",
+    description:
+      "Cadastre dividendos, rendimentos de FIIs e JCP recebidos. Você pode importar por PDF, colar o extrato da corretora ou adicionar manualmente.",
+    action: "Ir para Proventos",
+    to: "/proventos",
+  },
+  {
+    icon: "🎯",
+    title: "Defina sua estratégia",
+    description:
+      "Escolha uma estratégia de alocação (KRAKEN, ARCA, All Weather ou personalize a sua) e veja em tempo real quanto rebalancear em cada classe de ativo.",
+    action: "Ir para Estratégia",
+    to: "/estrategia",
+  },
+];
+
+function OnboardingModal({
+  open,
+  onClose,
+  onAddFirst,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onAddFirst: () => void;
+}) {
+  const [step, setStep] = useState(0);
+  const current = STEPS[step];
+  const isLast = step === STEPS.length - 1;
+
+  const handleClose = () => {
+    if (typeof window !== "undefined") localStorage.setItem(ONBOARDING_KEY, "1");
+    onClose();
+  };
+
+  const handleNext = () => {
+    if (isLast) {
+      handleClose();
+    } else {
+      setStep((s) => s + 1);
+    }
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={handleClose}
+      />
+
+      {/* Modal */}
+      <div className="relative w-full max-w-md rounded-2xl border border-border bg-card shadow-2xl">
+        {/* Header âmbar */}
+        <div className="rounded-t-2xl bg-primary/10 px-6 pt-6 pb-4 text-center border-b border-border">
+          <div className="mb-2 text-4xl">{current.icon}</div>
+          <h2 className="text-lg font-bold text-foreground">Bem-vindo ao Folio!</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Veja como aproveitar ao máximo sua carteira consolidada.
+          </p>
+        </div>
+
+        {/* Conteúdo do passo */}
+        <div className="px-6 py-5">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-xl">
+              {current.icon}
+            </div>
+            <h3 className="font-semibold text-foreground">{current.title}</h3>
+          </div>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            {current.description}
+          </p>
+        </div>
+
+        {/* Indicadores de passo */}
+        <div className="flex justify-center gap-2 pb-2">
+          {STEPS.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => setStep(i)}
+              className={`h-1.5 rounded-full transition-all ${
+                i === step ? "w-6 bg-primary" : "w-1.5 bg-muted-foreground/30"
+              }`}
+            />
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-border">
+          <button
+            onClick={handleClose}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Pular introdução
+          </button>
+          <div className="flex gap-2">
+            {step > 0 && (
+              <Button variant="ghost" size="sm" onClick={() => setStep((s) => s - 1)}>
+                Voltar
+              </Button>
+            )}
+            <Button
+              size="sm"
+              onClick={() => {
+                if (step === 0) {
+                  handleClose();
+                  onAddFirst();
+                } else {
+                  handleNext();
+                }
+              }}
+            >
+              {step === 0 ? "Adicionar primeiro ativo" : isLast ? "Começar!" : "Próximo"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard() {
   const { currency } = useDisplayCurrency();
   const [open, setOpen] = useState(false);
@@ -256,6 +394,14 @@ function Dashboard() {
 
   const [removeAsset, setRemoveAsset] = useState<{ assetId: string; symbol: string; currentPrice: number; currency: string; qty: number } | null>(null);
   const [equityPeriod, setEquityPeriod] = useState<"6" | "12" | "24">("12");
+
+  // Onboarding: mostra só se carteira vazia e nunca viu antes
+  const isEmptyPortfolio = data.groups.length === 0;
+  const neverSeen = typeof window !== "undefined"
+    ? !localStorage.getItem(ONBOARDING_KEY)
+    : false;
+  const [showOnboarding, setShowOnboarding] = useState(isEmptyPortfolio && neverSeen);
+
   const openNew = (p?: TxPreset) => { setPreset(p); setOpen(true); };
   const openLots = (a: { id: string; symbol: string }) => setLotsAsset(a);
 
@@ -294,6 +440,13 @@ function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Onboarding */}
+      <OnboardingModal
+        open={showOnboarding}
+        onClose={() => setShowOnboarding(false)}
+        onAddFirst={() => { setShowOnboarding(false); openNew(); }}
+      />
+
       <div className="flex items-center justify-end">
         <Button onClick={() => openNew()} size="lg" className="rounded-xl">
           <Plus className="mr-2 h-4 w-4" />Adicionar Lançamento

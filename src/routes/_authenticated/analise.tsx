@@ -413,7 +413,7 @@ function AnalisePage() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [result, setResult] = useState<string | null>(null);
 
-  const { data: analyses = [] } = useQuery({
+  const { data: analyses = [], isLoading: analysesLoading } = useQuery({
     queryKey: ["analyses"],
     queryFn: () => listFn(),
     staleTime: 60_000,
@@ -632,7 +632,32 @@ function AnalisePage() {
       )}
 
       {/* Histórico */}
-      {(analyses as any[]).length > 0 && (
+      {analysesLoading && (
+        <div className="space-y-3">
+          <div className="h-5 w-44 animate-pulse rounded-md bg-muted/60" />
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-xl border border-border bg-card p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-8 w-8 animate-pulse rounded-lg bg-muted/60" />
+                  <div className="space-y-1.5">
+                    <div className="h-4 w-24 animate-pulse rounded bg-muted/60" />
+                    <div className="h-3 w-32 animate-pulse rounded bg-muted/60" />
+                  </div>
+                </div>
+                <div className="h-7 w-7 animate-pulse rounded bg-muted/60" />
+              </div>
+              <div className="space-y-2">
+                <div className="h-3 w-full animate-pulse rounded bg-muted/60" />
+                <div className="h-3 w-5/6 animate-pulse rounded bg-muted/60" />
+                <div className="h-3 w-4/6 animate-pulse rounded bg-muted/60" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!analysesLoading && (analyses as any[]).length > 0 && (
         <div className="space-y-3">
           <h2 className="text-base font-semibold">Histórico de análises</h2>
           {(analyses as any[]).map((a) => (

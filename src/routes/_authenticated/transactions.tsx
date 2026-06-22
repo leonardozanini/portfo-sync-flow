@@ -86,6 +86,7 @@ function TransactionsPage() {
   const [filterClass, setFilterClass] = useState<string>("all");
   const [filterSymbol, setFilterSymbol] = useState<string>("all");
   const [filterBroker, setFilterBroker] = useState<string>("all");
+  const [filterMonth, setFilterMonth] = useState<string>("all");
   const [openNew, setOpenNew] = useState(false);
   const [editing, setEditing] = useState<TxRow | null>(null);
   const [deleting, setDeleting] = useState<TxRow | null>(null);
@@ -116,13 +117,30 @@ function TransactionsPage() {
     return Array.from(new Set(base.map((t) => t.symbol))).sort();
   }, [txs, filterClass]);
 
+  // Meses disponíveis a partir dos lançamentos
+  const months = useMemo(() => {
+    const set = new Map<string, string>();
+    (txs as TxRow[]).forEach((t) => {
+      const d = new Date(t.occurred_at);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const label = `${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+      set.set(key, label);
+    });
+    return Array.from(set.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [txs]);
+
   const visible = useMemo(() => {
     let rows = txs as TxRow[];
     if (filterClass !== "all") rows = rows.filter((t) => t.classLabel === filterClass);
     if (filterSymbol !== "all") rows = rows.filter((t) => t.symbol === filterSymbol);
     if (filterBroker !== "all") rows = rows.filter((t) => (t.brokerId ?? "none") === filterBroker);
+    if (filterMonth !== "all") rows = rows.filter((t) => {
+      const d = new Date(t.occurred_at);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      return key === filterMonth;
+    });
     return rows;
-  }, [txs, filterClass, filterSymbol, filterBroker]);
+  }, [txs, filterClass, filterSymbol, filterBroker, filterMonth]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, TxRow[]>();
@@ -132,6 +150,18 @@ function TransactionsPage() {
     });
     return Array.from(map.entries());
   }, [visible]);
+
+  // KPI: total investido e vendido no mês filtrado
+  const monthlyTotals = useMemo(() => {
+    const rows = filterMonth !== "all" ? visible : [];
+    let compras = 0; let vendas = 0;
+    rows.forEach((t) => {
+      const val = convert(Number(t.quantity) * Number(t.unit_price) + Number(t.fees ?? 0), currency, t.currency as Currency);
+      if (t.tx_type === "buy") compras += val;
+      if (t.tx_type === "sell") vendas += val;
+    });
+    return { compras, vendas, saldo: compras - vendas };
+  }, [visible, filterMonth, currency]);
 
   const [chartPeriod, setChartPeriod] = useState<"6" | "12" | "24">("12");
 
@@ -227,11 +257,39 @@ function TransactionsPage() {
               </SelectContent>
             </Select>
           )}
+          {/* Filter by month */}
+          <Select value={filterMonth} onValueChange={setFilterMonth}>
+            <SelectTrigger className="w-[150px]"><SelectValue placeholder="Todos os meses" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos os meses</SelectItem>
+              {months.map(([key, label]) => (
+                <SelectItem key={key} value={key}>{label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button onClick={() => setOpenNew(true)}>
             <Plus className="mr-2 h-4 w-4" />Novo lançamento
           </Button>
         </div>
       </div>
+
+      {/* KPI mensal — só aparece quando um mês está selecionado */}
+      {filterMonth !== "all" && (
+        <div className="grid grid-cols-3 gap-4">
+          {[
+            { label: "Total investido no mês", value: formatMoney(monthlyTotals.compras, currency), color: "text-emerald-500" },
+            { label: "Total vendido no mês",   value: formatMoney(monthlyTotals.vendas,  currency), color: "text-red-500" },
+            { label: "Saldo líquido",           value: formatMoney(monthlyTotals.saldo,   currency), color: monthlyTotals.saldo >= 0 ? "text-emerald-500" : "text-red-500" },
+          ].map(({ label, value, color }) => (
+            <Card key={label}>
+              <CardContent className="pt-4 pb-3">
+                <div className="text-xs text-muted-foreground mb-2">{label}</div>
+                <div className={`text-xl font-bold tabular-nums ${color}`}>{value}</div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {/* Chart */}
       {hasChart && (

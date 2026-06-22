@@ -17,7 +17,15 @@ export const MOCK_FX: Record<Currency, number> = {
   JPY: 28.5,
 };
 
-export function convert(amountBRL: number, target: Currency): number {
+/**
+ * Converte um valor de uma moeda para outra.
+ * - Se `from` não for informado, assume BRL (comportamento legado).
+ * - Converte from → BRL → target usando as taxas MOCK_FX.
+ */
+export function convert(amount: number, target: Currency, from: Currency = "BRL"): number {
+  if (from === target) return amount;
+  // Converte para BRL primeiro, depois para target
+  const amountBRL = from === "BRL" ? amount : amount / MOCK_FX[from];
   return amountBRL * MOCK_FX[target];
 }
 

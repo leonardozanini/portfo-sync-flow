@@ -64,6 +64,12 @@ const TX_LABEL: Record<TxType, string> = {
   deposit: "Aporte", withdraw: "Retirada",
 };
 
+// Parses YYYY-MM-DD safely without timezone shift
+function parseDate(dateStr: string): Date {
+  const [y, m, d] = dateStr.slice(0, 10).split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
 function buildChartData(txs: TxRow[], currency: Currency) {
   const map = new Map<string, { month: string; compras: number; vendas: number }>();
   for (const t of txs) {
@@ -121,7 +127,7 @@ function TransactionsPage() {
   const months = useMemo(() => {
     const set = new Map<string, string>();
     (txs as TxRow[]).forEach((t) => {
-      const d = new Date(t.occurred_at);
+      const d = parseDate(t.occurredAt);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       const label = `${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
       set.set(key, label);
@@ -135,7 +141,7 @@ function TransactionsPage() {
     if (filterSymbol !== "all") rows = rows.filter((t) => t.symbol === filterSymbol);
     if (filterBroker !== "all") rows = rows.filter((t) => (t.brokerId ?? "none") === filterBroker);
     if (filterMonth !== "all") rows = rows.filter((t) => {
-      const d = new Date(t.occurred_at);
+      const d = parseDate(t.occurredAt);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       return key === filterMonth;
     });

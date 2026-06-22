@@ -78,8 +78,7 @@ function buildChartData(txs: TxRow[], currency: Currency) {
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     const label = `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getFullYear()).slice(2)}`;
     if (!map.has(key)) map.set(key, { month: label, compras: 0, vendas: 0 });
-    const totalBRL = t.quantity * t.unitPrice + (t.fees ?? 0);
-    const total = convert(totalBRL, currency);
+    const total = convert(t.quantity * t.unitPrice + (t.fees ?? 0), currency, t.currency as Currency);
     if (t.txType === "buy") map.get(key)!.compras += total;
     else map.get(key)!.vendas += total;
   }

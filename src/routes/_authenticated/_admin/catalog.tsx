@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Database, Plus, Check, X,
-  MoreHorizontal, Link as LinkIcon, Loader2, Activity, AlertTriangle, CheckCircle2, Trash2,
+  MoreHorizontal, Link as LinkIcon, Loader2, Activity, AlertTriangle, CheckCircle2, Trash2, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -73,6 +73,7 @@ const MARKETS: { value: MarketCode; label: string }[] = [
   { value: "LSE", label: "LSE (Londres)" },
   { value: "TSE", label: "TSE (Tóquio)" },
   { value: "CRYPTO", label: "Cripto (24/7)" },
+  { value: "XETRA", label: "XETRA (Frankfurt)" },
   { value: "OTHER", label: "Outro" },
 ];
 
@@ -108,7 +109,8 @@ function CatalogPage() {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const refresh = () => qc.invalidateQueries({ queryKey: ["catalog"] });
 
-  const staleCount = (data?.rows ?? []).filter((r) => r.status === "approved" && isStale(r.fetchedAt)).length;
+  const staleRows = (data?.rows ?? []).filter((r) => r.status === "approved" && isStale(r.fetchedAt));
+  const staleCount = staleRows.length;
 
   return (
     <div className="space-y-6">
@@ -133,6 +135,9 @@ function CatalogPage() {
         <div className="flex gap-2">
           {(data?.pendingCount ?? 0) > 0 && (
             <ApproveAllButton onDone={refresh} pendingRows={(data?.rows ?? []).filter(r => r.status === "pending")} />
+          )}
+          {staleCount > 0 && (
+            <BatchRefreshButton staleRows={staleRows} onDone={refresh} />
           )}
           <TestConnectionButton />
           <NewAssetButton onCreated={refresh} />
@@ -312,6 +317,75 @@ function CatalogRowItem({ a, onChanged }: { a: CatalogRow; onChanged: () => void
     </TableRow>
   );
 }
+
+// ── Batch Refresh Button ──────────────────────────────────────────────────────
+
+function BatchRefreshButton({ staleRows, onDone }: { staleRows: CatalogRow[]; onDone: () => void }) {
+  const forceRefreshFn = useServerFn(forceRefreshPrice);
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number; failed: number } | null>(null);
+
+  const BATCH_SIZE = 10;
+
+  const handleRefresh = async () => {
+    if (!staleRows.length) return;
+    setLoading(true);
+    setProgress({ done: 0, total: staleRows.length, failed: 0 });
+
+    let failed = 0;
+    // Processa em lotes de 10 em paralelo
+    for (let i = 0; i < staleRows.length; i += BATCH_SIZE) {
+      const batch = staleRows.slice(i, i + BATCH_SIZE);
+      await Promise.all(
+        batch.map(async (row) => {
+          try {
+            await forceRefreshFn({ data: { assetId: row.id } });
+          } catch {
+            failed++;
+          }
+        })
+      );
+      setProgress({ done: Math.min(i + BATCH_SIZE, staleRows.length), total: staleRows.length, failed });
+    }
+
+    setLoading(false);
+    setProgress(null);
+    toast.success(`Cotações atualizadas! ${staleRows.length - failed} ok${failed > 0 ? `, ${failed} falhas` : ""}`);
+    onDone();
+  };
+
+  const pct = progress ? Math.round((progress.done / progress.total) * 100) : 0;
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleRefresh}
+        disabled={loading}
+        className="border-warning/40 text-warning hover:bg-warning/10"
+      >
+        {loading
+          ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          : <RefreshCw className="mr-2 h-4 w-4" />
+        }
+        {loading
+          ? `Atualizando… ${progress?.done}/${progress?.total}`
+          : `Atualizar ${staleRows.length} desatualizados`
+        }
+      </Button>
+      {loading && (
+        <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
+          <div
+            className="h-full bg-primary transition-all duration-300 rounded-full"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 function ApproveAllButton({ onDone, pendingRows }: { onDone: () => void; pendingRows: CatalogRow[] }) {
   const approveFn = useServerFn(adminApproveAsset);

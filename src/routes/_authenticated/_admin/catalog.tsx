@@ -325,7 +325,8 @@ function BatchRefreshButton({ staleRows, onDone }: { staleRows: CatalogRow[]; on
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; failed: number } | null>(null);
 
-  const BATCH_SIZE = 10;
+  const BATCH_SIZE = 3; // Twelve Data free: 8 req/min — conservador para não estourar
+  const BATCH_DELAY_MS = 8_000; // 8s entre lotes = ~22 req/min máx (bem abaixo do limite)
 
   const handleRefresh = async () => {
     if (!staleRows.length) return;
@@ -333,7 +334,7 @@ function BatchRefreshButton({ staleRows, onDone }: { staleRows: CatalogRow[]; on
     setProgress({ done: 0, total: staleRows.length, failed: 0 });
 
     let failed = 0;
-    // Processa em lotes de 10 em paralelo
+    // Processa em lotes de 3 em paralelo com delay entre lotes
     for (let i = 0; i < staleRows.length; i += BATCH_SIZE) {
       const batch = staleRows.slice(i, i + BATCH_SIZE);
       await Promise.all(
@@ -345,7 +346,12 @@ function BatchRefreshButton({ staleRows, onDone }: { staleRows: CatalogRow[]; on
           }
         })
       );
-      setProgress({ done: Math.min(i + BATCH_SIZE, staleRows.length), total: staleRows.length, failed });
+      const done = Math.min(i + BATCH_SIZE, staleRows.length);
+      setProgress({ done, total: staleRows.length, failed });
+      // Aguarda entre lotes para respeitar rate limit (exceto no último lote)
+      if (done < staleRows.length) {
+        await new Promise((res) => setTimeout(res, BATCH_DELAY_MS));
+      }
     }
 
     setLoading(false);
@@ -375,11 +381,16 @@ function BatchRefreshButton({ staleRows, onDone }: { staleRows: CatalogRow[]; on
         }
       </Button>
       {loading && (
-        <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
-          <div
-            className="h-full bg-primary transition-all duration-300 rounded-full"
-            style={{ width: `${pct}%` }}
-          />
+        <div className="w-full space-y-1">
+          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+            <div
+              className="h-full bg-primary transition-all duration-300 rounded-full"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground text-right">
+            {pct}% — respeitando limite das APIs
+          </p>
         </div>
       )}
     </div>

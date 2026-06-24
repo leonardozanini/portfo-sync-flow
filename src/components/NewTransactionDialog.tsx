@@ -323,7 +323,8 @@ function TxForm({
   const price = priceCents / 100;
   const fees = feesCents / 100;
   const qtyNum = parseFloat(qty) || 0;
-  const total = qtyNum * price + fees;
+  // Renda fixa: total = valor aplicado (price), sem qty
+  const total = isFixedIncome ? price + fees : qtyNum * price + fees;
   const qc = useQueryClient();
   const createTx = useServerFn(createTransaction);
 
@@ -339,7 +340,7 @@ function TxForm({
       // Mostra tela de sucesso ao invés de fechar
       onSuccess({
         symbol: symbol.trim().toUpperCase(),
-        total: fmt(total),
+        total: fmt(isFixedIncome ? price : total),
         currency,
       });
     },
@@ -348,16 +349,18 @@ function TxForm({
 
   const submit = () => {
     if (!symbol.trim()) { toast.error("Informe o ativo (símbolo)"); return; }
-    if (qtyNum <= 0) { toast.error("Quantidade deve ser maior que zero"); return; }
+    // Renda fixa: valida valor aplicado; outros: valida quantidade
+    if (isFixedIncome && price <= 0) { toast.error("Informe o valor aplicado"); return; }
+    if (!isFixedIncome && qtyNum <= 0) { toast.error("Quantidade deve ser maior que zero"); return; }
     mutation.mutate({
       data: {
         symbol: symbol.trim().toUpperCase(),
         assetClass,
         txType,
         occurredAt: date,
-        // Renda fixa: quantity = 1, unitPrice = valor total aplicado
+        // Renda fixa: quantity = 1, unitPrice = valor aplicado
         quantity: isFixedIncome ? 1 : qtyNum,
-        unitPrice: isFixedIncome ? total : price,
+        unitPrice: isFixedIncome ? price : price,
         fees,
         currency,
         brokerId: (brokerId && brokerId !== "none") ? brokerId : undefined,
@@ -367,7 +370,7 @@ function TxForm({
           maturity_date: fiMaturity || null,
           issuer: fiIssuer || null,
           product_type: fiProductType,
-          applied_amount: total,
+          applied_amount: price,
         } : undefined,
       },
     });

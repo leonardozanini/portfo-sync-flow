@@ -15,7 +15,7 @@ import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from "@/components/ui/command";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, ArrowDownToLine, ArrowUpFromLine, CalendarDays, Loader2, ChevronsUpDown, Check, Building2, CheckCircle2 } from "lucide-react";
+import { Plus, ArrowDownToLine, ArrowUpFromLine, CalendarDays, Loader2, ChevronsUpDown, Check, Building2, CheckCircle2, Landmark } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { createTransaction, searchAssets, listBrokers, type AssetClass, type CurrencyCode } from "@/lib/portfolio.functions";
@@ -303,6 +303,16 @@ function TxForm({
   const [feesCents, setFeesCents] = useState<number>(0);
   const [brokerId, setBrokerId] = useState<string>("");
 
+  // ── Renda fixa — campos extras ────────────────────────────────────────────
+  const [fiBenchmark, setFiBenchmark] = useState<string>("IPCA+");
+  const [fiRate, setFiRate] = useState<string>("");
+  const [fiMaturity, setFiMaturity] = useState<string>("");
+  const [fiMaturityDisplay, setFiMaturityDisplay] = useState<string>("");
+  const [fiIssuer, setFiIssuer] = useState<string>("");
+  const [fiProductType, setFiProductType] = useState<string>("Tesouro Direto");
+
+  const isFixedIncome = assetClass === "fixed_income";
+
   const listBrokersFn = useServerFn(listBrokers);
   const { data: brokers = [] } = useQuery({
     queryKey: ["brokers"],
@@ -345,11 +355,20 @@ function TxForm({
         assetClass,
         txType,
         occurredAt: date,
-        quantity: qtyNum,
-        unitPrice: price,
+        // Renda fixa: quantity = 1, unitPrice = valor total aplicado
+        quantity: isFixedIncome ? 1 : qtyNum,
+        unitPrice: isFixedIncome ? total : price,
         fees,
         currency,
         brokerId: (brokerId && brokerId !== "none") ? brokerId : undefined,
+        metadata: isFixedIncome ? {
+          benchmark: fiBenchmark,
+          rate: parseFloat(fiRate.replace(",", ".")) || 0,
+          maturity_date: fiMaturity || null,
+          issuer: fiIssuer || null,
+          product_type: fiProductType,
+          applied_amount: total,
+        } : undefined,
       },
     });
   };
@@ -400,22 +419,114 @@ function TxForm({
             />
           </div>
         </Field>
-        <Field label="Quantidade">
-          <Input
-            type="text"
-            inputMode="decimal"
-            value={qty}
-            onChange={(e) => {
-              const v = e.target.value.replace(",", ".");
-              if (v === "" || /^\d*\.?\d*$/.test(v)) setQty(v);
-            }}
-            placeholder="0"
-          />
-        </Field>
+        {/* Campos padrão: Quantidade + Preço */}
+        {!isFixedIncome && (
+          <>
+            <Field label="Quantidade">
+              <Input
+                type="text"
+                inputMode="decimal"
+                value={qty}
+                onChange={(e) => {
+                  const v = e.target.value.replace(",", ".");
+                  if (v === "" || /^\d*\.?\d*$/.test(v)) setQty(v);
+                }}
+                placeholder="0"
+              />
+            </Field>
+            <Field label={<>Preço <span className="font-normal text-muted-foreground">em {currency}</span></>}>
+              <MoneyInput cents={priceCents} onChange={setPriceCents} currency={currency} />
+            </Field>
+          </>
+        )}
 
-        <Field label={<>Preço <span className="font-normal text-muted-foreground">em {currency}</span></>}>
-          <MoneyInput cents={priceCents} onChange={setPriceCents} currency={currency} />
-        </Field>
+        {/* Campos de Renda Fixa */}
+        {isFixedIncome && (
+          <>
+            {/* Valor aplicado ocupa a linha toda */}
+            <div className="col-span-2">
+              <Field label={<><Landmark className="inline h-3.5 w-3.5 mr-1 opacity-60" />Valor aplicado <span className="font-normal text-muted-foreground">em {currency}</span></>}>
+                <MoneyInput cents={priceCents} onChange={setPriceCents} currency={currency} />
+              </Field>
+            </div>
+
+            {/* Tipo de produto */}
+            <Field label="Tipo de produto">
+              <Select value={fiProductType} onValueChange={setFiProductType}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {["Tesouro Direto","CDB","LCI","LCA","Debênture","CRI","CRA","LC","Poupança","Outro"].map(t => (
+                    <SelectItem key={t} value={t}>{t}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+
+            {/* Benchmark */}
+            <Field label="Benchmark (indexador)">
+              <Select value={fiBenchmark} onValueChange={setFiBenchmark}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {["IPCA+","Selic","CDI","CDI+","Prefixado","IGP-M+","INPC+"].map(b => (
+                    <SelectItem key={b} value={b}>{b}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+
+            {/* Taxa contratada */}
+            <Field label={`Taxa contratada ${fiBenchmark === "Prefixado" ? "(% a.a.)" : "(% sobre o índice)"}`}>
+              <div className="relative">
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={fiRate}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(",", ".");
+                    if (v === "" || /^\d*\.?\d*$/.test(v)) setFiRate(v);
+                  }}
+                  placeholder={fiBenchmark === "CDI" ? "100" : "6,25"}
+                  className="pr-8"
+                />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+              </div>
+            </Field>
+
+            {/* Vencimento */}
+            <Field label="Vencimento">
+              <div className="relative">
+                <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="DD/MM/AAAA"
+                  value={fiMaturityDisplay}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
+                    let masked = digits;
+                    if (digits.length > 2) masked = digits.slice(0, 2) + "/" + digits.slice(2);
+                    if (digits.length > 4) masked = digits.slice(0, 2) + "/" + digits.slice(2, 4) + "/" + digits.slice(4);
+                    setFiMaturityDisplay(masked);
+                    if (digits.length === 8) {
+                      const d = digits.slice(0, 2), m = digits.slice(2, 4), y = digits.slice(4, 8);
+                      setFiMaturity(`${y}-${m}-${d}`);
+                    }
+                  }}
+                  className="pl-9"
+                />
+              </div>
+            </Field>
+
+            {/* Emissor */}
+            <Field label={<>Emissor <span className="float-right text-xs text-muted-foreground">(Opcional)</span></>}>
+              <Input
+                value={fiIssuer}
+                onChange={(e) => setFiIssuer(e.target.value)}
+                placeholder="Ex: Banco XP, Tesouro Nacional"
+              />
+            </Field>
+          </>
+        )}
         <Field label="Moeda">
           <Select value={currency} onValueChange={(v) => setCurrency(v as CurrencyCode)} disabled={preset?.lockAsset}>
             <SelectTrigger><SelectValue /></SelectTrigger>
@@ -450,8 +561,8 @@ function TxForm({
       </div>
 
       <div className="flex items-center justify-between rounded-lg bg-muted px-4 py-3">
-        <span className="font-medium">Valor total</span>
-        <span className="text-lg font-semibold tabular-nums">{fmt(total)}</span>
+        <span className="font-medium">{isFixedIncome ? "Valor aplicado" : "Valor total"}</span>
+        <span className="text-lg font-semibold tabular-nums">{fmt(isFixedIncome ? price : total)}</span>
       </div>
 
       <div className="flex items-center justify-between pt-2">

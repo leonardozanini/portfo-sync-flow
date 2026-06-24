@@ -14,19 +14,21 @@ export type MarketCode = "B3" | "NYSE" | "NASDAQ" | "LSE" | "XETRA" | "TSE" | "C
 // Horários de pregão (UTC, aproximados, sem ajuste DST). Seg-Sex.
 // Crypto: 24/7. OTHER: sempre considerado fechado para refresh automático.
 const MARKET_HOURS_UTC: Record<MarketCode, { open: number; close: number } | "always" | "never"> = {
-  B3:     { open: 13 * 60,        close: 20 * 60 + 30 }, // 10:00-17:30 BRT
-  NYSE:   { open: 14 * 60 + 30,   close: 21 * 60 },      // 09:30-16:00 EST
-  NASDAQ: { open: 14 * 60 + 30,   close: 21 * 60 },
-  LSE:    { open: 8 * 60,         close: 16 * 60 + 30 }, // 08:00-16:30 GMT
-  XETRA:  { open: 8 * 60,         close: 16 * 60 + 30 }, // 08:00-16:30 CET
-  TSE:    { open: 0,              close: 6 * 60 },       // 09:00-15:00 JST
-  CRYPTO: "always",
-  OTHER:  "never",
+  B3:       { open: 13 * 60,        close: 20 * 60 + 30 }, // 10:00-17:30 BRT
+  NYSE:     { open: 14 * 60 + 30,   close: 21 * 60 },      // 09:30-16:00 EST
+  NASDAQ:   { open: 14 * 60 + 30,   close: 21 * 60 },
+  LSE:      { open: 8 * 60,         close: 16 * 60 + 30 }, // 08:00-16:30 GMT
+  XETRA:    { open: 8 * 60,         close: 16 * 60 + 30 }, // 08:00-16:30 CET
+  TSE:      { open: 0,              close: 6 * 60 },       // 09:00-15:00 JST
+  CRYPTO:   "always",
+  TREASURY: "always", // Tesouro Direto: PU atualizado diariamente, buscamos sempre
+  OTHER:    "never",
 };
 
 export const MARKET_LABEL: Record<MarketCode, string> = {
   B3: "B3 (Brasil)", NYSE: "NYSE", NASDAQ: "NASDAQ",
-  LSE: "LSE (Londres)", TSE: "TSE (Tóquio)", CRYPTO: "Cripto (24/7)", OTHER: "Outro",
+  LSE: "LSE (Londres)", TSE: "TSE (Tóquio)", XETRA: "XETRA (Frankfurt)",
+  CRYPTO: "Cripto (24/7)", TREASURY: "Tesouro Direto", OTHER: "Outro",
 };
 
 export function isMarketOpen(market: MarketCode, when: Date = new Date()): boolean {
@@ -41,6 +43,7 @@ export function isMarketOpen(market: MarketCode, when: Date = new Date()): boole
 
 export function defaultMarketFor(currency: CurrencyCode, klass: AssetClass): MarketCode {
   if (klass === "crypto") return "CRYPTO";
+  if (klass === "fixed_income") return "TREASURY";
   if (currency === "BRL") return "B3";
   if (currency === "USD") return "NYSE";
   if (currency === "EUR") return "XETRA";
@@ -183,6 +186,84 @@ async function fetchBrapiPrice(symbol: string): Promise<number | null> {
   } catch { return null; }
 }
 
+// Mapa de nomes de ativos de renda fixa → nome oficial no Tesouro Direto (Brapi)
+const TREASURY_NAME_MAP: Record<string, string> = {
+  // Renda+
+  "RENDA+ APOSENTADORIA EXTRA 2030": "Tesouro Renda+ Aposentadoria Extra 2030",
+  "RENDA+ APOSENTADORIA EXTRA 2035": "Tesouro Renda+ Aposentadoria Extra 2035",
+  "RENDA+ APOSENTADORIA EXTRA 2040": "Tesouro Renda+ Aposentadoria Extra 2040",
+  "RENDA+ APOSENTADORIA EXTRA 2045": "Tesouro Renda+ Aposentadoria Extra 2045",
+  "RENDA+ APOSENTADORIA EXTRA 2050": "Tesouro Renda+ Aposentadoria Extra 2050",
+  "RENDA+ APOSENTADORIA EXTRA 2055": "Tesouro Renda+ Aposentadoria Extra 2055",
+  "RENDA+ APOSENTADORIA EXTRA 2060": "Tesouro Renda+ Aposentadoria Extra 2060",
+  "RENDA+ APOSENTADORIA EXTRA 2065": "Tesouro Renda+ Aposentadoria Extra 2065",
+  "RENDA+ 2065": "Tesouro Renda+ Aposentadoria Extra 2065",
+  // Educa+
+  "EDUCA+ 2030": "Tesouro Educa+ 2030",
+  "EDUCA+ 2031": "Tesouro Educa+ 2031",
+  "EDUCA+ 2033": "Tesouro Educa+ 2033",
+  "EDUCA+ 2036": "Tesouro Educa+ 2036",
+  // IPCA+
+  "TESOURO IPCA+ 2029": "Tesouro IPCA+ 2029",
+  "TESOURO IPCA+ 2032": "Tesouro IPCA+ 2032",
+  "TESOURO IPCA+ 2035": "Tesouro IPCA+ 2035",
+  "TESOURO IPCA+ 2040": "Tesouro IPCA+ 2040",
+  "TESOURO IPCA+ 2045": "Tesouro IPCA+ 2045",
+  "TESOURO IPCA+ 2055": "Tesouro IPCA+ 2055",
+  // Prefixado
+  "TESOURO PREFIXADO 2027": "Tesouro Prefixado 2027",
+  "TESOURO PREFIXADO 2029": "Tesouro Prefixado 2029",
+  "TESOURO PREFIXADO 2031": "Tesouro Prefixado 2031",
+  // Selic
+  "TESOURO SELIC 2027": "Tesouro Selic 2027",
+  "TESOURO SELIC 2029": "Tesouro Selic 2029",
+};
+
+function resolveTreasuryName(symbol: string): string | null {
+  const upper = symbol.toUpperCase().trim();
+  // Busca exata
+  if (TREASURY_NAME_MAP[upper]) return TREASURY_NAME_MAP[upper];
+  // Busca parcial — tenta encontrar a chave que contém o símbolo
+  for (const [key, val] of Object.entries(TREASURY_NAME_MAP)) {
+    if (upper.includes(key) || key.includes(upper)) return val;
+  }
+  // Fallback: usa o próprio símbolo como nome (pode funcionar se o usuário usou o nome correto)
+  return symbol;
+}
+
+async function fetchBrapiTreasuryPrice(symbol: string): Promise<number | null> {
+  const token = process.env.BRAPI_TOKEN;
+  if (!token) return null;
+  try {
+    const name = resolveTreasuryName(symbol);
+    const url = `https://brapi.dev/api/v2/treasury?search=${encodeURIComponent(name ?? symbol)}&token=${token}`;
+    const res = await fetch(url, {
+      headers: { "Accept": "application/json" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    const json = await res.json() as {
+      treasuries?: Array<{
+        name: string;
+        sellingPrice?: number;   // PU de venda (resgate antecipado)
+        buyingPrice?: number;    // PU de compra
+        lastPrice?: number;      // último PU disponível
+      }>;
+    };
+    const list = json?.treasuries ?? [];
+    if (!list.length) return null;
+
+    // Encontra o título mais próximo pelo nome
+    const upper = (name ?? symbol).toUpperCase();
+    const match = list.find(t => t.name.toUpperCase().includes(upper) || upper.includes(t.name.toUpperCase()))
+      ?? list[0];
+
+    // Usa sellingPrice (resgate) — representa o valor atual de mercado
+    const p = match.sellingPrice ?? match.lastPrice ?? match.buyingPrice;
+    return typeof p === "number" && p > 0 ? p : null;
+  } catch { return null; }
+}
+
 async function fetchStooqPrice(stooqSymbol: string): Promise<number | null> {
   try {
     const url = `https://stooq.com/q/l/?s=${encodeURIComponent(stooqSymbol)}&f=sd2t2ohlcv&h&e=csv`;
@@ -231,6 +312,14 @@ async function fetchPriceFor(
   const klass = a.asset_class as AssetClass;
   const currency = a.currency as CurrencyCode;
   const { stooq, yahoo, twelve } = priceSymbolFor(a.symbol, klass, currency, a.quote_url);
+
+  // Renda fixa (Tesouro Direto, etc): Brapi Treasury API → PU atual de mercado
+  if (klass === "fixed_income") {
+    const p = await fetchBrapiTreasuryPrice(a.symbol);
+    if (p != null) return { price: p, source: "brapi_treasury" };
+    // Fallback: CDB/LCI/LCA sem cotação de mercado — mantém o último valor registrado
+    return { price: null, source: "none" };
+  }
 
   // Crypto: Yahoo works reliably for pairs like BTC-EUR
   if (klass === "crypto") {

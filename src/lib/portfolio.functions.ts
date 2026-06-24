@@ -616,7 +616,7 @@ function buildEquityHistory(
 
 // ---------- createTransaction ----------
 const createTxSchema = z.object({
-  symbol: z.string().min(1).max(32).regex(/^[A-Za-z0-9._-]+$/),
+  symbol: z.string().min(1).max(64).regex(/^[A-Za-z0-9 ._+%-]+$/),
   name: z.string().max(120).optional(),
   assetClass: z.enum(["stock","reit","etf","stock_intl","reit_intl","etf_intl","crypto","fixed_income","fund","cash","other"]),
   txType: z.enum(["buy","sell","dividend","deposit","withdraw"]),
@@ -1240,7 +1240,7 @@ export const searchAssets = createServerFn({ method: "GET" })
 
 // ---------- requestAssetInclusion (qualquer usuário) ----------
 const requestAssetSchema = z.object({
-  symbol: z.string().min(1).max(32).regex(/^[A-Za-z0-9._-]+$/),
+  symbol: z.string().min(1).max(64).regex(/^[A-Za-z0-9 ._+%-]+$/),
   name: z.string().max(120).optional(),
   assetClass: z.enum(["stock","reit","etf","stock_intl","reit_intl","etf_intl","crypto","fixed_income","fund","cash","other"]),
   currency: z.enum(["BRL","USD","EUR","GBP","JPY"]),
@@ -1375,7 +1375,7 @@ const ASSET_CLASS_ENUM = z.enum([
 const MARKET_ENUM = z.enum(["B3","NYSE","NASDAQ","LSE","TSE","CRYPTO","OTHER"]);
 
 const adminCreateSchema = z.object({
-  symbol: z.string().min(1).max(32).regex(/^[A-Za-z0-9._-]+$/),
+  symbol: z.string().min(1).max(64).regex(/^[A-Za-z0-9 ._+%-]+$/),
   name: z.string().min(1).max(120),
   assetClass: ASSET_CLASS_ENUM,
   currency: z.enum(["BRL","USD","EUR","GBP","JPY"]),

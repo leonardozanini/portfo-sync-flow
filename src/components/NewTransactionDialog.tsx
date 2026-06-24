@@ -324,7 +324,7 @@ function TxForm({
   const fees = feesCents / 100;
   const qtyNum = parseFloat(qty) || 0;
   // Renda fixa: total = valor aplicado (price), sem qty
-  const total = isFixedIncome ? price + fees : qtyNum * price + fees;
+  const total = qtyNum * price + fees; // funciona para ambos: qty*pu+fees (renda fixa) e qty*price+fees (demais)
   const qc = useQueryClient();
   const createTx = useServerFn(createTransaction);
 
@@ -340,7 +340,7 @@ function TxForm({
       // Mostra tela de sucesso ao invés de fechar
       onSuccess({
         symbol: symbol.trim().toUpperCase(),
-        total: fmt(isFixedIncome ? price : total),
+        total: fmt(total),
         currency,
       });
     },
@@ -350,7 +350,8 @@ function TxForm({
   const submit = () => {
     if (!symbol.trim()) { toast.error("Informe o ativo (símbolo)"); return; }
     // Renda fixa: valida valor aplicado; outros: valida quantidade
-    if (isFixedIncome && price <= 0) { toast.error("Informe o valor aplicado"); return; }
+    if (isFixedIncome && qtyNum <= 0) { toast.error("Informe a quantidade de títulos"); return; }
+    if (isFixedIncome && price <= 0) { toast.error("Informe o PU (preço unitário) na compra"); return; }
     if (!isFixedIncome && qtyNum <= 0) { toast.error("Quantidade deve ser maior que zero"); return; }
     mutation.mutate({
       data: {
@@ -359,8 +360,8 @@ function TxForm({
         txType,
         occurredAt: date,
         // Renda fixa: quantity = 1, unitPrice = valor aplicado
-        quantity: isFixedIncome ? 1 : qtyNum,
-        unitPrice: isFixedIncome ? price : price,
+        quantity: qtyNum,
+        unitPrice: price,
         fees,
         currency,
         brokerId: (brokerId && brokerId !== "none") ? brokerId : undefined,
@@ -370,7 +371,7 @@ function TxForm({
           maturity_date: fiMaturity || null,
           issuer: fiIssuer || null,
           product_type: fiProductType,
-          applied_amount: price,
+          applied_amount: total,
         } : undefined,
       },
     });
@@ -446,12 +447,24 @@ function TxForm({
         {/* Campos de Renda Fixa */}
         {isFixedIncome && (
           <>
-            {/* Valor aplicado ocupa a linha toda */}
-            <div className="col-span-2">
-              <Field label={<><Landmark className="inline h-3.5 w-3.5 mr-1 opacity-60" />Valor aplicado <span className="font-normal text-muted-foreground">em {currency}</span></>}>
-                <MoneyInput cents={priceCents} onChange={setPriceCents} currency={currency} />
-              </Field>
-            </div>
+            {/* Quantidade de títulos */}
+            <Field label={<><Landmark className="inline h-3.5 w-3.5 mr-1 opacity-60" />Quantidade de títulos</>}>
+              <Input
+                type="text"
+                inputMode="decimal"
+                value={qty}
+                onChange={(e) => {
+                  const v = e.target.value.replace(",", ".");
+                  if (v === "" || /^\d*\.?\d*$/.test(v)) setQty(v);
+                }}
+                placeholder="Ex: 1,39"
+              />
+            </Field>
+
+            {/* PU na compra */}
+            <Field label={<>PU na compra <span className="font-normal text-muted-foreground">em {currency}</span></>}>
+              <MoneyInput cents={priceCents} onChange={setPriceCents} currency={currency} />
+            </Field>
 
             {/* Tipo de produto */}
             <Field label="Tipo de produto">
@@ -551,8 +564,8 @@ function TxForm({
       </div>
 
       <div className="flex items-center justify-between rounded-lg bg-muted px-4 py-3">
-        <span className="font-medium">{isFixedIncome ? "Valor aplicado" : "Valor total"}</span>
-        <span className="text-lg font-semibold tabular-nums">{fmt(isFixedIncome ? price : total)}</span>
+        <span className="font-medium">{isFixedIncome ? "Valor total (qtd × PU)" : "Valor total"}</span>
+        <span className="text-lg font-semibold tabular-nums">{fmt(total)}</span>
       </div>
 
       <div className="flex items-center justify-between pt-2">

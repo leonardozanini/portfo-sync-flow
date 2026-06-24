@@ -626,6 +626,14 @@ const createTxSchema = z.object({
   fees: z.number().min(0).max(1e9).default(0),
   currency: z.enum(["BRL","USD","EUR","GBP","JPY"]),
   brokerId: z.string().uuid().optional(),
+  metadata: z.object({
+    benchmark: z.string().optional(),
+    rate: z.number().optional(),
+    maturity_date: z.string().nullable().optional(),
+    issuer: z.string().nullable().optional(),
+    product_type: z.string().optional(),
+    applied_amount: z.number().optional(),
+  }).optional(),
 });
 
 export const createTransaction = createServerFn({ method: "POST" })
@@ -677,6 +685,7 @@ export const createTransaction = createServerFn({ method: "POST" })
       fees: data.fees ?? 0,
       currency: data.currency,
       broker_id: data.brokerId ?? null,
+      metadata: data.metadata ?? null,
     });
     if (tErr) throw new Error(tErr.message);
     return { ok: true as const };
@@ -716,6 +725,7 @@ export const listTransactions = createServerFn({ method: "GET" })
         brokerId: tAny.broker_id ?? null,
         brokerName: b?.name ?? null,
         brokerColor: b?.color ?? null,
+        metadata: tAny.metadata ?? null,
       };
     });
   });

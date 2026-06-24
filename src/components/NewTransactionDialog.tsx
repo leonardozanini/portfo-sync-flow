@@ -305,7 +305,7 @@ function TxForm({
 
   // ── Renda fixa — campos extras ────────────────────────────────────────────
   const [fiBenchmark, setFiBenchmark] = useState<string>("IPCA+");
-  const [fiRate, setFiRate] = useState<string>("");
+  const [fiRateCents, setFiRateCents] = useState<number>(0); // ex: 702 = 7,02%
   const [fiMaturity, setFiMaturity] = useState<string>("");
   const [fiMaturityDisplay, setFiMaturityDisplay] = useState<string>("");
   const [fiIssuer, setFiIssuer] = useState<string>("");
@@ -366,7 +366,7 @@ function TxForm({
         brokerId: (brokerId && brokerId !== "none") ? brokerId : undefined,
         metadata: isFixedIncome ? {
           benchmark: fiBenchmark,
-          rate: parseFloat(fiRate.replace(",", ".")) || 0,
+          rate: fiRateCents / 100,
           maturity_date: fiMaturity || null,
           issuer: fiIssuer || null,
           product_type: fiProductType,
@@ -479,20 +479,7 @@ function TxForm({
 
             {/* Taxa contratada */}
             <Field label={`Taxa contratada ${fiBenchmark === "Prefixado" ? "(% a.a.)" : "(% sobre o índice)"}`}>
-              <div className="relative">
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  value={fiRate}
-                  onChange={(e) => {
-                    const v = e.target.value.replace(",", ".");
-                    if (v === "" || /^\d*\.?\d*$/.test(v)) setFiRate(v);
-                  }}
-                  placeholder={fiBenchmark === "CDI" ? "100" : "6,25"}
-                  className="pr-8"
-                />
-                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
-              </div>
+              <RateInput cents={fiRateCents} onChange={setFiRateCents} />
             </Field>
 
             {/* Vencimento */}
@@ -579,6 +566,41 @@ function TxForm({
           )}
         </Button>
       </div>
+    </div>
+  );
+}
+
+// ── RateInput ────────────────────────────────────────────────────────────────
+// Dígito a dígito, igual MoneyInput. 702 centésimos = 7,02%
+function RateInput({ cents, onChange }: { cents: number; onChange: (v: number) => void }) {
+  const display = (cents / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+  const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Backspace") {
+      e.preventDefault();
+      onChange(Math.floor(cents / 10));
+    } else if (/^\d$/.test(e.key)) {
+      e.preventDefault();
+      const next = cents * 10 + parseInt(e.key);
+      if (next <= 999999) onChange(next); // max 9999,99%
+    }
+  };
+
+  return (
+    <div className="relative">
+      <Input
+        type="text"
+        inputMode="numeric"
+        value={display}
+        onKeyDown={handleKey}
+        onChange={() => {}}
+        className="pr-8 tabular-nums"
+        placeholder="0,00"
+      />
+      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
     </div>
   );
 }

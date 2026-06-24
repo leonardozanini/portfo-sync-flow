@@ -43,6 +43,15 @@ export const Route = createFileRoute("/_authenticated/transactions")({
   component: TransactionsPage,
 });
 
+type FixedIncomeMetadata = {
+  benchmark?: string;
+  rate?: number;
+  maturity_date?: string | null;
+  issuer?: string | null;
+  product_type?: string;
+  applied_amount?: number;
+};
+
 type TxRow = {
   id: string;
   symbol: string;
@@ -57,6 +66,7 @@ type TxRow = {
   brokerId: string | null;
   brokerName: string | null;
   brokerColor: string | null;
+  metadata?: FixedIncomeMetadata | null;
 };
 
 const TX_LABEL: Record<TxType, string> = {
@@ -449,7 +459,150 @@ function TransactionsPage() {
         );
       })()}
 
-      {grouped.map(([cls, rows]) => (
+
+      {/* ── Renda Fixa — Seção consolidada ─────────────────────────────────── */}
+      {(() => {
+        const fiRows = (visible as TxRow[]).filter(t => t.assetClass === "fixed_income" && t.metadata);
+        if (!fiRows.length) return null;
+
+        // Agrupa por ativo
+        const bySymbol = new Map<string, { rows: TxRow[]; totalApplied: number; weightedRate: number }>();
+        for (const t of fiRows) {
+          if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, { rows: [], totalApplied: 0, weightedRate: 0 });
+          const entry = bySymbol.get(t.symbol)!;
+          const applied = t.metadata?.applied_amount ?? (t.unitPrice * t.quantity);
+          entry.rows.push(t);
+          entry.totalApplied += convert(applied, currency, t.currency as Currency);
+          entry.weightedRate += (t.metadata?.rate ?? 0) * applied;
+        }
+
+        const totalFI = Array.from(bySymbol.values()).reduce((s, e) => s + e.totalApplied, 0);
+
+        // Vencimentos próximos
+        const vencimentos = fiRows
+          .filter(t => t.metadata?.maturity_date)
+          .map(t => ({ symbol: t.symbol, maturity: t.metadata!.maturity_date!, product_type: t.metadata?.product_type }))
+          .sort((a, b) => a.maturity.localeCompare(b.maturity));
+
+        const uniqueVenc = Array.from(new Map(vencimentos.map(v => [v.symbol + v.maturity, v])).values());
+
+        return (
+          <Card className="border-primary/20">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <span className="text-lg">🏦</span> Renda Fixa
+                </CardTitle>
+                <span className="text-sm font-semibold text-primary">
+                  {formatMoney(totalFI, currency)} aplicados
+                </span>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Tabela por ativo */}
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Ativo</TableHead>
+                      <TableHead>Produto</TableHead>
+                      <TableHead>Benchmark</TableHead>
+                      <TableHead className="text-right">Taxa</TableHead>
+                      <TableHead>Vencimento</TableHead>
+                      <TableHead>Emissor</TableHead>
+                      <TableHead className="text-right">Aplicado</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {fiRows.map((t) => {
+                      const applied = t.metadata?.applied_amount ?? (t.unitPrice * t.quantity);
+                      const matDate = t.metadata?.maturity_date
+                        ? parseDate(t.metadata.maturity_date).toLocaleDateString("pt-BR")
+                        : "—";
+                      const daysToMaturity = t.metadata?.maturity_date
+                        ? Math.ceil((parseDate(t.metadata.maturity_date).getTime() - Date.now()) / 86_400_000)
+                        : null;
+                      return (
+                        <TableRow key={t.id}>
+                          <TableCell className="font-mono font-semibold">{t.symbol}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{t.metadata?.product_type ?? "—"}</TableCell>
+                          <TableCell>
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+                              {t.metadata?.benchmark ?? "—"}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums font-semibold text-emerald-500">
+                            {t.metadata?.rate != null ? `${t.metadata.rate.toFixed(2).replace(".", ",")}%` : "—"}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            <span>{matDate}</span>
+                            {daysToMaturity != null && daysToMaturity > 0 && (
+                              <span className={`ml-1.5 text-xs ${daysToMaturity < 90 ? "text-destructive" : "text-muted-foreground"}`}>
+                                ({daysToMaturity}d)
+                              </span>
+                            )}
+                            {daysToMaturity != null && daysToMaturity <= 0 && (
+                              <span className="ml-1.5 text-xs text-destructive font-semibold">Vencido</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{t.metadata?.issuer ?? "—"}</TableCell>
+                          <TableCell className="text-right tabular-nums font-semibold">
+                            {formatMoney(convert(applied, currency, t.currency as Currency), currency)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* KPIs consolidados */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2 border-t border-border">
+                <div className="rounded-lg bg-muted/40 p-3">
+                  <p className="text-xs text-muted-foreground">Total aplicado</p>
+                  <p className="text-base font-bold tabular-nums mt-1">{formatMoney(totalFI, currency)}</p>
+                </div>
+                <div className="rounded-lg bg-muted/40 p-3">
+                  <p className="text-xs text-muted-foreground">Títulos em carteira</p>
+                  <p className="text-base font-bold mt-1">{fiRows.length}</p>
+                </div>
+                {uniqueVenc.length > 0 && (
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <p className="text-xs text-muted-foreground">Próximo vencimento</p>
+                    <p className="text-sm font-bold mt-1">
+                      {uniqueVenc[0].symbol} — {parseDate(uniqueVenc[0].maturity).toLocaleDateString("pt-BR")}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Vencimentos futuros */}
+              {uniqueVenc.length > 1 && (
+                <div className="space-y-1.5 pt-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Calendário de vencimentos</p>
+                  <div className="space-y-1">
+                    {uniqueVenc.map((v, i) => {
+                      const days = Math.ceil((parseDate(v.maturity).getTime() - Date.now()) / 86_400_000);
+                      return (
+                        <div key={i} className="flex items-center justify-between text-xs py-1 border-b border-border/40 last:border-0">
+                          <span className="font-mono font-semibold">{v.symbol}</span>
+                          <span className="text-muted-foreground">{v.product_type}</span>
+                          <span>{parseDate(v.maturity).toLocaleDateString("pt-BR")}</span>
+                          <span className={days < 90 ? "text-destructive font-semibold" : "text-muted-foreground"}>
+                            {days > 0 ? `em ${days} dias` : "Vencido"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
+
+      {grouped.filter(([, rows]) => (rows as TxRow[])[0]?.assetClass !== "fixed_income").map(([cls, rows]) => (
         <Card key={cls}>
           <CardHeader><CardTitle className="text-base">{cls}</CardTitle></CardHeader>
           <CardContent>

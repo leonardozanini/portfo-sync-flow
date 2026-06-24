@@ -488,8 +488,11 @@ export const getDashboard = createServerFn({ method: "GET" })
       if (!asset) continue;
       const klass = asset.asset_class as AssetClass;
       const cur = (asset.currency ?? agg.currency) as CurrencyCode;
-      const currentPrice = latestPrice.get(assetId) ?? agg.lastPrice;
       const avgPrice = agg.invested / agg.qty;
+      // Para renda fixa sem preço de mercado: usa PU médio de compra (neutro)
+      // Quando o cron buscar o PU atual via Brapi, latestPrice terá o valor real
+      const currentPrice = latestPrice.get(assetId) ??
+        (asset?.asset_class === "fixed_income" ? avgPrice : agg.lastPrice);
       const balanceBRL = toBRL(agg.qty * currentPrice, cur);
       const investedBRL = toBRL(agg.invested, cur);
       const yieldPct = avgPrice > 0 ? ((currentPrice - avgPrice) / avgPrice) * 100 : 0;

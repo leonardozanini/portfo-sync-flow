@@ -151,7 +151,7 @@ function priceSymbolFor(symbol: string, klass: AssetClass, currency: CurrencyCod
   // Twelve Data uses plain ticker for US stocks, ticker:exchange for others
   const twelveSymbol = (() => {
     if (klass === "crypto") return `${s}/USD`; // crypto via Yahoo instead
-    if (yahooTicker.includes(".DE") || currency === "EUR") return `${s}:XETRA`;
+    if (yahooTicker.includes(".DE") || currency === "EUR") return `${s}:XETR`; // Twelve Data uses XETR not XETRA
     if (currency === "BRL") return `${s}:BOVESPA`;
     return s; // US stocks: plain symbol
   })();
@@ -339,11 +339,17 @@ async function fetchPriceFor(
     return { price: null, source: "none" };
   }
 
-  // International stocks/ETFs: Twelve Data first, then Stooq
+  // International stocks/ETFs: Twelve Data first, then Stooq, then Yahoo (for EUR ETFs like VUAA.DE)
   const p = await fetchTwelveDataPrice(twelve);
   if (p != null) return { price: p, source: "twelve" };
   const p2 = await fetchStooqPrice(stooq);
   if (p2 != null) return { price: p2, source: "stooq" };
+  // Fallback para ETFs europeus: Yahoo Finance com sufixo .DE
+  if (currency === "EUR") {
+    const ySymbol = yahoo.includes(".DE") ? yahoo : `${a.symbol}.DE`;
+    const p3 = await fetchYahooPrice(ySymbol);
+    if (p3 != null) return { price: p3, source: "yahoo" };
+  }
 
   return { price: null, source: "none" };
 }

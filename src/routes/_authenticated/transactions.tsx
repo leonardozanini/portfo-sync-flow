@@ -478,6 +478,31 @@ function TransactionsPage() {
 
         const totalFI = Array.from(bySymbol.values()).reduce((s, e) => s + e.totalApplied, 0);
 
+        // Taxa média ponderada global (IPCA+ X,XX%) — ponderada pelo valor aplicado em cada lote
+        const globalWeightedRate = totalFI > 0
+          ? fiRows.reduce((sum, t) => {
+              const applied = t.metadata?.applied_amount ?? (t.unitPrice * t.quantity);
+              return sum + (t.metadata?.rate ?? 0) * applied;
+            }, 0) / totalFI
+          : 0;
+
+        // Taxa média ponderada por benchmark
+        const rateByBenchmark = new Map<string, { totalRate: number; totalApplied: number }>();
+        for (const t of fiRows) {
+          const bm = t.metadata?.benchmark ?? "Outro";
+          const applied = t.metadata?.applied_amount ?? (t.unitPrice * t.quantity);
+          const rate = t.metadata?.rate ?? 0;
+          if (!rateByBenchmark.has(bm)) rateByBenchmark.set(bm, { totalRate: 0, totalApplied: 0 });
+          const entry = rateByBenchmark.get(bm)!;
+          entry.totalRate += rate * applied;
+          entry.totalApplied += applied;
+        }
+        const avgRateByBenchmark = Array.from(rateByBenchmark.entries()).map(([bm, e]) => ({
+          benchmark: bm,
+          avgRate: e.totalApplied > 0 ? e.totalRate / e.totalApplied : 0,
+          totalApplied: e.totalApplied,
+        })).sort((a, b) => b.totalApplied - a.totalApplied);
+
         // Vencimentos próximos
         const vencimentos = fiRows
           .filter(t => t.metadata?.maturity_date)
@@ -557,7 +582,7 @@ function TransactionsPage() {
               </div>
 
               {/* KPIs consolidados */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2 border-t border-border">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-border">
                 <div className="rounded-lg bg-muted/40 p-3">
                   <p className="text-xs text-muted-foreground">Total aplicado</p>
                   <p className="text-base font-bold tabular-nums mt-1">{formatMoney(totalFI, currency)}</p>
@@ -566,6 +591,15 @@ function TransactionsPage() {
                   <p className="text-xs text-muted-foreground">Títulos em carteira</p>
                   <p className="text-base font-bold mt-1">{fiRows.length}</p>
                 </div>
+                {/* Taxa média ponderada */}
+                {globalWeightedRate > 0 && (
+                  <div className="rounded-lg bg-primary/10 border border-primary/20 p-3">
+                    <p className="text-xs text-muted-foreground">Taxa média ponderada</p>
+                    <p className="text-base font-bold text-primary mt-1">
+                      {globalWeightedRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}% a.a.
+                    </p>
+                  </div>
+                )}
                 {uniqueVenc.length > 0 && (
                   <div className="rounded-lg bg-muted/40 p-3">
                     <p className="text-xs text-muted-foreground">Próximo vencimento</p>
@@ -575,6 +609,32 @@ function TransactionsPage() {
                   </div>
                 )}
               </div>
+
+              {/* Taxa por benchmark */}
+              {avgRateByBenchmark.length > 0 && (
+                <div className="space-y-2 pt-2 border-t border-border/50">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    Taxa contratada por indexador
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {avgRateByBenchmark.map((item) => (
+                      <div key={item.benchmark} className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+                            {item.benchmark}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {formatMoney(convert(item.totalApplied, currency, "BRL" as Currency), currency)} aplicados
+                          </span>
+                        </div>
+                        <span className="text-sm font-bold text-emerald-500 tabular-nums">
+                          +{item.avgRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Vencimentos futuros */}
               {uniqueVenc.length > 1 && (

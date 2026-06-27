@@ -5,8 +5,9 @@ import { useServerFn } from "@tanstack/react-start";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Users, Database, AlertTriangle, SlidersHorizontal, ShieldCheck, Star, Loader2, ArrowLeft } from "lucide-react";
-import { adminListUsers, adminSetUserRole } from "@/lib/portfolio.functions";
+import { Users, Database, AlertTriangle, SlidersHorizontal, ShieldCheck, Star, Loader2, ArrowLeft, RefreshCw, Clock, XCircle, CheckCircle2 } from "lucide-react";
+import { adminListUsers, adminSetUserRole, forceRefreshPrice } from "@/lib/portfolio.functions";
+import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/_admin/admin")({
@@ -15,14 +16,15 @@ export const Route = createFileRoute("/_authenticated/_admin/admin")({
 });
 
 function AdminHome() {
-  const [view, setView] = useState<"home" | "users">("home");
+  const [view, setView] = useState<"home" | "users" | "price-failures">("home");
 
   if (view === "users") return <UsersPanel onBack={() => setView("home")} />;
+  if (view === "price-failures") return <PriceFailuresPanel onBack={() => setView("home")} />;
 
   const sections = [
     { icon: Users, title: "Usuários e papéis", desc: "Ver contas, atribuir Premium / Admin.", action: () => setView("users") },
     { icon: Database, title: "Catálogo de ativos", desc: "Lista completa de ativos disponíveis para lançamento.", to: "/catalog" as const },
-    { icon: AlertTriangle, title: "Falhas de cotação", desc: "Fila de ativos sem preço — defina fonte ou valor manual.", to: null },
+    { icon: AlertTriangle, title: "Falhas de cotação", desc: "Fila de ativos sem preço — defina fonte ou valor manual.", action: () => setView("price-failures") },
     { icon: SlidersHorizontal, title: "Limites Free vs Premium", desc: "Configure quotas e funcionalidades por plano.", to: null },
   ];
 
@@ -145,6 +147,196 @@ function UsersPanel({ onBack }: { onBack: () => void }) {
                       {isAdmin ? "Remover Admin" : "Dar Admin"}
                     </Button>
                   </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ── Price Failures Panel ──────────────────────────────────────────────────────
+
+type PriceIssueRow = {
+  id: string;
+  symbol: string;
+  asset_class: string;
+  currency: string;
+  market: string;
+  lastPrice: number | null;
+  priceDate: string | null;
+  fetchedAt: string | null;
+  failReason: string | null;
+  failCount: number;
+  issue: "never" | "stale" | "failing";
+};
+
+function PriceFailuresPanel({ onBack }: { onBack: () => void }) {
+  const forceRefreshFn = useServerFn(forceRefreshPrice);
+  const qc = useQueryClient();
+  const [refreshingId, setRefreshingId] = useState<string | null>(null);
+
+  const { data: issues = [], isLoading, refetch } = useQuery({
+    queryKey: ["admin-price-failures"],
+    queryFn: async (): Promise<PriceIssueRow[]> => {
+      // Busca todos os ativos em carteira de algum usuário
+      const { data: assets } = await (supabase as any)
+        .from("assets")
+        .select("id, symbol, asset_class, currency, market")
+        .in("status", ["approved"])
+        .order("symbol");
+
+      if (!assets?.length) return [];
+
+      // Busca últimos preços
+      const { data: prices } = await (supabase as any)
+        .from("asset_prices")
+        .select("asset_id, close_price, price_date, fetched_at")
+        .order("fetched_at", { ascending: false });
+
+      // Busca falhas recentes (últimos 7 dias)
+      const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: failures } = await (supabase as any)
+        .from("price_fetch_failures")
+        .select("asset_id, symbol, reason, created_at")
+        .gte("created_at", since);
+
+      const priceByAsset = new Map<string, { close_price: number; price_date: string; fetched_at: string }>();
+      for (const p of (prices ?? [])) {
+        if (!priceByAsset.has(p.asset_id)) priceByAsset.set(p.asset_id, p);
+      }
+
+      const failCountByAsset = new Map<string, { count: number; reason: string }>();
+      for (const f of (failures ?? [])) {
+        const existing = failCountByAsset.get(f.asset_id);
+        if (!existing) failCountByAsset.set(f.asset_id, { count: 1, reason: f.reason });
+        else existing.count++;
+      }
+
+      const now = Date.now();
+      const STALE_MS = 48 * 60 * 60 * 1000; // 48h
+
+      const result: PriceIssueRow[] = [];
+      for (const a of assets) {
+        const price = priceByAsset.get(a.id);
+        const fail = failCountByAsset.get(a.id);
+
+        const fetchedAt = price?.fetched_at ? new Date(price.fetched_at).getTime() : null;
+        const isStale = fetchedAt ? (now - fetchedAt) > STALE_MS : false;
+        const neverFetched = !price;
+
+        if (neverFetched) {
+          result.push({ ...a, lastPrice: null, priceDate: null, fetchedAt: null, failReason: fail?.reason ?? null, failCount: fail?.count ?? 0, issue: "never" });
+        } else if (fail && fail.count >= 3) {
+          result.push({ ...a, lastPrice: price.close_price, priceDate: price.price_date, fetchedAt: price.fetched_at, failReason: fail.reason, failCount: fail.count, issue: "failing" });
+        } else if (isStale) {
+          result.push({ ...a, lastPrice: price.close_price, priceDate: price.price_date, fetchedAt: price.fetched_at, failReason: fail?.reason ?? null, failCount: fail?.count ?? 0, issue: "stale" });
+        }
+      }
+
+      return result.sort((a, b) => {
+        const order = { never: 0, failing: 1, stale: 2 };
+        return order[a.issue] - order[b.issue];
+      });
+    },
+    staleTime: 60_000,
+  });
+
+  const handleForce = async (assetId: string) => {
+    setRefreshingId(assetId);
+    try {
+      await forceRefreshFn({ data: { assetId } });
+      toast.success("Cotação atualizada!");
+      refetch();
+    } catch {
+      toast.error("Falha ao atualizar");
+    } finally {
+      setRefreshingId(null);
+    }
+  };
+
+  const fmt = (d: string | null) =>
+    d ? new Date(d).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+
+  const ISSUE_LABEL = {
+    never: { label: "Sem cotação", color: "text-destructive", icon: XCircle },
+    failing: { label: "Falhas repetidas", color: "text-orange-500", icon: AlertTriangle },
+    stale: { label: "Desatualizado", color: "text-yellow-500", icon: Clock },
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="icon" onClick={onBack}>
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+            <AlertTriangle className="h-6 w-6" /> Falhas de cotação
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {issues.length} ativo(s) com problema de cotação
+          </p>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Analisando ativos…
+        </div>
+      ) : issues.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
+            <CheckCircle2 className="h-10 w-10 text-emerald-500" />
+            <p className="font-semibold">Tudo atualizado!</p>
+            <p className="text-sm text-muted-foreground">Nenhum ativo com problema de cotação.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {issues.map((row) => {
+            const { label, color, icon: Icon } = ISSUE_LABEL[row.issue];
+            const isRefreshing = refreshingId === row.id;
+            return (
+              <Card key={row.id}>
+                <CardContent className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4 pb-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`flex items-center gap-1.5 ${color} shrink-0`}>
+                      <Icon className="h-4 w-4" />
+                      <span className="text-xs font-medium">{label}</span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-mono font-semibold">{row.symbol}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {row.asset_class} · {row.currency} · {row.market}
+                      </p>
+                      {row.lastPrice && (
+                        <p className="text-xs text-muted-foreground">
+                          Último: {row.currency} {Number(row.lastPrice).toFixed(2)} em {fmt(row.fetchedAt)}
+                        </p>
+                      )}
+                      {row.failReason && (
+                        <p className="text-xs text-destructive/80 mt-0.5 font-mono truncate max-w-xs">
+                          {row.failReason} {row.failCount > 1 ? `(×${row.failCount})` : ""}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleForce(row.id)}
+                    disabled={isRefreshing}
+                    className="shrink-0"
+                  >
+                    {isRefreshing
+                      ? <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Atualizando…</>
+                      : <><RefreshCw className="mr-2 h-3.5 w-3.5" /> Forçar atualização</>
+                    }
+                  </Button>
                 </CardContent>
               </Card>
             );

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Users, Database, AlertTriangle, SlidersHorizontal, ShieldCheck, Star, Loader2, ArrowLeft, RefreshCw, Clock, XCircle, CheckCircle2 } from "lucide-react";
@@ -178,6 +179,9 @@ function PriceFailuresPanel({ onBack }: { onBack: () => void }) {
   const forceRefreshFn = useServerFn(forceRefreshPrice);
   const qc = useQueryClient();
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  const [manualId, setManualId] = useState<string | null>(null);
+  const [manualPrice, setManualPrice] = useState<string>("");
+  const [savingManual, setSavingManual] = useState(false);
 
   const { data: issues = [], isLoading, refetch } = useQuery({
     queryKey: ["admin-price-failures"],
@@ -249,12 +253,41 @@ function PriceFailuresPanel({ onBack }: { onBack: () => void }) {
     setRefreshingId(assetId);
     try {
       await forceRefreshFn({ data: { assetId } });
-      toast.success("Cotação atualizada!");
+      toast.success("Cotação atualizada via API!");
       refetch();
-    } catch {
-      toast.error("Falha ao atualizar");
+    } catch (e: any) {
+      const msg = e?.message ?? "Erro desconhecido";
+      toast.error(`API: ${msg}`, {
+        description: "Use 'Inserir manualmente' para definir o preço.",
+        duration: 6000,
+      });
     } finally {
       setRefreshingId(null);
+    }
+  };
+
+  const handleSaveManual = async (assetId: string) => {
+    const price = parseFloat(manualPrice.replace(",", "."));
+    if (!price || price <= 0) { toast.error("Preço inválido"); return; }
+    setSavingManual(true);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const { error } = await (supabase as any).from("asset_prices").upsert({
+        asset_id: assetId,
+        price_date: today,
+        close_price: price,
+        source: "manual",
+        fetched_at: new Date().toISOString(),
+      }, { onConflict: "asset_id,price_date" });
+      if (error) throw error;
+      toast.success(`Preço R$${price.toFixed(2)} salvo!`);
+      setManualId(null);
+      setManualPrice("");
+      refetch();
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao salvar");
+    } finally {
+      setSavingManual(false);
     }
   };
 
@@ -325,18 +358,49 @@ function PriceFailuresPanel({ onBack }: { onBack: () => void }) {
                       )}
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleForce(row.id)}
-                    disabled={isRefreshing}
-                    className="shrink-0"
-                  >
-                    {isRefreshing
-                      ? <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Atualizando…</>
-                      : <><RefreshCw className="mr-2 h-3.5 w-3.5" /> Forçar atualização</>
-                    }
-                  </Button>
+                  <div className="flex flex-col gap-2 shrink-0">
+                    {manualId === row.id ? (
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="text"
+                          inputMode="decimal"
+                          placeholder="Ex: 180,81"
+                          value={manualPrice}
+                          onChange={(e) => setManualPrice(e.target.value)}
+                          className="h-8 w-28 text-sm"
+                          autoFocus
+                        />
+                        <Button size="sm" onClick={() => handleSaveManual(row.id)} disabled={savingManual}>
+                          {savingManual ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Salvar"}
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => { setManualId(null); setManualPrice(""); }}>
+                          Cancelar
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleForce(row.id)}
+                          disabled={isRefreshing || !!refreshingId}
+                        >
+                          {isRefreshing
+                            ? <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Buscando…</>
+                            : <><RefreshCw className="mr-2 h-3.5 w-3.5" /> Buscar via API</>
+                          }
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-primary/40 text-primary hover:bg-primary/10"
+                          onClick={() => { setManualId(row.id); setManualPrice(""); }}
+                        >
+                          Inserir manualmente
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             );

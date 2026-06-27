@@ -589,14 +589,18 @@ function TransactionsPage() {
                 </div>
                 <div className="rounded-lg bg-muted/40 p-3">
                   <p className="text-xs text-muted-foreground">Títulos em carteira</p>
-                  <p className="text-base font-bold mt-1">{fiRows.length}</p>
+                  <p className="text-base font-bold mt-1">{new Set(fiRows.map(t => t.symbol)).size}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{fiRows.length} lançamentos</p>
                 </div>
                 {/* Taxa média ponderada */}
                 {globalWeightedRate > 0 && (
                   <div className="rounded-lg bg-primary/10 border border-primary/20 p-3">
                     <p className="text-xs text-muted-foreground">Taxa média ponderada</p>
                     <p className="text-base font-bold text-primary mt-1">
-                      {globalWeightedRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}% a.a.
+                      {avgRateByBenchmark.length === 1
+                        ? `${avgRateByBenchmark[0].benchmark} ${globalWeightedRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
+                        : `${globalWeightedRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
+                      }
                     </p>
                   </div>
                 )}
@@ -620,15 +624,12 @@ function TransactionsPage() {
                     {avgRateByBenchmark.map((item) => (
                       <div key={item.benchmark} className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
-                            {item.benchmark}
-                          </span>
                           <span className="text-xs text-muted-foreground">
                             {formatMoney(convert(item.totalApplied, currency, "BRL" as Currency), currency)} aplicados
                           </span>
                         </div>
                         <span className="text-sm font-bold text-emerald-500 tabular-nums">
-                          +{item.avgRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+                          {item.benchmark} {item.avgRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
                         </span>
                       </div>
                     ))}

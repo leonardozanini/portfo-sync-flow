@@ -187,81 +187,83 @@ async function fetchBrapiPrice(symbol: string): Promise<number | null> {
 }
 
 // Mapa de nomes de ativos de renda fixa → nome oficial no Tesouro Direto (Brapi)
-const TREASURY_NAME_MAP: Record<string, string> = {
-  // Renda+
-  "RENDA+ APOSENTADORIA EXTRA 2030": "Tesouro Renda+ Aposentadoria Extra 2030",
-  "RENDA+ APOSENTADORIA EXTRA 2035": "Tesouro Renda+ Aposentadoria Extra 2035",
-  "RENDA+ APOSENTADORIA EXTRA 2040": "Tesouro Renda+ Aposentadoria Extra 2040",
-  "RENDA+ APOSENTADORIA EXTRA 2045": "Tesouro Renda+ Aposentadoria Extra 2045",
-  "RENDA+ APOSENTADORIA EXTRA 2050": "Tesouro Renda+ Aposentadoria Extra 2050",
-  "RENDA+ APOSENTADORIA EXTRA 2055": "Tesouro Renda+ Aposentadoria Extra 2055",
-  "RENDA+ APOSENTADORIA EXTRA 2060": "Tesouro Renda+ Aposentadoria Extra 2060",
-  "RENDA+ APOSENTADORIA EXTRA 2065": "Tesouro Renda+ Aposentadoria Extra 2065",
-  "RENDA+ 2065": "Tesouro Renda+ Aposentadoria Extra 2065",
+const TREASURY_SLUG_MAP: Record<string, string> = {
+  // Renda+ — vencimento 15/12/AAAA, slug: tesouro-renda-aposentadoria-extra-<DDMMAAAA>
+  "RENDA+ 2065": "tesouro-renda-aposentadoria-extra-15122084",
+  "RENDA+ APOSENTADORIA EXTRA 2065": "tesouro-renda-aposentadoria-extra-15122084",
+  "RENDA+ 2060": "tesouro-renda-aposentadoria-extra-15122079",
+  "RENDA+ APOSENTADORIA EXTRA 2060": "tesouro-renda-aposentadoria-extra-15122079",
+  "RENDA+ 2055": "tesouro-renda-aposentadoria-extra-15122074",
+  "RENDA+ APOSENTADORIA EXTRA 2055": "tesouro-renda-aposentadoria-extra-15122074",
+  "RENDA+ 2050": "tesouro-renda-aposentadoria-extra-15122069",
+  "RENDA+ 2045": "tesouro-renda-aposentadoria-extra-15122064",
+  "RENDA+ 2040": "tesouro-renda-aposentadoria-extra-15122059",
+  "RENDA+ 2035": "tesouro-renda-aposentadoria-extra-15122054",
+  "RENDA+ 2030": "tesouro-renda-aposentadoria-extra-15122049",
   // Educa+
-  "EDUCA+ 2030": "Tesouro Educa+ 2030",
-  "EDUCA+ 2031": "Tesouro Educa+ 2031",
-  "EDUCA+ 2033": "Tesouro Educa+ 2033",
-  "EDUCA+ 2036": "Tesouro Educa+ 2036",
+  "EDUCA+ 2036": "tesouro-educa-15122036",
+  "EDUCA+ 2033": "tesouro-educa-15122033",
+  "EDUCA+ 2031": "tesouro-educa-15122031",
+  "EDUCA+ 2030": "tesouro-educa-15122030",
   // IPCA+
-  "TESOURO IPCA+ 2029": "Tesouro IPCA+ 2029",
-  "TESOURO IPCA+ 2032": "Tesouro IPCA+ 2032",
-  "TESOURO IPCA+ 2035": "Tesouro IPCA+ 2035",
-  "TESOURO IPCA+ 2040": "Tesouro IPCA+ 2040",
-  "TESOURO IPCA+ 2045": "Tesouro IPCA+ 2045",
-  "TESOURO IPCA+ 2055": "Tesouro IPCA+ 2055",
+  "TESOURO IPCA+ 2055": "tesouro-ipca-15052055",
+  "TESOURO IPCA+ 2045": "tesouro-ipca-15052045",
+  "TESOURO IPCA+ 2040": "tesouro-ipca-15082040",
+  "TESOURO IPCA+ 2035": "tesouro-ipca-15052035",
+  "TESOURO IPCA+ 2032": "tesouro-ipca-15082032",
+  "TESOURO IPCA+ 2029": "tesouro-ipca-15052029",
   // Prefixado
-  "TESOURO PREFIXADO 2027": "Tesouro Prefixado 2027",
-  "TESOURO PREFIXADO 2029": "Tesouro Prefixado 2029",
-  "TESOURO PREFIXADO 2031": "Tesouro Prefixado 2031",
+  "TESOURO PREFIXADO 2031": "tesouro-prefixado-01012031",
+  "TESOURO PREFIXADO 2029": "tesouro-prefixado-01012029",
+  "TESOURO PREFIXADO 2027": "tesouro-prefixado-01012027",
   // Selic
-  "TESOURO SELIC 2027": "Tesouro Selic 2027",
-  "TESOURO SELIC 2029": "Tesouro Selic 2029",
+  "TESOURO SELIC 2029": "tesouro-selic-01032029",
+  "TESOURO SELIC 2027": "tesouro-selic-01032027",
 };
 
-function resolveTreasuryName(symbol: string): string | null {
+function resolveTreasurySlug(symbol: string): string | null {
   const upper = symbol.toUpperCase().trim();
-  // Busca exata
-  if (TREASURY_NAME_MAP[upper]) return TREASURY_NAME_MAP[upper];
-  // Busca parcial — tenta encontrar a chave que contém o símbolo
-  for (const [key, val] of Object.entries(TREASURY_NAME_MAP)) {
-    if (upper.includes(key) || key.includes(upper)) return val;
+  if (TREASURY_SLUG_MAP[upper]) return TREASURY_SLUG_MAP[upper];
+  for (const [key, slug] of Object.entries(TREASURY_SLUG_MAP)) {
+    if (upper.includes(key) || key.includes(upper)) return slug;
   }
-  // Fallback: usa o próprio símbolo como nome (pode funcionar se o usuário usou o nome correto)
-  return symbol;
+  return null;
 }
 
 async function fetchBrapiTreasuryPrice(symbol: string): Promise<number | null> {
   const token = process.env.BRAPI_TOKEN;
   if (!token) return null;
   try {
-    const name = resolveTreasuryName(symbol);
-    const url = `https://brapi.dev/api/v2/treasury?search=${encodeURIComponent(name ?? symbol)}&token=${token}`;
+    const slug = resolveTreasurySlug(symbol);
+    if (!slug) {
+      console.warn(`[treasury] Sem slug para: ${symbol}`);
+      return null;
+    }
+    // Endpoint direto pelo slug com Authorization header
+    const url = `https://brapi.dev/api/v2/treasury/${slug}`;
     const res = await fetch(url, {
-      headers: { "Accept": "application/json" },
+      headers: {
+        "Accept": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
       signal: AbortSignal.timeout(10_000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[treasury] HTTP ${res.status} para ${slug}`);
+      return null;
+    }
     const json = await res.json() as {
-      treasuries?: Array<{
-        name: string;
-        sellingPrice?: number;   // PU de venda (resgate antecipado)
-        buyingPrice?: number;    // PU de compra
-        lastPrice?: number;      // último PU disponível
-      }>;
+      sellPrice?: number;
+      buyPrice?: number;
+      basePrice?: number;
     };
-    const list = json?.treasuries ?? [];
-    if (!list.length) return null;
-
-    // Encontra o título mais próximo pelo nome
-    const upper = (name ?? symbol).toUpperCase();
-    const match = list.find(t => t.name.toUpperCase().includes(upper) || upper.includes(t.name.toUpperCase()))
-      ?? list[0];
-
-    // Usa sellingPrice (resgate) — representa o valor atual de mercado
-    const p = match.sellingPrice ?? match.lastPrice ?? match.buyingPrice;
+    // sellPrice = PU de venda = valor real de mercado (MTM)
+    const p = json?.sellPrice ?? json?.basePrice ?? json?.buyPrice;
     return typeof p === "number" && p > 0 ? p : null;
-  } catch { return null; }
+  } catch (err: any) {
+    console.error(`[treasury] Erro: ${err.message}`);
+    return null;
+  }
 }
 
 async function fetchStooqPrice(stooqSymbol: string): Promise<number | null> {

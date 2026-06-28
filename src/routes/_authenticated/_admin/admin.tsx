@@ -351,7 +351,13 @@ function PriceFailuresPanel({ onBack }: { onBack: () => void }) {
             <AlertTriangle className="h-6 w-6" /> Falhas de cotação
           </h1>
           <p className="text-sm text-muted-foreground">
-            {issues.length} ativo(s) com problema de cotação
+            {batchFilter === "all" ? issues.length : issues.filter(r => r.issue === batchFilter).length} ativo(s)
+            {batchFilter !== "all" && {
+              stale: " desatualizados",
+              failing: " com falhas repetidas",
+              never: " sem cotação",
+            }[batchFilter]}
+            {" "}· {issues.length} total
           </p>
         </div>
       </div>
@@ -445,7 +451,7 @@ function PriceFailuresPanel({ onBack }: { onBack: () => void }) {
         </Card>
       ) : (
         <div className="space-y-2">
-          {issues.map((row) => {
+          {(batchFilter === "all" ? issues : issues.filter(r => r.issue === batchFilter)).map((row) => {
             const { label, color, icon: Icon } = ISSUE_LABEL[row.issue];
             const isRefreshing = refreshingId === row.id;
             return (

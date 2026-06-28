@@ -182,6 +182,9 @@ function PriceFailuresPanel({ onBack }: { onBack: () => void }) {
   const [manualId, setManualId] = useState<string | null>(null);
   const [manualPrice, setManualPrice] = useState<string>("");
   const [savingManual, setSavingManual] = useState(false);
+  const [batchFilter, setBatchFilter] = useState<"stale" | "failing" | "never" | "all">("stale");
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number; ok: number; fail: number } | null>(null);
 
   const { data: issues = [], isLoading, refetch } = useQuery({
     queryKey: ["admin-price-failures"],
@@ -291,6 +294,43 @@ function PriceFailuresPanel({ onBack }: { onBack: () => void }) {
     }
   };
 
+  const handleBatch = async () => {
+    const BATCH_SIZE = 5;
+    const DELAY_MS = 8_000; // 8s entre lotes para respeitar rate limits
+
+    const targets = batchFilter === "all"
+      ? issues
+      : issues.filter(r => r.issue === batchFilter);
+
+    if (!targets.length) { toast.error("Nenhum ativo no filtro selecionado"); return; }
+
+    setBatchRunning(true);
+    setBatchProgress({ done: 0, total: targets.length, ok: 0, fail: 0 });
+    let ok = 0; let fail = 0;
+
+    for (let i = 0; i < targets.length; i += BATCH_SIZE) {
+      const batch = targets.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(async (row) => {
+        try {
+          await forceRefreshFn({ data: { assetId: row.id } });
+          ok++;
+        } catch {
+          fail++;
+        }
+      }));
+      const done = Math.min(i + BATCH_SIZE, targets.length);
+      setBatchProgress({ done, total: targets.length, ok, fail });
+      if (done < targets.length) {
+        await new Promise(res => setTimeout(res, DELAY_MS));
+      }
+    }
+
+    setBatchRunning(false);
+    toast.success(`Lote concluído: ${ok} atualizados, ${fail} falhas`);
+    refetch();
+    setTimeout(() => setBatchProgress(null), 4000);
+  };
+
   const fmt = (d: string | null) =>
     d ? new Date(d).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
 
@@ -315,6 +355,81 @@ function PriceFailuresPanel({ onBack }: { onBack: () => void }) {
           </p>
         </div>
       </div>
+
+      {/* Batch controls */}
+      {!isLoading && issues.length > 0 && (
+        <Card>
+          <CardContent className="pt-4 pb-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex-1 space-y-1">
+                <p className="text-sm font-semibold">Atualização em lote</p>
+                <p className="text-xs text-muted-foreground">
+                  Lotes de 5 ativos com 8s de intervalo para respeitar os limites das APIs
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Filter selector */}
+                <div className="flex rounded-lg border border-border overflow-hidden text-xs">
+                  {(["stale", "failing", "never", "all"] as const).map((f) => {
+                    const labels = { stale: "Desatualizados", failing: "Com falhas", never: "Sem cotação", all: "Todos" };
+                    const counts = {
+                      stale: issues.filter(r => r.issue === "stale").length,
+                      failing: issues.filter(r => r.issue === "failing").length,
+                      never: issues.filter(r => r.issue === "never").length,
+                      all: issues.length,
+                    };
+                    return (
+                      <button
+                        key={f}
+                        onClick={() => setBatchFilter(f)}
+                        disabled={batchRunning}
+                        className={`px-3 py-1.5 transition-colors ${
+                          batchFilter === f
+                            ? "bg-primary text-primary-foreground font-semibold"
+                            : "bg-card text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {labels[f]} ({counts[f]})
+                      </button>
+                    );
+                  })}
+                </div>
+                <Button
+                  size="sm"
+                  onClick={handleBatch}
+                  disabled={batchRunning}
+                  className="shrink-0"
+                >
+                  {batchRunning
+                    ? <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Processando…</>
+                    : <><RefreshCw className="mr-2 h-3.5 w-3.5" /> Iniciar lote</>
+                  }
+                </Button>
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            {batchProgress && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>
+                    {batchProgress.done}/{batchProgress.total} processados
+                    {batchProgress.ok > 0 && <span className="text-emerald-500 ml-2">✓ {batchProgress.ok} ok</span>}
+                    {batchProgress.fail > 0 && <span className="text-destructive ml-2">✗ {batchProgress.fail} falhas</span>}
+                  </span>
+                  <span>{Math.round((batchProgress.done / batchProgress.total) * 100)}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-all duration-500 rounded-full"
+                    style={{ width: `${(batchProgress.done / batchProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {isLoading ? (
         <div className="flex items-center gap-2 text-muted-foreground">

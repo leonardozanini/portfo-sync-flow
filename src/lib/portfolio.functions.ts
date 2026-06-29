@@ -230,57 +230,39 @@ function resolveTreasurySlug(symbol: string): string | null {
   return null;
 }
 
+// Busca PU do Tesouro Direto via Edge Function sync-treasury-prices
+// A Edge Function baixa o CSV oficial do Tesouro Transparente e retorna o PU mais recente
 async function fetchTreasuryPrice(symbol: string): Promise<number | null> {
-  // Usa mirror público do Tesouro Direto (atualizado a cada 15min em dias úteis)
-  // API oficial bloqueada por Cloudflare; Brapi v2/treasury requer plano Pro
-  const MIRROR_URL = "https://api.radaropcoes.com/bonds.json";
   try {
-    const res = await fetch(MIRROR_URL, {
-      headers: { "Accept": "application/json" },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) {
-      console.warn(`[treasury] Mirror HTTP ${res.status}`);
-      return null;
-    }
-    const json = await res.json() as {
-      response?: {
-        TrsrBdTradgList?: Array<{
-          TrsrBd?: {
-            nm: string;          // nome do título
-            untrRedVal: number;  // PU de resgate (venda) — valor de mercado
-            untrInvstmtVal: number; // PU de compra
-          };
-        }>;
-      };
-    };
+    const supabaseUrl = process.env.VITE_SUPABASE_URL ?? "";
+    const anonKey = process.env.VITE_SUPABASE_ANON_KEY ?? "";
+    if (!supabaseUrl) return null;
 
-    const list = json?.response?.TrsrBdTradgList ?? [];
-    if (!list.length) return null;
+    // Chama a Edge Function que já fez o upsert — busca o preço salvo
+    // A Edge Function sync-treasury-prices roda via cron às 21h
+    // Para busca individual, consultamos diretamente o asset_prices
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    // Encontra o título pelo nome — busca parcial case-insensitive
-    const upper = symbol.toUpperCase().trim();
-    const match = list.find(item => {
-      const nm = (item?.TrsrBd?.nm ?? "").toUpperCase();
-      // Tenta match pelo ano (ex: "2065" em "RENDA+ 2065")
-      const yearMatch = upper.match(/\d{4}/)?.[0];
-      return nm.includes(upper) || upper.includes(nm) ||
-        (yearMatch && nm.includes(yearMatch) &&
-          (upper.includes("RENDA") && nm.includes("RENDA") ||
-           upper.includes("EDUCA") && nm.includes("EDUCA") ||
-           upper.includes("IPCA") && nm.includes("IPCA") ||
-           upper.includes("SELIC") && nm.includes("SELIC") ||
-           upper.includes("PREFIXADO") && nm.includes("PREFIXADO")));
-    });
+    // Busca o ativo pelo símbolo
+    const { data: asset } = await supabaseAdmin
+      .from("assets")
+      .select("id")
+      .eq("symbol", symbol)
+      .eq("asset_class", "fixed_income")
+      .single();
 
-    if (!match?.TrsrBd) {
-      console.warn(`[treasury] Título não encontrado para: ${symbol}`);
-      return null;
-    }
+    if (!asset?.id) return null;
 
-    // untrRedVal = PU de resgate/venda = valor MTM real
-    const p = match.TrsrBd.untrRedVal ?? match.TrsrBd.untrInvstmtVal;
-    return typeof p === "number" && p > 0 ? p : null;
+    // Busca o PU mais recente
+    const { data: price } = await supabaseAdmin
+      .from("asset_prices")
+      .select("close_price")
+      .eq("asset_id", asset.id)
+      .order("price_date", { ascending: false })
+      .limit(1)
+      .single();
+
+    return price?.close_price ? Number(price.close_price) : null;
   } catch (err: any) {
     console.error(`[treasury] Erro: ${err.message}`);
     return null;

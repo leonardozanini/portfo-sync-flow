@@ -2464,7 +2464,11 @@ export const adminRunSecurityAudit = createServerFn({ method: "POST" })
     const findings: Array<{ severity: string; category: string; message: string; detail?: string }> = [];
 
     const execSQL = async (sql: string) => {
-      const { data, error } = await supabaseAdmin.rpc("exec_sql" as any, { query: sql }).catch(() => ({ data: null, error: null }));
+      let data = null, error = null;
+      try {
+        const result = await supabaseAdmin.rpc("exec_sql" as any, { query: sql });
+        data = result.data; error = result.error;
+      } catch (_) { /* rpc não disponível */ }
       // Fallback: usa from com raw query
       if (error || !data) return null;
       return data;
@@ -2562,13 +2566,15 @@ export const adminRunSecurityAudit = createServerFn({ method: "POST" })
     const infos = findings.filter(f => f.severity === "info").length;
 
     // Salva o resultado
-    await (supabaseAdmin as any).from("security_audit_logs").insert({
-      duration_ms: durationMs,
-      critical_count: critical,
-      warning_count: warnings,
-      info_count: infos,
-      findings,
-    }).catch(() => null);
+    try {
+      await (supabaseAdmin as any).from("security_audit_logs").insert({
+        duration_ms: durationMs,
+        critical_count: critical,
+        warning_count: warnings,
+        info_count: infos,
+        findings,
+      });
+    } catch (_) { /* ignora erro de log */ }
 
     return {
       ok: true as const,

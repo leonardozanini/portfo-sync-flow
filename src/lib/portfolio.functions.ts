@@ -2565,3 +2565,28 @@ export const adminRunSecurityAudit = createServerFn({ method: "POST" })
       findings,
     };
   });
+
+// ── adminSyncTreasury ─────────────────────────────────────────────────────────
+
+export const adminSyncTreasury = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // Verifica admin
+    const { data: roleData } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", context.userId)
+      .eq("role", "admin")
+      .single();
+    if (!roleData) throw new Error("Acesso negado");
+
+    // Invoca a Edge Function
+    const { data, error } = await supabaseAdmin.functions.invoke("sync-treasury-prices", {
+      method: "POST",
+    });
+
+    if (error) throw new Error(error.message ?? "Erro na Edge Function");
+    return data as { ok: boolean; summary: { ok: number; not_found: number; errors: number }; results: any[] };
+  });

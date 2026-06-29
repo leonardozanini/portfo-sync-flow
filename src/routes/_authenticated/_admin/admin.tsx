@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Users, Database, AlertTriangle, SlidersHorizontal, ShieldCheck, Star, Loader2, ArrowLeft, RefreshCw, Clock, XCircle, CheckCircle2 } from "lucide-react";
+import { Users, Database, AlertTriangle, SlidersHorizontal, ShieldCheck, Star, Loader2, ArrowLeft, RefreshCw, Clock, XCircle, CheckCircle2, Shield, ChevronDown, ChevronUp } from "lucide-react";
 import { adminListUsers, adminSetUserRole, forceRefreshPrice } from "@/lib/portfolio.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -17,16 +17,18 @@ export const Route = createFileRoute("/_authenticated/_admin/admin")({
 });
 
 function AdminHome() {
-  const [view, setView] = useState<"home" | "users" | "price-failures">("home");
+  const [view, setView] = useState<"home" | "users" | "price-failures" | "security-audit">("home");
 
   if (view === "users") return <UsersPanel onBack={() => setView("home")} />;
   if (view === "price-failures") return <PriceFailuresPanel onBack={() => setView("home")} />;
+  if (view === "security-audit") return <SecurityAuditPanel onBack={() => setView("home")} />;
 
   const sections = [
     { icon: Users, title: "Usuários e papéis", desc: "Ver contas, atribuir Premium / Admin.", action: () => setView("users") },
     { icon: Database, title: "Catálogo de ativos", desc: "Lista completa de ativos disponíveis para lançamento.", to: "/catalog" as const },
     { icon: AlertTriangle, title: "Falhas de cotação", desc: "Fila de ativos sem preço — defina fonte ou valor manual.", action: () => setView("price-failures") },
     { icon: SlidersHorizontal, title: "Limites Free vs Premium", desc: "Configure quotas e funcionalidades por plano.", to: null },
+    { icon: Shield, title: "Auditoria de Segurança", desc: "Resultado da verificação semanal de RLS, grants e políticas.", action: () => setView("security-audit") },
   ];
 
   return (
@@ -523,6 +525,236 @@ function PriceFailuresPanel({ onBack }: { onBack: () => void }) {
                     )}
                   </div>
                 </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ── Security Audit Panel ──────────────────────────────────────────────────────
+
+type AuditFinding = {
+  severity: "critical" | "warning" | "info";
+  category: string;
+  message: string;
+  detail?: string;
+};
+
+type AuditLog = {
+  id: string;
+  ran_at: string;
+  duration_ms: number;
+  critical_count: number;
+  warning_count: number;
+  info_count: number;
+  status: "critical" | "warning" | "ok";
+  findings: AuditFinding[];
+};
+
+function SecurityAuditPanel({ onBack }: { onBack: () => void }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
+
+  const { data: logs = [], isLoading, refetch } = useQuery({
+    queryKey: ["security-audit-logs"],
+    queryFn: async (): Promise<AuditLog[]> => {
+      const { data } = await (supabase as any)
+        .from("security_audit_logs")
+        .select("*")
+        .order("ran_at", { ascending: false })
+        .limit(10);
+      return data ?? [];
+    },
+    staleTime: 60_000,
+  });
+
+  const handleRunNow = async () => {
+    setRunning(true);
+    try {
+      const res = await fetch("/api/cron/security-audit", {
+        headers: { "Authorization": `Bearer ${import.meta.env.VITE_CRON_SECRET ?? ""}` },
+      });
+      const result = await res.json();
+      if (result.ok) {
+        toast.success(`Auditoria concluída — ${result.summary.critical} críticos, ${result.summary.warnings} avisos`);
+        refetch();
+      } else {
+        toast.error(result.error ?? "Erro na auditoria");
+      }
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao executar auditoria");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const STATUS_STYLE = {
+    ok: { label: "OK", color: "text-emerald-500", bg: "bg-emerald-500/10 border-emerald-500/20", icon: CheckCircle2 },
+    warning: { label: "Avisos", color: "text-yellow-500", bg: "bg-yellow-500/10 border-yellow-500/20", icon: AlertTriangle },
+    critical: { label: "Crítico", color: "text-destructive", bg: "bg-destructive/10 border-destructive/20", icon: XCircle },
+  };
+
+  const SEVERITY_COLOR = {
+    critical: "text-destructive",
+    warning: "text-yellow-500",
+    info: "text-muted-foreground",
+  };
+
+  const SEVERITY_BG = {
+    critical: "bg-destructive/10",
+    warning: "bg-yellow-500/10",
+    info: "bg-muted/40",
+  };
+
+  const fmt = (d: string) => new Date(d).toLocaleString("pt-BR", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={onBack}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+              <Shield className="h-6 w-6" /> Auditoria de Segurança
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Verificação semanal automática — toda segunda-feira às 07:00 UTC
+            </p>
+          </div>
+        </div>
+        <Button onClick={handleRunNow} disabled={running} variant="outline" size="sm">
+          {running
+            ? <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Executando…</>
+            : <><RefreshCw className="mr-2 h-3.5 w-3.5" /> Executar agora</>
+          }
+        </Button>
+      </div>
+
+      {/* Último resultado em destaque */}
+      {logs.length > 0 && (() => {
+        const latest = logs[0];
+        const s = STATUS_STYLE[latest.status];
+        const Icon = s.icon;
+        return (
+          <Card className={`border ${s.bg}`}>
+            <CardContent className="pt-5 pb-4">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <Icon className={`h-8 w-8 ${s.color}`} />
+                  <div>
+                    <p className={`text-lg font-bold ${s.color}`}>
+                      {latest.status === "ok" ? "Tudo seguro" :
+                       latest.status === "warning" ? "Avisos encontrados" : "Problemas críticos!"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Última auditoria: {fmt(latest.ran_at)} · {latest.duration_ms}ms
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-3 text-center">
+                  <div>
+                    <p className="text-xl font-bold text-destructive">{latest.critical_count}</p>
+                    <p className="text-xs text-muted-foreground">Críticos</p>
+                  </div>
+                  <div>
+                    <p className="text-xl font-bold text-yellow-500">{latest.warning_count}</p>
+                    <p className="text-xs text-muted-foreground">Avisos</p>
+                  </div>
+                  <div>
+                    <p className="text-xl font-bold text-muted-foreground">{latest.info_count}</p>
+                    <p className="text-xs text-muted-foreground">Info</p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
+
+      {/* Lista de execuções */}
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Carregando histórico…
+        </div>
+      ) : logs.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center space-y-2">
+            <Shield className="h-10 w-10 text-muted-foreground mx-auto" />
+            <p className="font-semibold">Nenhuma auditoria registrada</p>
+            <p className="text-sm text-muted-foreground">Clique em "Executar agora" para rodar a primeira verificação.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {logs.map((log) => {
+            const s = STATUS_STYLE[log.status];
+            const Icon = s.icon;
+            const isExpanded = expandedId === log.id;
+            const findings = (log.findings ?? []) as AuditFinding[];
+
+            return (
+              <Card key={log.id} className="overflow-hidden">
+                <button
+                  className="w-full text-left"
+                  onClick={() => setExpandedId(isExpanded ? null : log.id)}
+                >
+                  <CardContent className="flex items-center justify-between gap-3 pt-4 pb-4">
+                    <div className="flex items-center gap-3">
+                      <Icon className={`h-5 w-5 shrink-0 ${s.color}`} />
+                      <div>
+                        <p className="text-sm font-semibold">{fmt(log.ran_at)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {log.critical_count} críticos · {log.warning_count} avisos · {log.info_count} info · {log.duration_ms}ms
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${s.bg} ${s.color}`}>
+                        {s.label}
+                      </span>
+                      {isExpanded
+                        ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                        : <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      }
+                    </div>
+                  </CardContent>
+                </button>
+
+                {isExpanded && findings.length > 0 && (
+                  <div className="border-t border-border divide-y divide-border/50">
+                    {findings.map((f, i) => (
+                      <div key={i} className={`px-4 py-3 ${SEVERITY_BG[f.severity]}`}>
+                        <div className="flex items-start gap-2">
+                          <span className={`text-xs font-bold uppercase tracking-wide shrink-0 mt-0.5 ${SEVERITY_COLOR[f.severity]}`}>
+                            [{f.category}]
+                          </span>
+                          <div>
+                            <p className="text-sm font-medium">{f.message}</p>
+                            {f.detail && (
+                              <p className="text-xs text-muted-foreground mt-0.5">{f.detail}</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {isExpanded && findings.length === 0 && (
+                  <div className="border-t border-border px-4 py-3 text-sm text-emerald-500 flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4" /> Nenhum problema encontrado nesta execução
+                  </div>
+                )}
               </Card>
             );
           })}

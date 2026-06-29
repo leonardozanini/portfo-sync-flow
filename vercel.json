@@ -18,6 +18,10 @@
     {
       "path": "/api/cron/sync-asset-catalog",
       "schedule": "0 6 * * 1"
+    },
+    {
+      "path": "/api/cron/security-audit",
+      "schedule": "0 7 * * 1"
     }
   ]
 }

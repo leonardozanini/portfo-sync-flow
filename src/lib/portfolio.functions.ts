@@ -2442,3 +2442,138 @@ Não inclua markdown, apenas JSON puro.`,
       throw new Error("Não foi possível interpretar o arquivo. Tente o modo de colar texto.");
     }
   });
+
+// ── adminRunSecurityAudit ─────────────────────────────────────────────────────
+
+export const adminRunSecurityAudit = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // Verifica se é admin
+    const { data: roleData } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", context.userId)
+      .eq("role", "admin")
+      .single();
+
+    if (!roleData) throw new Error("Acesso negado — apenas admins");
+
+    const startedAt = Date.now();
+    const findings: Array<{ severity: string; category: string; message: string; detail?: string }> = [];
+
+    const execSQL = async (sql: string) => {
+      const { data, error } = await supabaseAdmin.rpc("exec_sql" as any, { query: sql }).catch(() => ({ data: null, error: null }));
+      // Fallback: usa from com raw query
+      if (error || !data) return null;
+      return data;
+    };
+
+    // Helper para queries diretas via REST com service role
+    const queryDirect = async (sql: string): Promise<any[] | null> => {
+      try {
+        const url = `${process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL}/rest/v1/rpc/exec_sql`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "apikey": process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+            "Authorization": `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY ?? ""}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ query: sql }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!res.ok) return null;
+        return res.json().catch(() => null);
+      } catch { return null; }
+    };
+
+    // Check 1: Tabelas sem RLS
+    const noRLS = await queryDirect(
+      `SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND rowsecurity = false ORDER BY tablename`
+    );
+    if (Array.isArray(noRLS)) {
+      for (const row of noRLS) {
+        findings.push({ severity: "critical", category: "RLS", message: `Tabela '${row.tablename}' sem RLS ativo`, detail: "Todos os dados desta tabela estão acessíveis sem restrição de usuário" });
+      }
+    }
+
+    // Check 2: Grants anon em tabelas sensíveis
+    const anonGrants = await queryDirect(`
+      SELECT table_name, privilege_type FROM information_schema.role_table_grants
+      WHERE table_schema = 'public' AND grantee = 'anon'
+        AND table_name IN ('transactions','dividends','profiles','brokers','portfolio_snapshots','user_strategies','asset_analyses','user_roles','price_fetch_failures')
+      ORDER BY table_name, privilege_type
+    `);
+    if (Array.isArray(anonGrants)) {
+      for (const row of anonGrants) {
+        findings.push({ severity: "critical", category: "Grants", message: `Role 'anon' tem ${row.privilege_type} em '${row.table_name}'`, detail: "Usuários não autenticados não devem acessar dados sensíveis" });
+      }
+    }
+
+    // Check 3: Políticas com role 'public'
+    const publicPolicies = await queryDirect(`
+      SELECT tablename, policyname, cmd FROM pg_policies
+      WHERE schemaname = 'public' AND roles::text LIKE '%public%' AND roles::text NOT LIKE '%authenticated%'
+    `);
+    if (Array.isArray(publicPolicies)) {
+      for (const row of publicPolicies) {
+        findings.push({ severity: "warning", category: "RLS Policy", message: `Política '${row.policyname}' em '${row.tablename}' usa role 'public'`, detail: "Usar 'authenticated' para restringir a usuários logados" });
+      }
+    }
+
+    // Check 4: Tabelas com RLS mas sem políticas
+    const noPolicies = await queryDirect(`
+      SELECT t.tablename FROM pg_tables t
+      WHERE t.schemaname = 'public' AND t.rowsecurity = true
+        AND NOT EXISTS (SELECT 1 FROM pg_policies p WHERE p.schemaname = 'public' AND p.tablename = t.tablename)
+      ORDER BY t.tablename
+    `);
+    if (Array.isArray(noPolicies)) {
+      for (const row of noPolicies) {
+        findings.push({ severity: "critical", category: "RLS", message: `Tabela '${row.tablename}' com RLS mas sem políticas`, detail: "RLS sem políticas bloqueia todos os acessos, inclusive legítimos" });
+      }
+    }
+
+    // Check 5: TRUNCATE/TRIGGER concedidos
+    const dangerGrants = await queryDirect(`
+      SELECT table_name, privilege_type, grantee FROM information_schema.role_table_grants
+      WHERE table_schema = 'public' AND privilege_type IN ('TRUNCATE','TRIGGER') AND grantee IN ('anon','authenticated')
+      ORDER BY table_name
+    `);
+    if (Array.isArray(dangerGrants)) {
+      for (const row of dangerGrants) {
+        findings.push({ severity: "warning", category: "Grants", message: `Role '${row.grantee}' tem ${row.privilege_type} em '${row.table_name}'`, detail: "Permissões destrutivas não devem ser concedidas a usuários da aplicação" });
+      }
+    }
+
+    // Check 6: Contagem de admins (info)
+    const admins = await queryDirect(`
+      SELECT u.email FROM user_roles ur JOIN auth.users u ON u.id = ur.user_id WHERE ur.role = 'admin'
+    `);
+    if (Array.isArray(admins)) {
+      findings.push({ severity: "info", category: "Users", message: `${admins.length} admin(s) ativo(s)`, detail: admins.map((r: any) => r.email).join(", ") });
+    }
+
+    const durationMs = Date.now() - startedAt;
+    const critical = findings.filter(f => f.severity === "critical").length;
+    const warnings = findings.filter(f => f.severity === "warning").length;
+    const infos = findings.filter(f => f.severity === "info").length;
+
+    // Salva o resultado
+    await (supabaseAdmin as any).from("security_audit_logs").insert({
+      duration_ms: durationMs,
+      critical_count: critical,
+      warning_count: warnings,
+      info_count: infos,
+      findings,
+    }).catch(() => null);
+
+    return {
+      ok: true as const,
+      status: critical > 0 ? "critical" : warnings > 0 ? "warning" : "ok",
+      summary: { critical, warnings, info: infos, duration_ms: durationMs },
+      findings,
+    };
+  });

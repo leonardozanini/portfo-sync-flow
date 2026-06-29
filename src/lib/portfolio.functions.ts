@@ -230,41 +230,65 @@ function resolveTreasurySlug(symbol: string): string | null {
   return null;
 }
 
-async function fetchBrapiTreasuryPrice(symbol: string): Promise<number | null> {
-  const token = process.env.BRAPI_TOKEN;
-  if (!token) return null;
+async function fetchTreasuryPrice(symbol: string): Promise<number | null> {
+  // Usa mirror público do Tesouro Direto (atualizado a cada 15min em dias úteis)
+  // API oficial bloqueada por Cloudflare; Brapi v2/treasury requer plano Pro
+  const MIRROR_URL = "https://api.radaropcoes.com/bonds.json";
   try {
-    const slug = resolveTreasurySlug(symbol);
-    if (!slug) {
-      console.warn(`[treasury] Sem slug para: ${symbol}`);
-      return null;
-    }
-    // Endpoint direto pelo slug com Authorization header
-    const url = `https://brapi.dev/api/v2/treasury/${slug}`;
-    const res = await fetch(url, {
-      headers: {
-        "Accept": "application/json",
-        "Authorization": `Bearer ${token}`,
-      },
+    const res = await fetch(MIRROR_URL, {
+      headers: { "Accept": "application/json" },
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
-      console.warn(`[treasury] HTTP ${res.status} para ${slug}`);
+      console.warn(`[treasury] Mirror HTTP ${res.status}`);
       return null;
     }
     const json = await res.json() as {
-      sellPrice?: number;
-      buyPrice?: number;
-      basePrice?: number;
+      response?: {
+        TrsrBdTradgList?: Array<{
+          TrsrBd?: {
+            nm: string;          // nome do título
+            untrRedVal: number;  // PU de resgate (venda) — valor de mercado
+            untrInvstmtVal: number; // PU de compra
+          };
+        }>;
+      };
     };
-    // sellPrice = PU de venda = valor real de mercado (MTM)
-    const p = json?.sellPrice ?? json?.basePrice ?? json?.buyPrice;
+
+    const list = json?.response?.TrsrBdTradgList ?? [];
+    if (!list.length) return null;
+
+    // Encontra o título pelo nome — busca parcial case-insensitive
+    const upper = symbol.toUpperCase().trim();
+    const match = list.find(item => {
+      const nm = (item?.TrsrBd?.nm ?? "").toUpperCase();
+      // Tenta match pelo ano (ex: "2065" em "RENDA+ 2065")
+      const yearMatch = upper.match(/\d{4}/)?.[0];
+      return nm.includes(upper) || upper.includes(nm) ||
+        (yearMatch && nm.includes(yearMatch) &&
+          (upper.includes("RENDA") && nm.includes("RENDA") ||
+           upper.includes("EDUCA") && nm.includes("EDUCA") ||
+           upper.includes("IPCA") && nm.includes("IPCA") ||
+           upper.includes("SELIC") && nm.includes("SELIC") ||
+           upper.includes("PREFIXADO") && nm.includes("PREFIXADO")));
+    });
+
+    if (!match?.TrsrBd) {
+      console.warn(`[treasury] Título não encontrado para: ${symbol}`);
+      return null;
+    }
+
+    // untrRedVal = PU de resgate/venda = valor MTM real
+    const p = match.TrsrBd.untrRedVal ?? match.TrsrBd.untrInvstmtVal;
     return typeof p === "number" && p > 0 ? p : null;
   } catch (err: any) {
     console.error(`[treasury] Erro: ${err.message}`);
     return null;
   }
 }
+
+// Mantém o alias para compatibilidade com o código existente
+const fetchBrapiTreasuryPrice = fetchTreasuryPrice;
 
 async function fetchStooqPrice(stooqSymbol: string): Promise<number | null> {
   try {

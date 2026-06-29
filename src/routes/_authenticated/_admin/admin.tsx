@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Users, Database, AlertTriangle, SlidersHorizontal, ShieldCheck, Star, Loader2, ArrowLeft, RefreshCw, Clock, XCircle, CheckCircle2, Shield, ChevronDown, ChevronUp } from "lucide-react";
-import { adminListUsers, adminSetUserRole, forceRefreshPrice, adminRunSecurityAudit } from "@/lib/portfolio.functions";
+import { adminListUsers, adminSetUserRole, forceRefreshPrice, adminRunSecurityAudit, adminSyncTreasury } from "@/lib/portfolio.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -184,6 +184,8 @@ function PriceFailuresPanel({ onBack }: { onBack: () => void }) {
   const [manualId, setManualId] = useState<string | null>(null);
   const [manualPrice, setManualPrice] = useState<string>("");
   const [savingManual, setSavingManual] = useState(false);
+  const [syncingTreasury, setSyncingTreasury] = useState(false);
+  const syncTreasuryFn = useServerFn(adminSyncTreasury);
   const [batchFilter, setBatchFilter] = useState<"stale" | "failing" | "never" | "all">("stale");
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number; ok: number; fail: number } | null>(null);
@@ -333,6 +335,23 @@ function PriceFailuresPanel({ onBack }: { onBack: () => void }) {
     setTimeout(() => setBatchProgress(null), 4000);
   };
 
+  const handleSyncTreasury = async () => {
+    setSyncingTreasury(true);
+    try {
+      const result = await syncTreasuryFn();
+      if (result.ok) {
+        toast.success(`Tesouro sincronizado! ${result.summary.ok} título(s) atualizados`);
+        refetch();
+      } else {
+        toast.error("Falha na sincronização");
+      }
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao sincronizar Tesouro");
+    } finally {
+      setSyncingTreasury(false);
+    }
+  };
+
   const fmt = (d: string | null) =>
     d ? new Date(d).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
 
@@ -363,6 +382,32 @@ function PriceFailuresPanel({ onBack }: { onBack: () => void }) {
           </p>
         </div>
       </div>
+
+      {/* Sincronização do Tesouro Direto */}
+      <Card className="border-primary/20">
+        <CardContent className="flex items-center justify-between gap-3 pt-4 pb-4">
+          <div>
+            <p className="text-sm font-semibold flex items-center gap-2">
+              🏦 Tesouro Direto
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Baixa o CSV oficial do Tesouro Transparente e atualiza o PU de todos os títulos de renda fixa
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleSyncTreasury}
+            disabled={syncingTreasury}
+            className="shrink-0 border-primary/40 text-primary hover:bg-primary/10"
+          >
+            {syncingTreasury
+              ? <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Sincronizando…</>
+              : <><RefreshCw className="mr-2 h-3.5 w-3.5" /> Sincronizar agora</>
+            }
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Batch controls */}
       {!isLoading && issues.length > 0 && (

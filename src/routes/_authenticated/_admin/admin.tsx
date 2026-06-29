@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Users, Database, AlertTriangle, SlidersHorizontal, ShieldCheck, Star, Loader2, ArrowLeft, RefreshCw, Clock, XCircle, CheckCircle2, Shield, ChevronDown, ChevronUp } from "lucide-react";
-import { adminListUsers, adminSetUserRole, forceRefreshPrice } from "@/lib/portfolio.functions";
+import { adminListUsers, adminSetUserRole, forceRefreshPrice, adminRunSecurityAudit } from "@/lib/portfolio.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -558,6 +558,7 @@ type AuditLog = {
 function SecurityAuditPanel({ onBack }: { onBack: () => void }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const runAuditFn = useServerFn(adminRunSecurityAudit);
 
   const { data: logs = [], isLoading, refetch } = useQuery({
     queryKey: ["security-audit-logs"],
@@ -575,16 +576,9 @@ function SecurityAuditPanel({ onBack }: { onBack: () => void }) {
   const handleRunNow = async () => {
     setRunning(true);
     try {
-      const res = await fetch("/api/cron/security-audit", {
-        headers: { "Authorization": `Bearer ${import.meta.env.VITE_CRON_SECRET ?? ""}` },
-      });
-      const result = await res.json();
-      if (result.ok) {
-        toast.success(`Auditoria concluída — ${result.summary.critical} críticos, ${result.summary.warnings} avisos`);
-        refetch();
-      } else {
-        toast.error(result.error ?? "Erro na auditoria");
-      }
+      const result = await runAuditFn();
+      toast.success(`Auditoria concluída — ${result.summary.critical} críticos, ${result.summary.warnings} avisos`);
+      refetch();
     } catch (e: any) {
       toast.error(e.message ?? "Erro ao executar auditoria");
     } finally {

@@ -1472,7 +1472,7 @@ const ASSET_CLASS_ENUM = z.enum([
   "stock","reit","etf","stock_intl","reit_intl","etf_intl",
   "crypto","fixed_income","fund","cash","other",
 ]);
-const MARKET_ENUM = z.enum(["B3","NYSE","NASDAQ","LSE","TSE","CRYPTO","OTHER"]);
+const MARKET_ENUM = z.enum(["B3","NYSE","NASDAQ","LSE","XETRA","TSE","CRYPTO","TREASURY","OTHER"]);
 
 const adminCreateSchema = z.object({
   symbol: z.string().min(1).max(64).regex(/^[A-Za-z0-9 ._+%-]+$/),

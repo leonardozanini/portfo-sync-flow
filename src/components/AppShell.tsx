@@ -26,17 +26,25 @@ const nav = [
   { to: "/settings", label: "Ajustes", shortLabel: "Ajustes", icon: Settings },
 ] as const;
 
-// ── Sidebar compacta — só ícones + label minúsculo, estilo Folio tech ───────
-function SidebarContent({ isAdmin, isPremium, onNavigate, safeTop = false, compact = true }: {
+// ── Sidebar — compacta por padrão, expande ao passar o mouse (desktop) ──────
+// Em mobile (Sheet) sempre renderiza expandida via prop `compact={false}`
+function SidebarContent({ isAdmin, isPremium, onNavigate, safeTop = false, compact = true, expanded = false }: {
   isAdmin: boolean;
   isPremium: boolean;
   onNavigate?: () => void;
   safeTop?: boolean;
   compact?: boolean;
+  expanded?: boolean;
 }) {
+  // "compact" controla o modo mobile/desktop; "expanded" controla se a sidebar
+  // compacta está com o mouse em cima (hover) mostrando os labels
+  const showLabels = !compact || expanded;
+
   const itemClass = (active: boolean) =>
-    `flex flex-col items-center justify-center gap-1 rounded-xl text-[9px] font-medium uppercase tracking-wide transition-colors ${
-      compact ? "h-11 w-11" : "h-11 w-full flex-row gap-3 px-3 text-sm normal-case tracking-normal"
+    `group/item flex items-center rounded-xl text-sm font-medium transition-all duration-150 ${
+      compact
+        ? `h-11 ${expanded ? "w-full justify-start gap-3 px-3" : "w-11 justify-center"}`
+        : "h-11 w-full flex-row gap-3 px-3"
     } ${
       active
         ? "bg-primary/10 text-primary"
@@ -44,14 +52,19 @@ function SidebarContent({ isAdmin, isPremium, onNavigate, safeTop = false, compa
     }`;
 
   return (
-    <div className="flex h-full flex-col items-center bg-sidebar text-sidebar-foreground border-r border-sidebar-border py-5 gap-1.5"
+    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border py-5 gap-1.5 overflow-hidden"
       style={safeTop ? { paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)" } : undefined}>
       {/* Logo: gradiente azul → roxo */}
-      <div className="folio-gradient mb-5 grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-sm font-bold text-white">
-        F
+      <div className={`flex items-center gap-2.5 mb-5 shrink-0 ${compact ? (expanded ? "px-3" : "justify-center") : "px-3"}`}>
+        <div className="folio-gradient grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-sm font-bold text-white">
+          F
+        </div>
+        {showLabels && (
+          <span className="whitespace-nowrap font-semibold text-[15px] tracking-tight">Folio</span>
+        )}
       </div>
 
-      <nav className={`flex flex-1 flex-col gap-1.5 ${compact ? "" : "w-full px-3"}`}>
+      <nav className={`flex flex-1 flex-col gap-1.5 ${compact ? (expanded ? "w-full px-3" : "items-center") : "w-full px-3"}`}>
         {nav.map((n) => (
           <Link
             key={n.to}
@@ -59,39 +72,41 @@ function SidebarContent({ isAdmin, isPremium, onNavigate, safeTop = false, compa
             onClick={onNavigate}
             activeProps={{ className: "!bg-primary/10 !text-primary" }}
             className={itemClass(false)}
+            title={compact && !expanded ? n.label : undefined}
           >
-            <n.icon className="h-[18px] w-[18px]" />
-            {compact ? n.shortLabel ?? n.label : n.label}
+            <n.icon className="h-[18px] w-[18px] shrink-0" />
+            {showLabels && <span className="whitespace-nowrap">{n.label}</span>}
           </Link>
         ))}
         {isAdmin && (
           <>
-            <div className={compact ? "my-1 h-px w-7 bg-sidebar-border" : "my-2 h-px w-full bg-sidebar-border"} />
+            <div className={compact && !expanded ? "my-1 h-px w-7 self-center bg-sidebar-border" : "my-2 h-px w-full bg-sidebar-border"} />
             <Link
               to="/admin"
               onClick={onNavigate}
               activeProps={{ className: "!bg-primary/10 !text-primary" }}
               className={itemClass(false)}
+              title={compact && !expanded ? "Administração" : undefined}
             >
-              <Shield className="h-[18px] w-[18px]" />
-              {compact ? "Admin" : "Administração"}
+              <Shield className="h-[18px] w-[18px] shrink-0" />
+              {showLabels && <span className="whitespace-nowrap">Administração</span>}
             </Link>
           </>
         )}
       </nav>
 
       {!isPremium && (
-        compact ? (
-          <div className="flex h-11 w-11 items-center justify-center" title="Conta gratuita — faça upgrade">
+        compact && !expanded ? (
+          <div className="flex h-11 w-11 items-center justify-center self-center" title="Conta gratuita — faça upgrade">
             <Sparkles className="h-[18px] w-[18px] text-primary" />
           </div>
         ) : (
-          <div className="mx-3 mb-1 rounded-xl bg-sidebar-accent p-3 text-xs">
+          <div className="mx-3 mb-1 rounded-xl bg-sidebar-accent p-3 text-xs whitespace-nowrap overflow-hidden">
             <div className="mb-1.5 flex items-center gap-2 font-medium">
-              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
               Conta gratuita
             </div>
-            <p className="text-[11px] text-sidebar-foreground/60">
+            <p className="text-[11px] text-sidebar-foreground/60 whitespace-normal">
               Upgrade para desbloquear analytics avançado.
             </p>
           </div>
@@ -134,12 +149,22 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const initials = (user?.email ?? "?").slice(0, 2).toUpperCase();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [sidebarHover, setSidebarHover] = useState(false);
 
   return (
     <div className="flex min-h-screen bg-background">
-      {/* Desktop sidebar — compacta, só ícones (estilo Folio tech) */}
-      <aside className="hidden w-[68px] shrink-0 flex-col md:flex">
-        <SidebarContent isAdmin={isAdmin} isPremium={isPremium} compact />
+      {/* Spacer fixo — reserva sempre 68px no fluxo do layout, mesmo com o hover */}
+      <div className="hidden w-[68px] shrink-0 md:block" />
+
+      {/* Desktop sidebar — fixa, expande sobrepondo o conteúdo ao passar o mouse */}
+      <aside
+        onMouseEnter={() => setSidebarHover(true)}
+        onMouseLeave={() => setSidebarHover(false)}
+        className={`hidden md:flex md:flex-col fixed top-0 left-0 bottom-0 z-30 transition-[width] duration-200 ease-out shadow-2xl ${
+          sidebarHover ? "w-[220px]" : "w-[68px]"
+        }`}
+      >
+        <SidebarContent isAdmin={isAdmin} isPremium={isPremium} compact expanded={sidebarHover} />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">

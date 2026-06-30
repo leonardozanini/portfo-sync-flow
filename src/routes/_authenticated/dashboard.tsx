@@ -622,14 +622,6 @@ function Dashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Ativos na Carteira</CardTitle>                </>
-              );
-            })()}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
             <CardTitle className="text-base">Ativos na Carteira</CardTitle>
           </CardHeader>
           <CardContent className="h-auto min-h-[320px]">

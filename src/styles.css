@@ -46,97 +46,96 @@
   --color-sidebar-border: var(--sidebar-border);
 }
 
-/* Folio — Fintech Private: paleta neutra warm-cream no claro, dourado reservado a detalhes */
+/* Folio — identidade tech/fintech: azul + roxo em gradiente, dourado dessaturado
+   reservado para "Valor Aplicado" nos gráficos, verde/vermelho para ganho de capital */
 :root {
-  --radius: 0.75rem;
-  --background: oklch(0.982 0.0041 91.4);   /* #FAF9F6 — creme suave */
-  --foreground: oklch(0.217 0.0038 106.7);  /* #1A1A18 — quase preto warm */
-  --card: oklch(1 0 0);                      /* branco puro */
-  --card-foreground: oklch(0.217 0.0038 106.7);
+  --radius: 0.875rem;
+  --background: oklch(0.9792 0.0041 271.37);   /* #F7F8FB */
+  --foreground: oklch(0.1895 0.0273 270.55);   /* #0F1320 */
+  --card: oklch(1 0 0);                         /* #FFFFFF */
+  --card-foreground: oklch(0.1895 0.0273 270.55);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.217 0.0038 106.7);
-  --primary: oklch(0.217 0.0038 106.7);      /* grafite — ações primárias neutras */
-  --primary-foreground: oklch(0.982 0.0041 91.4);
-  --secondary: oklch(0.96 0.005 91);
-  --secondary-foreground: oklch(0.25 0.005 106);
-  --muted: oklch(0.96 0.005 91);
-  --muted-foreground: oklch(0.520 0.0140 96.6); /* #6B6960 */
-  --accent: oklch(0.613 0.1070 79.6);        /* dourado escurecido p/ contraste no claro */
-  --accent-foreground: oklch(0.982 0.0041 91.4);
-  --destructive: oklch(0.58 0.18 30);
-  --destructive-foreground: oklch(0.985 0.005 250);
-  --success: oklch(0.60 0.13 155);
-  --success-foreground: oklch(0.99 0.005 155);
-  --warning: oklch(0.70 0.14 75);
-  --warning-foreground: oklch(0.20 0.04 260);
-  --border: oklch(0.925 0.0096 93.6);        /* #E8E6DF */
-  --input: oklch(0.93 0.008 91);
-  --ring: oklch(0.613 0.1070 79.6);
-  --chart-1: oklch(0.613 0.1070 79.6);
-  --chart-2: oklch(0.55 0.0109 87.5);
-  --chart-3: oklch(0.40 0.0109 87.5);
-  --chart-4: oklch(0.27 0.0094 276.7);
-  --chart-5: oklch(0.60 0.13 155);
+  --popover-foreground: oklch(0.1895 0.0273 270.55);
+  --primary: oklch(0.6561 0.1697 260.03);       /* azul #4F8EF7 */
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.9576 0.0087 264.52);     /* #EEF1F7 */
+  --secondary-foreground: oklch(0.25 0.02 265);
+  --muted: oklch(0.9576 0.0087 264.52);
+  --muted-foreground: oklch(0.5794 0.0526 265.17); /* #6B7A9A */
+  --accent: oklch(0.6561 0.1697 260.03);        /* azul */
+  --accent-foreground: oklch(1 0 0);
+  --destructive: oklch(0.6439 0.2053 18.73);    /* #F0465A */
+  --destructive-foreground: oklch(1 0 0);
+  --success: oklch(0.7379 0.1721 155.79);       /* #22C97A */
+  --success-foreground: oklch(0.15 0.05 155);
+  --warning: oklch(0.7837 0.1587 72.99);        /* dourado vibrante — usado em badges/destaques pontuais */
+  --warning-foreground: oklch(0.20 0.04 70);
+  --border: oklch(0.9250 0.0113 269.54);        /* #E3E6EE */
+  --input: oklch(0.93 0.011 269.5);
+  --ring: oklch(0.6561 0.1697 260.03);
+  --chart-1: oklch(0.7472 0.0890 82.39);        /* dourado dessaturado — Valor Aplicado */
+  --chart-2: oklch(0.7379 0.1721 155.79);       /* verde — ganho positivo */
+  --chart-3: oklch(0.6439 0.2053 18.73);        /* vermelho — ganho negativo */
+  --chart-4: oklch(0.6561 0.1697 260.03);       /* azul */
+  --chart-5: oklch(0.5967 0.2264 286.55);       /* roxo */
   --sidebar: oklch(1 0 0);
-  --sidebar-foreground: oklch(0.217 0.0038 106.7);
-  --sidebar-primary: oklch(0.613 0.1070 79.6);
-  --sidebar-primary-foreground: oklch(0.982 0.0041 91.4);
-  --sidebar-accent: oklch(0.96 0.005 91);
-  --sidebar-accent-foreground: oklch(0.217 0.0038 106.7);
-  --sidebar-border: oklch(0.925 0.0096 93.6);
+  --sidebar-foreground: oklch(0.1895 0.0273 270.55);
+  --sidebar-primary: oklch(0.6561 0.1697 260.03);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.9576 0.0087 264.52);
+  --sidebar-accent-foreground: oklch(0.1895 0.0273 270.55);
+  --sidebar-border: oklch(0.9250 0.0113 269.54);
 }
 
 .dark {
-  /* Folio — Fintech Private dark: grafite quase preto + dourado de assinatura */
+  /* Fundo principal: #0B0E17 — azul-marinho profundo */
+  --background: oklch(0.1653 0.0197 269.95);
+  --foreground: oklch(0.9673 0.0153 269.99);    /* #F0F4FF */
 
-  /* Fundo principal: #0B0C0F */
-  --background: oklch(0.155 0.0066 271.0);
-  --foreground: oklch(0.955 0.0083 91.5);   /* #F2F0EA — off-white warm */
+  /* Cards: #111827 */
+  --card: oklch(0.2101 0.0318 264.66);
+  --card-foreground: oklch(0.9673 0.0153 269.99);
+  --popover: oklch(0.2101 0.0318 264.66);
+  --popover-foreground: oklch(0.9673 0.0153 269.99);
 
-  /* Cards: #15161B */
-  --card: oklch(0.201 0.0101 276.5);
-  --card-foreground: oklch(0.955 0.0083 91.5);
-  --popover: oklch(0.201 0.0101 276.5);
-  --popover-foreground: oklch(0.955 0.0083 91.5);
+  --primary: oklch(0.6561 0.1697 260.03);       /* azul #4F8EF7 */
+  --primary-foreground: oklch(0.98 0.005 270);
 
-  --primary: oklch(0.767 0.1387 91.1);       /* dourado #D4AF37 */
-  --primary-foreground: oklch(0.155 0.0066 271.0);
+  /* Secondary/hover: #1a2235 */
+  --secondary: oklch(0.2539 0.0380 266.27);
+  --secondary-foreground: oklch(0.9673 0.0153 269.99);
 
-  /* Secondary/hover: #1F2025 */
-  --secondary: oklch(0.245 0.0096 276.7);
-  --secondary-foreground: oklch(0.955 0.0083 91.5);
+  --muted: oklch(0.2539 0.0380 266.27);
+  --muted-foreground: oklch(0.5794 0.0526 265.17); /* #6B7A9A */
 
-  --muted: oklch(0.245 0.0096 276.7);
-  --muted-foreground: oklch(0.624 0.0109 87.5); /* #8A8780 */
+  --accent: oklch(0.5967 0.2264 286.55);        /* roxo #7C5CFC — gradiente com primary */
+  --accent-foreground: oklch(0.98 0.005 270);
+  --destructive: oklch(0.6439 0.2053 18.73);    /* #F0465A */
+  --destructive-foreground: oklch(0.98 0.005 270);
+  --success: oklch(0.7379 0.1721 155.79);       /* #22C97A */
+  --success-foreground: oklch(0.15 0.05 155);
+  --warning: oklch(0.7837 0.1587 72.99);        /* dourado vibrante — badges/destaques pontuais */
+  --warning-foreground: oklch(0.18 0.03 70);
 
-  --accent: oklch(0.767 0.1387 91.1);        /* dourado — reservado a destaques */
-  --accent-foreground: oklch(0.155 0.0066 271.0);
-  --destructive: oklch(0.677 0.1444 32.9);   /* #E2725B */
-  --destructive-foreground: oklch(0.97 0.01 250);
-  --success: oklch(0.781 0.1226 156.5);      /* #6FCF97 */
-  --success-foreground: oklch(0.155 0.0066 271.0);
-  --warning: oklch(0.78 0.15 70);
-  --warning-foreground: oklch(0.155 0.0066 271.0);
+  /* Bordas sutis: white 7% opacity */
+  --border: oklch(1 0 0 / 7%);
+  --input: oklch(1 0 0 / 10%);
+  --ring: oklch(0.6561 0.1697 260.03);
 
-  /* Bordas finas e sutis: #232429 / #2A2B30 */
-  --border: oklch(0.261 0.0094 276.7 / 60%);
-  --input: oklch(0.290 0.0092 276.8);
-  --ring: oklch(0.767 0.1387 91.1);
+  --chart-1: oklch(0.7472 0.0890 82.39);        /* dourado dessaturado — Valor Aplicado */
+  --chart-2: oklch(0.7379 0.1721 155.79);       /* verde — ganho positivo */
+  --chart-3: oklch(0.6439 0.2053 18.73);        /* vermelho — ganho negativo */
+  --chart-4: oklch(0.6561 0.1697 260.03);       /* azul */
+  --chart-5: oklch(0.5967 0.2264 286.55);       /* roxo */
 
-  --chart-1: oklch(0.767 0.1387 91.1);
-  --chart-2: oklch(0.624 0.0109 87.5);
-  --chart-3: oklch(0.450 0.0096 276.7);
-  --chart-4: oklch(0.290 0.0092 276.8);
-  --chart-5: oklch(0.781 0.1226 156.5);
-
-  /* Sidebar: mesmo tom do card, #15161B */
-  --sidebar: oklch(0.201 0.0101 276.5);
-  --sidebar-foreground: oklch(0.955 0.0083 91.5);
-  --sidebar-primary: oklch(0.767 0.1387 91.1);
-  --sidebar-primary-foreground: oklch(0.155 0.0066 271.0);
-  --sidebar-accent: oklch(0.245 0.0096 276.7);
-  --sidebar-accent-foreground: oklch(0.955 0.0083 91.5);
-  --sidebar-border: oklch(0.261 0.0094 276.7 / 60%);
+  /* Sidebar: mesmo tom do card, #111827 */
+  --sidebar: oklch(0.2101 0.0318 264.66);
+  --sidebar-foreground: oklch(0.9673 0.0153 269.99);
+  --sidebar-primary: oklch(0.6561 0.1697 260.03);
+  --sidebar-primary-foreground: oklch(0.98 0.005 270);
+  --sidebar-accent: oklch(0.2539 0.0380 266.27);
+  --sidebar-accent-foreground: oklch(0.9673 0.0153 269.99);
+  --sidebar-border: oklch(1 0 0 / 7%);
 }
 
 @layer base {
@@ -149,6 +148,23 @@
     font-feature-settings: "cv02","cv03","cv04","cv11";
   }
 }
+
+/* ── Brand: logo / gradiente azul → roxo ── */
+.folio-gradient {
+  background: linear-gradient(135deg, oklch(0.6561 0.1697 260.03), oklch(0.5967 0.2264 286.55));
+}
+
+.folio-gradient-text {
+  background: linear-gradient(90deg, var(--foreground) 60%, oklch(1 0 0 / 40%));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Cores específicas dos gráficos de patrimônio (linha de valor aplicado vs. ganho de capital) */
+.folio-chart-applied { color: var(--chart-1); }   /* dourado dessaturado */
+.folio-chart-gain-pos { color: var(--chart-2); }  /* verde */
+.folio-chart-gain-neg { color: var(--chart-3); }  /* vermelho */
 
 /* ── Ticker tape animation ── */
 @keyframes ticker {

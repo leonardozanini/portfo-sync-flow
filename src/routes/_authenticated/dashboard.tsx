@@ -450,7 +450,7 @@ function Dashboard() {
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div>
           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1">Patrimônio total</p>
-          <p className="folio-gradient-text text-4xl font-bold tracking-tight tabular-nums leading-[1.25] pb-1">
+          <p className="text-4xl font-bold tracking-tight tabular-nums text-foreground">
             {formatMoney(total, currency)}
           </p>
         </div>
@@ -472,14 +472,7 @@ function Dashboard() {
       </div>
 
       {/* KPIs */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard
-          icon={Wallet}
-          title="Patrimônio total"
-          value={formatMoney(total, currency)}
-          subLabel="Valor investido"
-          subValue={formatMoney(invested, currency)}
-        />
+      <div className="grid gap-4 md:grid-cols-3">
         <KpiCard
           icon={Coins}
           title="Lucro total"
@@ -539,21 +532,24 @@ function Dashboard() {
               const equityData = filteredEquity.map(d => {
                 const aplicado = convert(d.aplicado, currency);
                 const ganho = convert(d.ganho, currency);
+                const patrimonio = aplicado + ganho;
                 return {
                   date: d.date,
-                  aplicado: ganho >= 0 ? aplicado : aplicado,
-                  ganhoPos: ganho >= 0 ? ganho : 0,
-                  ganhoNeg: ganho < 0 ? ganho : 0,
+                  aplicado,
+                  patrimonio,
+                  // "range area" entre aplicado e patrimônio: Recharts desenha entre [min,max] do array
+                  // Quando ganho >= 0: [aplicado, patrimonio] → pinta de verde (patrimônio acima)
+                  // Quando ganho < 0: [patrimonio, aplicado] → pinta de vermelho (patrimônio abaixo)
+                  rangePos: ganho >= 0 ? [aplicado, patrimonio] : [aplicado, aplicado],
+                  rangeNeg: ganho < 0 ? [patrimonio, aplicado] : [aplicado, aplicado],
                   _ganho: ganho,
                 };
               });
               const CustomTooltip = ({ active, payload, label }: any) => {
                 if (!active || !payload?.length) return null;
-                const aplicado = payload.find((p: any) => p.dataKey === "aplicado")?.value ?? 0;
-                const ganhoPos = payload.find((p: any) => p.dataKey === "ganhoPos")?.value ?? 0;
-                const ganhoNeg = payload.find((p: any) => p.dataKey === "ganhoNeg")?.value ?? 0;
-                const ganho = ganhoPos + ganhoNeg;
-                const patrimonio = aplicado + ganho;
+                const row = equityData.find(d => d.date === label);
+                if (!row) return null;
+                const { aplicado, patrimonio, _ganho: ganho } = row;
                 return (
                   <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: "10px 14px", minWidth: 210, boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
                     <p style={{ color: "#374151", fontSize: 12, marginBottom: 8, fontWeight: 700 }}>{label}</p>
@@ -579,40 +575,54 @@ function Dashboard() {
                 <>
                   <div className="mb-2 flex items-center gap-4 text-xs">
                     <LegendDot color="#C9A86A" label="Valor aplicado" />
-                    <LegendDot color="#22C97A" label="Ganho de Capital (lucro)" />
-                    <LegendDot color="#F0465A" label="Ganho de Capital (prejuízo)" />
+                    <LegendDot color="#22C97A" label="Patrimônio acima do aplicado (lucro)" />
+                    <LegendDot color="#F0465A" label="Patrimônio abaixo do aplicado (prejuízo)" />
                   </div>
                   <ResponsiveContainer width="100%" height="90%">
                     <AreaChart data={equityData} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
                       <defs>
-                        <linearGradient id="gAplicadoFolio" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#C9A86A" stopOpacity={0.3} />
-                          <stop offset="100%" stopColor="#C9A86A" stopOpacity={0.02} />
-                        </linearGradient>
                         <linearGradient id="gGanhoPosFolio" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="0%" stopColor="#22C97A" stopOpacity={0.35} />
-                          <stop offset="100%" stopColor="#22C97A" stopOpacity={0.03} />
+                          <stop offset="100%" stopColor="#22C97A" stopOpacity={0.04} />
                         </linearGradient>
                         <linearGradient id="gGanhoNegFolio" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#F0465A" stopOpacity={0.03} />
+                          <stop offset="0%" stopColor="#F0465A" stopOpacity={0.04} />
                           <stop offset="100%" stopColor="#F0465A" stopOpacity={0.35} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                       <XAxis dataKey="date" fontSize={11} stroke="var(--color-muted-foreground)" axisLine={false} tickLine={false} />
                       <YAxis fontSize={11} stroke="var(--color-muted-foreground)" axisLine={false} tickLine={false}
+                        domain={["auto", "auto"]}
                         tickFormatter={(v) => formatMoney(Number(v), currency).replace(/[,.]00$/, "")} />
                       <Tooltip content={<CustomTooltip />} cursor={{ stroke: "var(--color-border)", strokeWidth: 1 }} />
-                      <ReferenceLine y={0} stroke="#9ca3af" strokeWidth={1} />
-                      <Area type="monotone" dataKey="aplicado" stackId="patrimonio" stroke="#C9A86A" strokeWidth={2}
-                        fill="url(#gAplicadoFolio)" />
-                      <Area type="monotone" dataKey="ganhoPos" stackId="patrimonio" stroke="#22C97A" strokeWidth={2}
-                        fill="url(#gGanhoPosFolio)" />
-                      <Area type="monotone" dataKey="ganhoNeg" stroke="#F0465A" strokeWidth={2}
-                        fill="url(#gGanhoNegFolio)" />
+
+                      {/* Range area verde: preenche entre aplicado e patrimônio quando patrimônio > aplicado (lucro) */}
+                      <Area type="monotone" dataKey="rangePos" stroke="none"
+                        fill="url(#gGanhoPosFolio)" isAnimationActive={false} />
+
+                      {/* Range area vermelha: preenche entre patrimônio e aplicado quando patrimônio < aplicado (prejuízo) */}
+                      <Area type="monotone" dataKey="rangeNeg" stroke="none"
+                        fill="url(#gGanhoNegFolio)" isAnimationActive={false} />
+
+                      {/* Linha de base: Valor Aplicado (dourado dessaturado) */}
+                      <Area type="monotone" dataKey="aplicado" stroke="#C9A86A" strokeWidth={2}
+                        fill="none" dot={false} activeDot={false} />
+
+                      {/* Linha do Patrimônio real por cima de tudo */}
+                      <Area type="monotone" dataKey="patrimonio" stroke="#4F8EF7" strokeWidth={2.5}
+                        fill="none" dot={false} activeDot={{ r: 4, fill: "#4F8EF7" }} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </>
+              );
+            })()}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Ativos na Carteira</CardTitle>                </>
               );
             })()}
           </CardContent>

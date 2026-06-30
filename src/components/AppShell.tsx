@@ -18,67 +18,84 @@ import { TickerTape, usePortfolioTicker } from "./TickerTape";
 import { type ReactNode, useState } from "react";
 
 const nav = [
-  { to: "/dashboard", label: "Visão geral", icon: LayoutDashboard },
-  { to: "/transactions", label: "Lançamentos", icon: ArrowRightLeft },
-  { to: "/proventos", label: "Proventos", icon: TrendingUp },
-  { to: "/estrategia", label: "Estratégia", icon: Target },
-  { to: "/analise", label: "Análise IA", icon: Brain },
-  { to: "/settings", label: "Ajustes", icon: Settings },
+  { to: "/dashboard", label: "Visão geral", shortLabel: "Resumo", icon: LayoutDashboard },
+  { to: "/transactions", label: "Lançamentos", shortLabel: "Lança.", icon: ArrowRightLeft },
+  { to: "/proventos", label: "Proventos", shortLabel: "Provent.", icon: TrendingUp },
+  { to: "/estrategia", label: "Estratégia", shortLabel: "Estrat.", icon: Target },
+  { to: "/analise", label: "Análise IA", shortLabel: "IA", icon: Brain },
+  { to: "/settings", label: "Ajustes", shortLabel: "Ajustes", icon: Settings },
 ] as const;
 
-function SidebarContent({ isAdmin, isPremium, onNavigate, safeTop = false }: {
+// ── Sidebar compacta — só ícones + label minúsculo, estilo Folio tech ───────
+function SidebarContent({ isAdmin, isPremium, onNavigate, safeTop = false, compact = true }: {
   isAdmin: boolean;
   isPremium: boolean;
   onNavigate?: () => void;
   safeTop?: boolean;
+  compact?: boolean;
 }) {
+  const itemClass = (active: boolean) =>
+    `flex flex-col items-center justify-center gap-1 rounded-xl text-[9px] font-medium uppercase tracking-wide transition-colors ${
+      compact ? "h-11 w-11" : "h-11 w-full flex-row gap-3 px-3 text-sm normal-case tracking-normal"
+    } ${
+      active
+        ? "bg-primary/10 text-primary"
+        : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+    }`;
+
   return (
-    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground"
-      style={safeTop ? { paddingTop: "env(safe-area-inset-top)" } : undefined}>
-      <div className="flex items-center gap-2 px-6 py-6">
-        <div className="grid h-9 w-9 place-items-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-          <Wallet className="h-5 w-5" />
-        </div>
-        <div>
-          <div className="text-lg font-semibold leading-none">Folio</div>
-          <div className="text-xs text-sidebar-foreground/60">Consolidador de carteira</div>
-        </div>
+    <div className="flex h-full flex-col items-center bg-sidebar text-sidebar-foreground border-r border-sidebar-border py-5 gap-1.5"
+      style={safeTop ? { paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)" } : undefined}>
+      {/* Logo: gradiente azul → roxo */}
+      <div className="folio-gradient mb-5 grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-sm font-bold text-white">
+        F
       </div>
-      <nav className="flex flex-1 flex-col gap-1 px-3">
+
+      <nav className={`flex flex-1 flex-col gap-1.5 ${compact ? "" : "w-full px-3"}`}>
         {nav.map((n) => (
           <Link
             key={n.to}
             to={n.to}
             onClick={onNavigate}
-            activeProps={{ className: "bg-sidebar-accent text-sidebar-primary" }}
-            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground/80 hover:bg-sidebar-accent"
+            activeProps={{ className: "!bg-primary/10 !text-primary" }}
+            className={itemClass(false)}
           >
-            <n.icon className="h-4 w-4" />
-            {n.label}
+            <n.icon className="h-[18px] w-[18px]" />
+            {compact ? n.shortLabel ?? n.label : n.label}
           </Link>
         ))}
         {isAdmin && (
-          <Link
-            to="/admin"
-            onClick={onNavigate}
-            activeProps={{ className: "bg-sidebar-accent text-sidebar-primary" }}
-            className="mt-4 flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground/80 hover:bg-sidebar-accent"
-          >
-            <Shield className="h-4 w-4" />
-            Administração
-          </Link>
+          <>
+            <div className={compact ? "my-1 h-px w-7 bg-sidebar-border" : "my-2 h-px w-full bg-sidebar-border"} />
+            <Link
+              to="/admin"
+              onClick={onNavigate}
+              activeProps={{ className: "!bg-primary/10 !text-primary" }}
+              className={itemClass(false)}
+            >
+              <Shield className="h-[18px] w-[18px]" />
+              {compact ? "Admin" : "Administração"}
+            </Link>
+          </>
         )}
       </nav>
+
       {!isPremium && (
-        <div className="m-3 rounded-lg bg-sidebar-accent p-4 text-sm">
-          <div className="mb-2 flex items-center gap-2 font-medium">
-            <Sparkles className="h-4 w-4 text-sidebar-primary" />
-            Conta gratuita
+        compact ? (
+          <div className="flex h-11 w-11 items-center justify-center" title="Conta gratuita — faça upgrade">
+            <Sparkles className="h-[18px] w-[18px] text-primary" />
           </div>
-          <p className="text-xs text-sidebar-foreground/70">
-            Faça upgrade para desbloquear analytics avançado e alertas.
-          </p>
-        </div>
+        ) : (
+          <div className="mx-3 mb-1 rounded-xl bg-sidebar-accent p-3 text-xs">
+            <div className="mb-1.5 flex items-center gap-2 font-medium">
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              Conta gratuita
+            </div>
+            <p className="text-[11px] text-sidebar-foreground/60">
+              Upgrade para desbloquear analytics avançado.
+            </p>
+          </div>
+        )
       )}
     </div>
   );
@@ -120,9 +137,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-background">
-      {/* Desktop sidebar */}
-      <aside className="hidden w-64 shrink-0 flex-col md:flex">
-        <SidebarContent isAdmin={isAdmin} isPremium={isPremium} />
+      {/* Desktop sidebar — compacta, só ícones (estilo Folio tech) */}
+      <aside className="hidden w-[68px] shrink-0 flex-col md:flex">
+        <SidebarContent isAdmin={isAdmin} isPremium={isPremium} compact />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -142,6 +159,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   isPremium={isPremium}
                   onNavigate={() => setMobileOpen(false)}
                   safeTop={true}
+                  compact={false}
                 />
               </SheetContent>
             </Sheet>
@@ -157,9 +175,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             {/* Avatar + menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-9 w-9 rounded-full p-0">
-                  {initials}
-                </Button>
+                <Button variant="outline" size="sm" className="folio-gradient h-9 w-9 rounded-full p-0 border-0 text-white font-semibold">{initials}</Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuLabel className="font-normal">

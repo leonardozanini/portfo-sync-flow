@@ -24,7 +24,7 @@ import {
   Layers, ListOrdered, Trash2,
 } from "lucide-react";
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
+  ResponsiveContainer, BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
   PieChart, Pie, Cell,
 } from "recharts";
 import { useDisplayCurrency } from "@/components/CurrencySwitcher";
@@ -242,8 +242,8 @@ const CLASS_ICONS: Record<AssetClass, React.ComponentType<{ className?: string }
 };
 
 const PIE_COLORS = [
-  "#3B82F6", "#22D3EE", "#86EFAC", "#FACC15",
-  "#FB923C", "#F87171", "#E879F9", "#A78BFA",
+  "#4F8EF7", "#7C5CFC", "#22C97A", "#C9A86A",
+  "#38BDF8", "#F0465A", "#A78BFA", "#6B7A9A",
 ];
 
 // ── Onboarding Modal ──────────────────────────────────────────────────────────
@@ -447,8 +447,14 @@ function Dashboard() {
         onAddFirst={() => { setShowOnboarding(false); openNew(); }}
       />
 
-      <div className="flex items-center justify-end">
-        <Button onClick={() => openNew()} size="lg" className="rounded-xl">
+      <div className="flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1">Patrimônio total</p>
+          <p className="folio-gradient-text text-4xl font-bold tracking-tight tabular-nums">
+            {formatMoney(total, currency)}
+          </p>
+        </div>
+        <Button onClick={() => openNew()} size="lg" className="rounded-xl folio-gradient text-white border-0 hover:opacity-90">
           <Plus className="mr-2 h-4 w-4" />Adicionar Lançamento
         </Button>
         <NewTransactionDialog open={open} onOpenChange={setOpen} preset={preset} />
@@ -557,14 +563,14 @@ function Dashboard() {
                       <span style={{ color: "#111827", fontSize: 12, fontWeight: 600, marginLeft: "auto" }}>{formatMoney(patrimonio, currency)}</span>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                      <span style={{ width: 10, height: 10, borderRadius: 2, background: "hsl(142 71% 45%)", display: "inline-block", flexShrink: 0 }} />
+                      <span style={{ width: 10, height: 10, borderRadius: 2, background: "#C9A86A", display: "inline-block", flexShrink: 0 }} />
                       <span style={{ color: "#6b7280", fontSize: 12 }}>Valor aplicado</span>
                       <span style={{ color: "#111827", fontSize: 12, fontWeight: 600, marginLeft: "auto" }}>{formatMoney(aplicado, currency)}</span>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ width: 10, height: 10, borderRadius: 2, background: ganho >= 0 ? "hsl(142 71% 75%)" : "#fca5a5", display: "inline-block", flexShrink: 0 }} />
+                      <span style={{ width: 10, height: 10, borderRadius: 2, background: ganho >= 0 ? "#22C97A" : "#F0465A", display: "inline-block", flexShrink: 0 }} />
                       <span style={{ color: "#6b7280", fontSize: 12 }}>Ganho de Capital</span>
-                      <span style={{ color: ganho >= 0 ? "#16a34a" : "#ef4444", fontSize: 12, fontWeight: 600, marginLeft: "auto" }}>{formatMoney(ganho, currency)}</span>
+                      <span style={{ color: ganho >= 0 ? "#22C97A" : "#F0465A", fontSize: 12, fontWeight: 600, marginLeft: "auto" }}>{formatMoney(ganho, currency)}</span>
                     </div>
                   </div>
                 );
@@ -572,21 +578,39 @@ function Dashboard() {
               return (
                 <>
                   <div className="mb-2 flex items-center gap-4 text-xs">
-                    <LegendDot color="hsl(142 71% 45%)" label="Valor aplicado" />
-                    <LegendDot color="hsl(142 71% 75%)" label="Ganho de Capital" />
+                    <LegendDot color="#C9A86A" label="Valor aplicado" />
+                    <LegendDot color="#22C97A" label="Ganho de Capital (lucro)" />
+                    <LegendDot color="#F0465A" label="Ganho de Capital (prejuízo)" />
                   </div>
                   <ResponsiveContainer width="100%" height="90%">
-                    <BarChart data={equityData} barCategoryGap="4%" barGap={1} barSize={equityPeriod === "6" ? 48 : equityPeriod === "12" ? 28 : 14}>
-                      <CartesianGrid strokeDasharray="4 4" stroke="var(--color-border)" vertical={false} />
-                      <XAxis dataKey="date" fontSize={11} stroke="var(--color-muted-foreground)" />
-                      <YAxis fontSize={11} stroke="var(--color-muted-foreground)"
+                    <AreaChart data={equityData} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="gAplicadoFolio" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#C9A86A" stopOpacity={0.3} />
+                          <stop offset="100%" stopColor="#C9A86A" stopOpacity={0.02} />
+                        </linearGradient>
+                        <linearGradient id="gGanhoPosFolio" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#22C97A" stopOpacity={0.35} />
+                          <stop offset="100%" stopColor="#22C97A" stopOpacity={0.03} />
+                        </linearGradient>
+                        <linearGradient id="gGanhoNegFolio" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#F0465A" stopOpacity={0.03} />
+                          <stop offset="100%" stopColor="#F0465A" stopOpacity={0.35} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                      <XAxis dataKey="date" fontSize={11} stroke="var(--color-muted-foreground)" axisLine={false} tickLine={false} />
+                      <YAxis fontSize={11} stroke="var(--color-muted-foreground)" axisLine={false} tickLine={false}
                         tickFormatter={(v) => formatMoney(Number(v), currency).replace(/[,.]00$/, "")} />
-                      <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
+                      <Tooltip content={<CustomTooltip />} cursor={{ stroke: "var(--color-border)", strokeWidth: 1 }} />
                       <ReferenceLine y={0} stroke="#9ca3af" strokeWidth={1} />
-                      <Bar dataKey="aplicado" stackId="a" fill="hsl(142 71% 45%)" radius={[8, 8, 0, 0]} />
-                      <Bar dataKey="ganhoPos" stackId="a" fill="hsl(142 71% 75%)" radius={[8, 8, 0, 0]} />
-                      <Bar dataKey="ganhoNeg" fill="#fca5a5" radius={[8, 8, 0, 0]} />
-                    </BarChart>
+                      <Area type="monotone" dataKey="aplicado" stroke="#C9A86A" strokeWidth={2}
+                        fill="url(#gAplicadoFolio)" />
+                      <Area type="monotone" dataKey="ganhoPos" stroke="#22C97A" strokeWidth={2}
+                        fill="url(#gGanhoPosFolio)" />
+                      <Area type="monotone" dataKey="ganhoNeg" stroke="#F0465A" strokeWidth={2}
+                        fill="url(#gGanhoNegFolio)" />
+                    </AreaChart>
                   </ResponsiveContainer>
                 </>
               );
@@ -689,7 +713,7 @@ function KpiCard({
       <CardContent className="pt-5">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span className="grid h-7 w-7 place-items-center rounded-md bg-muted">
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/10 text-primary">
               <Icon className="h-4 w-4" />
             </span>
             {title}

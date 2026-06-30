@@ -450,7 +450,7 @@ function Dashboard() {
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div>
           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1">Patrimônio total</p>
-          <p className="folio-gradient-text text-4xl font-bold tracking-tight tabular-nums">
+          <p className="folio-gradient-text text-4xl font-bold tracking-tight tabular-nums leading-[1.25] pb-1">
             {formatMoney(total, currency)}
           </p>
         </div>
@@ -558,7 +558,7 @@ function Dashboard() {
                   <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: "10px 14px", minWidth: 210, boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
                     <p style={{ color: "#374151", fontSize: 12, marginBottom: 8, fontWeight: 700 }}>{label}</p>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                      <span style={{ width: 10, height: 10, borderRadius: 2, background: "#3b82f6", display: "inline-block", flexShrink: 0 }} />
+                      <span style={{ width: 10, height: 10, borderRadius: 2, background: "#4F8EF7", display: "inline-block", flexShrink: 0 }} />
                       <span style={{ color: "#6b7280", fontSize: 12 }}>Patrimônio</span>
                       <span style={{ color: "#111827", fontSize: 12, fontWeight: 600, marginLeft: "auto" }}>{formatMoney(patrimonio, currency)}</span>
                     </div>
@@ -604,9 +604,9 @@ function Dashboard() {
                         tickFormatter={(v) => formatMoney(Number(v), currency).replace(/[,.]00$/, "")} />
                       <Tooltip content={<CustomTooltip />} cursor={{ stroke: "var(--color-border)", strokeWidth: 1 }} />
                       <ReferenceLine y={0} stroke="#9ca3af" strokeWidth={1} />
-                      <Area type="monotone" dataKey="aplicado" stroke="#C9A86A" strokeWidth={2}
+                      <Area type="monotone" dataKey="aplicado" stackId="patrimonio" stroke="#C9A86A" strokeWidth={2}
                         fill="url(#gAplicadoFolio)" />
-                      <Area type="monotone" dataKey="ganhoPos" stroke="#22C97A" strokeWidth={2}
+                      <Area type="monotone" dataKey="ganhoPos" stackId="patrimonio" stroke="#22C97A" strokeWidth={2}
                         fill="url(#gGanhoPosFolio)" />
                       <Area type="monotone" dataKey="ganhoNeg" stroke="#F0465A" strokeWidth={2}
                         fill="url(#gGanhoNegFolio)" />

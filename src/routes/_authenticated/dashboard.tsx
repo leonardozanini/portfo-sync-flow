@@ -586,8 +586,8 @@ function Dashboard() {
                           <stop offset="100%" stopColor="#22C97A" stopOpacity={0.04} />
                         </linearGradient>
                         <linearGradient id="gGanhoNegFolio" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#F0465A" stopOpacity={0.04} />
-                          <stop offset="100%" stopColor="#F0465A" stopOpacity={0.35} />
+                          <stop offset="0%" stopColor="#F0465A" stopOpacity={0.12} />
+                          <stop offset="100%" stopColor="#F0465A" stopOpacity={0.55} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
@@ -602,7 +602,7 @@ function Dashboard() {
                         fill="url(#gGanhoPosFolio)" isAnimationActive={false} />
 
                       {/* Range area vermelha: preenche entre patrimônio e aplicado quando patrimônio < aplicado (prejuízo) */}
-                      <Area type="monotone" dataKey="rangeNeg" stroke="none"
+                      <Area type="monotone" dataKey="rangeNeg" stroke="#F0465A" strokeWidth={1} strokeOpacity={0.4}
                         fill="url(#gGanhoNegFolio)" isAnimationActive={false} />
 
                       {/* Linha de base: Valor Aplicado (dourado dessaturado) */}

@@ -2598,8 +2598,13 @@ export const adminSyncTreasury = createServerFn({ method: "POST" })
 
 const valuationInputSchema = z.object({
   assetId: z.string().uuid(),
-  discountRate: z.number().min(0.001).max(1),        // ex: 0.08 = 8%
+  discountRate: z.number().min(0.001).max(1),        // ex: 0.08 = 8%  — usada nos anos projetados
   perpetuityGrowth: z.number().min(-0.1).max(0.15),   // ex: 0.025 = 2.5%
+  // Taxa de desconto usada SÓ no valor terminal/perpetuidade.
+  // undefined/null → método clássico (usa a mesma discountRate dos anos).
+  // valor definido (ex: 0.10) → método "Buffett" (custo de oportunidade fixo do mercado).
+  perpetuityDiscountRate: z.number().min(0.001).max(1).optional(),
+  method: z.enum(["classic", "buffett"]).default("classic"),
   baseCashFlow: z.number(),                            // pode ser negativo em anos ruins
   cashFlowLabel: z.enum(["Lucro Líquido", "Fluxo de Caixa Livre"]).default("Lucro Líquido"),
   yearlyGrowthRates: z.array(z.number().min(-1).max(2)).min(1).max(10), // uma taxa por ano projetado
@@ -2612,15 +2617,20 @@ const valuationInputSchema = z.object({
 function computeValuation(input: {
   discountRate: number;
   perpetuityGrowth: number;
+  perpetuityDiscountRate?: number;
   baseCashFlow: number;
   yearlyGrowthRates: number[];
   priceAtCalc: number;
   sharesOutstanding: number;
 }) {
   const { discountRate, perpetuityGrowth, baseCashFlow, yearlyGrowthRates, priceAtCalc, sharesOutstanding } = input;
+  // Método clássico: perpetuidade usa a mesma taxa dos anos projetados.
+  // Método Buffett: perpetuidade usa uma taxa própria (ex: 10% fixo — custo de oportunidade do mercado),
+  // independente da taxa específica de risco usada nos anos projetados.
+  const perpDiscountRate = input.perpetuityDiscountRate ?? discountRate;
 
-  if (discountRate <= perpetuityGrowth) {
-    throw new Error("A taxa de desconto deve ser maior que o crescimento na perpetuidade");
+  if (discountRate <= 0 || perpDiscountRate <= perpetuityGrowth) {
+    throw new Error("A taxa de desconto do perpétuo deve ser maior que o crescimento na perpetuidade");
   }
 
   let cashFlow = baseCashFlow;
@@ -2635,11 +2645,13 @@ function computeValuation(input: {
     projectedYears.push({ year: n, cashFlow, growth, npv });
   });
 
-  // Valor terminal (perpetuidade) a partir do último fluxo projetado
+  // Valor terminal (perpetuidade) a partir do último fluxo projetado.
+  // Descontado usando perpDiscountRate — igual à taxa dos anos no método clássico,
+  // ou fixa (ex: 10%) no método Buffett.
   const terminalCashFlow = cashFlow * (1 + perpetuityGrowth);
-  const terminalValue = terminalCashFlow / (discountRate - perpetuityGrowth);
+  const terminalValue = terminalCashFlow / (perpDiscountRate - perpetuityGrowth);
   const n = yearlyGrowthRates.length;
-  const terminalNpv = terminalValue / Math.pow(1 + discountRate, n);
+  const terminalNpv = terminalValue / Math.pow(1 + perpDiscountRate, n);
 
   const fairMarketCap = npvSum + terminalNpv;
   const fairPrice = fairMarketCap / sharesOutstanding;
@@ -2667,6 +2679,8 @@ export const saveValuation = createServerFn({ method: "POST" })
       asset_id: data.assetId,
       discount_rate: data.discountRate,
       perpetuity_growth: data.perpetuityGrowth,
+      perpetuity_discount_rate: data.perpetuityDiscountRate ?? null,
+      method: data.method,
       base_cash_flow: data.baseCashFlow,
       cash_flow_label: data.cashFlowLabel,
       projection_years: data.yearlyGrowthRates.length,
@@ -2703,6 +2717,8 @@ export const listValuations = createServerFn({ method: "GET" })
         name: asset?.name ?? "?",
         discountRate: Number(v.discount_rate),
         perpetuityGrowth: Number(v.perpetuity_growth),
+        perpetuityDiscountRate: v.perpetuity_discount_rate != null ? Number(v.perpetuity_discount_rate) : null,
+        method: v.method ?? "classic",
         baseCashFlow: Number(v.base_cash_flow),
         cashFlowLabel: v.cash_flow_label,
         yearlyGrowthRates: v.yearly_growth_rates,

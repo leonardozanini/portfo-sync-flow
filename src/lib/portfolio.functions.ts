@@ -2590,3 +2590,140 @@ export const adminSyncTreasury = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message ?? "Erro na Edge Function");
     return data as { ok: boolean; summary: { ok: number; not_found: number; errors: number }; results: any[] };
   });
+
+// ── Valuation (DCF / Fluxo de Caixa Descontado) ────────────────────────────────
+// Modelo: projeta N anos de fluxo de caixa (Lucro Líquido ou FCF), traz a valor
+// presente, soma o valor terminal em perpetuidade, e divide pelo nº de ações
+// para chegar ao "preço-teto" (fair price). Baseado no método Bazin/Buffett.
+
+const valuationInputSchema = z.object({
+  assetId: z.string().uuid(),
+  discountRate: z.number().min(0.001).max(1),        // ex: 0.08 = 8%
+  perpetuityGrowth: z.number().min(-0.1).max(0.15),   // ex: 0.025 = 2.5%
+  baseCashFlow: z.number(),                            // pode ser negativo em anos ruins
+  cashFlowLabel: z.enum(["Lucro Líquido", "Fluxo de Caixa Livre"]).default("Lucro Líquido"),
+  yearlyGrowthRates: z.array(z.number().min(-1).max(2)).min(1).max(10), // uma taxa por ano projetado
+  priceAtCalc: z.number().positive(),
+  sharesOutstanding: z.number().positive(),
+  currency: z.enum(["BRL", "USD", "EUR", "GBP", "JPY"]),
+  notes: z.string().max(2000).optional(),
+});
+
+function computeValuation(input: {
+  discountRate: number;
+  perpetuityGrowth: number;
+  baseCashFlow: number;
+  yearlyGrowthRates: number[];
+  priceAtCalc: number;
+  sharesOutstanding: number;
+}) {
+  const { discountRate, perpetuityGrowth, baseCashFlow, yearlyGrowthRates, priceAtCalc, sharesOutstanding } = input;
+
+  if (discountRate <= perpetuityGrowth) {
+    throw new Error("A taxa de desconto deve ser maior que o crescimento na perpetuidade");
+  }
+
+  let cashFlow = baseCashFlow;
+  let npvSum = 0;
+  const projectedYears: Array<{ year: number; cashFlow: number; growth: number; npv: number }> = [];
+
+  yearlyGrowthRates.forEach((growth, i) => {
+    const n = i + 1;
+    cashFlow = cashFlow * (1 + growth);
+    const npv = cashFlow / Math.pow(1 + discountRate, n);
+    npvSum += npv;
+    projectedYears.push({ year: n, cashFlow, growth, npv });
+  });
+
+  // Valor terminal (perpetuidade) a partir do último fluxo projetado
+  const terminalCashFlow = cashFlow * (1 + perpetuityGrowth);
+  const terminalValue = terminalCashFlow / (discountRate - perpetuityGrowth);
+  const n = yearlyGrowthRates.length;
+  const terminalNpv = terminalValue / Math.pow(1 + discountRate, n);
+
+  const fairMarketCap = npvSum + terminalNpv;
+  const fairPrice = fairMarketCap / sharesOutstanding;
+  const upsidePct = (fairPrice - priceAtCalc) / priceAtCalc;
+
+  return { fairPrice, fairMarketCap, upsidePct, projectedYears, terminalNpv };
+}
+
+export const calculateValuationPreview = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => valuationInputSchema.omit({ assetId: true, notes: true }).parse(input))
+  .handler(async ({ data }) => {
+    return computeValuation(data);
+  });
+
+export const saveValuation = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => valuationInputSchema.parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const result = computeValuation(data);
+
+    const { error } = await (supabase as any).from("asset_valuations").insert({
+      user_id: userId,
+      asset_id: data.assetId,
+      discount_rate: data.discountRate,
+      perpetuity_growth: data.perpetuityGrowth,
+      base_cash_flow: data.baseCashFlow,
+      cash_flow_label: data.cashFlowLabel,
+      projection_years: data.yearlyGrowthRates.length,
+      yearly_growth_rates: data.yearlyGrowthRates,
+      price_at_calc: data.priceAtCalc,
+      shares_outstanding: data.sharesOutstanding,
+      currency: data.currency,
+      fair_price: result.fairPrice,
+      fair_market_cap: result.fairMarketCap,
+      upside_pct: result.upsidePct,
+      notes: data.notes ?? null,
+    });
+    if (error) throw new Error(error.message);
+    return { ok: true as const, ...result };
+  });
+
+export const listValuations = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    const [valRes, assetsRes] = await Promise.all([
+      (supabase as any).from("asset_valuations").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+      supabase.from("assets").select("id, symbol, name, currency"),
+    ]);
+    if (valRes.error) throw new Error(valRes.error.message);
+    const assetById = new Map((assetsRes.data ?? []).map((a: any) => [a.id, a]));
+
+    return (valRes.data ?? []).map((v: any) => {
+      const asset = assetById.get(v.asset_id) as any;
+      return {
+        id: v.id,
+        assetId: v.asset_id,
+        symbol: asset?.symbol ?? "?",
+        name: asset?.name ?? "?",
+        discountRate: Number(v.discount_rate),
+        perpetuityGrowth: Number(v.perpetuity_growth),
+        baseCashFlow: Number(v.base_cash_flow),
+        cashFlowLabel: v.cash_flow_label,
+        yearlyGrowthRates: v.yearly_growth_rates,
+        priceAtCalc: Number(v.price_at_calc),
+        sharesOutstanding: Number(v.shares_outstanding),
+        currency: v.currency,
+        fairPrice: Number(v.fair_price),
+        fairMarketCap: Number(v.fair_market_cap),
+        upsidePct: Number(v.upside_pct),
+        notes: v.notes,
+        createdAt: v.created_at,
+      };
+    });
+  });
+
+export const deleteValuation = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { error } = await (supabase as any).from("asset_valuations").delete().eq("id", data.id).eq("user_id", userId);
+    if (error) throw new Error(error.message);
+    return { ok: true as const };
+  });

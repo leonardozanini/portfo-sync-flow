@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
   getDashboard, saveValuation, listValuations, deleteValuation,
@@ -16,7 +16,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Calculator, Plus, Trash2, ChevronDown, ChevronUp, Wand2,
+  Calculator, Plus, Trash2, ChevronDown, ChevronUp, Wand2, Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -134,9 +134,41 @@ function ValuationPage() {
   const [growthRates, setGrowthRates] = useState<string[]>(["5,00", "5,00", "5,00", "5,00", "5,00"]);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [loadedFromId, setLoadedFromId] = useState<string | null>(null);
+  const skipNextAutoLoad = useRef(false);
 
+  // Preenche o formulário a partir de um valuation salvo (existente ou selecionado no histórico)
+  const loadValuationIntoForm = (v: any) => {
+    setPriceOverride(Number(v.priceAtCalc).toFixed(2).replace(".", ","));
+    setSharesOutstanding(String(v.sharesOutstanding));
+    setDiscountRate((Number(v.discountRate) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 }));
+    setPerpetuityGrowth((Number(v.perpetuityGrowth) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 }));
+    setCashFlowLabel(v.cashFlowLabel);
+    setBaseCashFlow(Number(v.baseCashFlow).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    setGrowthRates((v.yearlyGrowthRates as number[]).map(g => (g * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })));
+    setNotes(v.notes ?? "");
+    setLoadedFromId(v.id);
+  };
+
+  // Ao trocar de ativo: se já existe um valuation salvo para ele, carrega as premissas automaticamente.
+  // Caso contrário, começa do zero (com o preço atual pré-preenchido).
   useEffect(() => {
-    if (asset) setPriceOverride(asset.currentPrice.toFixed(2).replace(".", ","));
+    if (!asset) return;
+    if (skipNextAutoLoad.current) { skipNextAutoLoad.current = false; return; }
+    const latest = valuations.find((v: any) => v.assetId === asset.assetId);
+    if (latest) {
+      loadValuationIntoForm(latest);
+    } else {
+      setPriceOverride(asset.currentPrice.toFixed(2).replace(".", ","));
+      setSharesOutstanding("");
+      setDiscountRate("8,00");
+      setPerpetuityGrowth("2,50");
+      setCashFlowLabel("Lucro Líquido");
+      setBaseCashFlow("");
+      setGrowthRates(["5,00", "5,00", "5,00", "5,00", "5,00"]);
+      setNotes("");
+      setLoadedFromId(null);
+    }
   }, [asset?.assetId]);
 
   const price = priceOverride ? parseNumInput(priceOverride) : (asset?.currentPrice ?? 0);
@@ -212,14 +244,24 @@ function ValuationPage() {
           <p className="text-sm text-muted-foreground">
             Preço-teto pelo método de Fluxo de Caixa Descontado (DCF).
           </p>
+          {loadedFromId && (
+            <p className="text-xs text-primary mt-1 flex items-center gap-1">
+              <Pencil className="h-3 w-3" /> Premissas salvas carregadas — altere o que quiser e clique em "Salvar" para atualizar.
+            </p>
+          )}
         </div>
         <div className="w-64">
           <Select value={selectedAssetId} onValueChange={setSelectedAssetId}>
             <SelectTrigger><SelectValue placeholder="Selecione um ativo…" /></SelectTrigger>
             <SelectContent>
-              {allAssets.map(a => (
-                <SelectItem key={a.assetId} value={a.assetId}>{a.symbol} — {a.name}</SelectItem>
-              ))}
+              {allAssets.map(a => {
+                const hasValuation = valuations.some((v: any) => v.assetId === a.assetId);
+                return (
+                  <SelectItem key={a.assetId} value={a.assetId}>
+                    {a.symbol} — {a.name} {hasValuation ? "✓" : ""}
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
         </div>
@@ -413,7 +455,16 @@ function ValuationPage() {
         </CardHeader>
         {showHistory && (
           <CardContent>
-            <ValuationHistory valuations={valuations} onDeleted={() => refetchValuations()} />
+            <ValuationHistory
+              valuations={valuations}
+              onDeleted={() => refetchValuations()}
+              onEdit={(v) => {
+                skipNextAutoLoad.current = true;
+                setSelectedAssetId(v.assetId);
+                loadValuationIntoForm(v);
+                toast.info(`Premissas de ${v.symbol} carregadas no formulário`);
+              }}
+            />
           </CardContent>
         )}
       </Card>
@@ -470,7 +521,7 @@ function PctInput({ value, onChange, className = "" }: { value: string; onChange
 
 // ── Histórico ─────────────────────────────────────────────────────────────────
 
-function ValuationHistory({ valuations, onDeleted }: { valuations: any[]; onDeleted: () => void }) {
+function ValuationHistory({ valuations, onDeleted, onEdit }: { valuations: any[]; onDeleted: () => void; onEdit: (v: any) => void }) {
   const [toDelete, setToDelete] = useState<string | null>(null);
   const deleteFn = useServerFn(deleteValuation);
 
@@ -508,6 +559,9 @@ function ValuationHistory({ valuations, onDeleted }: { valuations: any[]; onDele
                 <span className={`text-sm font-semibold ${isUpside ? "text-success" : "text-destructive"}`}>
                   {isUpside ? "+" : ""}{pct(v.upsidePct)}
                 </span>
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1" onClick={() => onEdit(v)}>
+                  <Pencil className="h-3 w-3" /> Editar
+                </Button>
                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setToDelete(v.id)}>
                   <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
                 </Button>

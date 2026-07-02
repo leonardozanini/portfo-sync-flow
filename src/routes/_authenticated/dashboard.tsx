@@ -887,9 +887,11 @@ function AssetGroupCard({
             <span className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-background shrink-0">
               <Icon className="h-4 w-4" />
             </span>
-            <div className="font-semibold min-w-[140px]">{group.label}</div>
+            <div className="font-semibold min-w-[140px] flex items-baseline gap-1.5">
+              {group.label}
+              <span className="text-sm font-normal text-muted-foreground">({group.assets.length})</span>
+            </div>
             <div className="hidden md:flex flex-1 items-center justify-around text-sm">
-              <StatMini label="Ativos" value={String(group.assets.length)} />
               <StatMini label="Valor total" value={formatMoney(convert(group.totalValueBRL, currency), currency)} />
               <StatMini label="Variação" value={`${group.variation.toFixed(2)}%`}
                 tone={group.variation >= 0 ? "success" : "destructive"} />

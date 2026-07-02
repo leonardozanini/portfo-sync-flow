@@ -66,13 +66,15 @@ type YearRow = { year: number; growth: string; cashFlow: number; npv: number };
 function computeClient(input: {
   discountRate: number;
   perpetuityGrowth: number;
+  perpetuityDiscountRate?: number; // undefined = método clássico (usa discountRate); definido = método Buffett
   baseCashFlow: number;
   yearlyGrowthRates: number[];
   priceAtCalc: number;
   sharesOutstanding: number;
 }) {
   const { discountRate, perpetuityGrowth, baseCashFlow, yearlyGrowthRates, priceAtCalc, sharesOutstanding } = input;
-  if (discountRate <= perpetuityGrowth || !sharesOutstanding) {
+  const perpDiscountRate = input.perpetuityDiscountRate ?? discountRate;
+  if (discountRate <= 0 || perpDiscountRate <= perpetuityGrowth || !sharesOutstanding) {
     return null;
   }
   let cashFlow = baseCashFlow;
@@ -86,9 +88,9 @@ function computeClient(input: {
     rows.push({ year: n, growth: pct(growth), cashFlow, npv });
   });
   const terminalCashFlow = cashFlow * (1 + perpetuityGrowth);
-  const terminalValue = terminalCashFlow / (discountRate - perpetuityGrowth);
+  const terminalValue = terminalCashFlow / (perpDiscountRate - perpetuityGrowth);
   const n = yearlyGrowthRates.length;
-  const terminalNpv = terminalValue / Math.pow(1 + discountRate, n);
+  const terminalNpv = terminalValue / Math.pow(1 + perpDiscountRate, n);
   const fairMarketCap = npvSum + terminalNpv;
   const fairPrice = fairMarketCap / sharesOutstanding;
   const upsidePct = priceAtCalc > 0 ? (fairPrice - priceAtCalc) / priceAtCalc : 0;
@@ -124,8 +126,10 @@ function ValuationPage() {
   // ── Estado do formulário (todos os campos "amarelos" da planilha) ──────────
   const [priceOverride, setPriceOverride] = useState("");
   const [sharesOutstanding, setSharesOutstanding] = useState("");
+  const [method, setMethod] = useState<"classic" | "buffett">("classic");
   const [discountRate, setDiscountRate] = useState("8,00");
   const [perpetuityGrowth, setPerpetuityGrowth] = useState("2,50");
+  const [perpetuityDiscountRate, setPerpetuityDiscountRate] = useState("10,00");
   const [payout, setPayout] = useState("30,00");
   const [roe, setRoe] = useState("15,00");
   const [cashFlowLabel, setCashFlowLabel] = useState<"Lucro Líquido" | "Fluxo de Caixa Livre">("Lucro Líquido");
@@ -143,6 +147,12 @@ function ValuationPage() {
     setSharesOutstanding(String(v.sharesOutstanding));
     setDiscountRate((Number(v.discountRate) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 }));
     setPerpetuityGrowth((Number(v.perpetuityGrowth) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 }));
+    setMethod(v.method === "buffett" ? "buffett" : "classic");
+    setPerpetuityDiscountRate(
+      v.perpetuityDiscountRate != null
+        ? (Number(v.perpetuityDiscountRate) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })
+        : "10,00"
+    );
     setCashFlowLabel(v.cashFlowLabel);
     setBaseCashFlow(Number(v.baseCashFlow).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
     setGrowthRates((v.yearlyGrowthRates as number[]).map(g => (g * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })));
@@ -163,6 +173,8 @@ function ValuationPage() {
       setSharesOutstanding("");
       setDiscountRate("8,00");
       setPerpetuityGrowth("2,50");
+      setMethod("classic");
+      setPerpetuityDiscountRate("10,00");
       setCashFlowLabel("Lucro Líquido");
       setBaseCashFlow("");
       setGrowthRates(["5,00", "5,00", "5,00", "5,00", "5,00"]);
@@ -175,16 +187,19 @@ function ValuationPage() {
   const shares = parseNumInput(sharesOutstanding);
   const dRate = parsePctInput(discountRate);
   const pGrowth = parsePctInput(perpetuityGrowth);
+  const pPerpDiscountRate = parsePctInput(perpetuityDiscountRate);
   const bCashFlow = parseNumInput(baseCashFlow);
+  const effectivePerpDiscountRate = method === "buffett" ? pPerpDiscountRate : undefined;
 
   const result = useMemo(() => computeClient({
     discountRate: dRate,
     perpetuityGrowth: pGrowth,
+    perpetuityDiscountRate: effectivePerpDiscountRate,
     baseCashFlow: bCashFlow,
     yearlyGrowthRates: growthRates.map(parsePctInput),
     priceAtCalc: price,
     sharesOutstanding: shares,
-  }), [dRate, pGrowth, bCashFlow, growthRates, price, shares]);
+  }), [dRate, pGrowth, effectivePerpDiscountRate, bCashFlow, growthRates, price, shares]);
 
   const suggestedGrowth = (1 - parsePctInput(payout)) * parsePctInput(roe);
 
@@ -203,7 +218,8 @@ function ValuationPage() {
     if (!asset) { toast.error("Selecione um ativo"); return; }
     if (!bCashFlow) { toast.error(`Informe o ${cashFlowLabel.toLowerCase()} do ano base`); return; }
     if (!shares) { toast.error("Informe o número total de ações"); return; }
-    if (dRate <= pGrowth) { toast.error("A taxa de desconto deve ser maior que o crescimento na perpetuidade"); return; }
+    const effRate = method === "buffett" ? pPerpDiscountRate : dRate;
+    if (effRate <= pGrowth) { toast.error("A taxa de desconto do perpétuo deve ser maior que o crescimento na perpetuidade"); return; }
 
     setSaving(true);
     try {
@@ -212,6 +228,8 @@ function ValuationPage() {
           assetId: asset.assetId,
           discountRate: dRate,
           perpetuityGrowth: pGrowth,
+          perpetuityDiscountRate: method === "buffett" ? pPerpDiscountRate : undefined,
+          method,
           baseCashFlow: bCashFlow,
           cashFlowLabel,
           yearlyGrowthRates: growthRates.map(parsePctInput),
@@ -293,12 +311,45 @@ function ValuationPage() {
             </SpreadCard>
 
             <SpreadCard title="Premissas">
+              {/* Método: FCD Clássico ou Buffett (taxa fixa no perpétuo) */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Método</Label>
+                <div className="flex rounded-lg border border-border overflow-hidden text-xs">
+                  <button
+                    onClick={() => setMethod("classic")}
+                    className={`flex-1 px-2 py-1.5 transition-colors ${
+                      method === "classic" ? "bg-primary text-primary-foreground font-semibold" : "bg-card text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    FCD Clássico
+                  </button>
+                  <button
+                    onClick={() => setMethod("buffett")}
+                    className={`flex-1 px-2 py-1.5 transition-colors ${
+                      method === "buffett" ? "bg-primary text-primary-foreground font-semibold" : "bg-card text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    Buffett
+                  </button>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-snug">
+                  {method === "classic"
+                    ? "Desconta a perpetuidade pela mesma taxa usada nos anos projetados."
+                    : "Desconta a perpetuidade por uma taxa fixa — custo de oportunidade do mercado, independente do risco específico da empresa."}
+                </p>
+              </div>
+
               <SpreadRow label="Taxa de desconto (i)">
                 <PctInput value={discountRate} onChange={setDiscountRate} />
               </SpreadRow>
               <SpreadRow label="Cresc. perpétuo (g)">
                 <PctInput value={perpetuityGrowth} onChange={setPerpetuityGrowth} />
               </SpreadRow>
+              {method === "buffett" && (
+                <SpreadRow label="Taxa desc. perpétuo">
+                  <PctInput value={perpetuityDiscountRate} onChange={setPerpetuityDiscountRate} />
+                </SpreadRow>
+              )}
               <div className="pt-2 mt-2 border-t border-border space-y-2">
                 <SpreadRow label="Payout">
                   <PctInput value={payout} onChange={setPayout} />
@@ -421,7 +472,10 @@ function ValuationPage() {
                         {result ? formatMoney(result.terminalValue, assetCurrency) : "—"}
                       </td>
                       <td className="px-4 py-3 text-right text-xs">
-                        <span className="text-muted-foreground">g = {pct(pGrowth)}</span>
+                        <span className="text-muted-foreground">
+                          g = {pct(pGrowth)} · i = {pct(effectivePerpDiscountRate ?? dRate)}
+                          {method === "buffett" && <span className="text-primary"> (Buffett)</span>}
+                        </span>
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums font-semibold text-primary">
                         {result ? formatMoney(result.terminalNpv, assetCurrency) : "—"}

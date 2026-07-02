@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
   getDashboard, saveValuation, listValuations, deleteValuation,
@@ -16,7 +16,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Calculator, TrendingUp, TrendingDown, Plus, Trash2, Info, ChevronDown, ChevronUp,
+  Calculator, Plus, Trash2, ChevronDown, ChevronUp, Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -34,11 +34,53 @@ export const Route = createFileRoute("/_authenticated/valuation")({
 function pct(n: number) {
   return `${(n * 100).toFixed(2)}%`;
 }
-
 function parsePctInput(v: string): number {
-  const clean = v.replace(",", ".").replace("%", "").trim();
-  const n = parseFloat(clean);
+  const n = parseFloat(v.replace(",", ".").replace("%", "").trim());
   return isNaN(n) ? 0 : n / 100;
+}
+function parseNumInput(v: string): number {
+  const n = parseFloat(v.replace(/\./g, "").replace(",", "."));
+  return isNaN(n) ? 0 : n;
+}
+function fmtNum(v: string): string {
+  const n = parseFloat(v.replace(",", "."));
+  if (isNaN(n)) return v;
+  return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+type YearRow = { year: number; growth: string; cashFlow: number; npv: number };
+
+// Motor de cálculo — espelha exatamente a lógica do servidor (computeValuation)
+function computeClient(input: {
+  discountRate: number;
+  perpetuityGrowth: number;
+  baseCashFlow: number;
+  yearlyGrowthRates: number[];
+  priceAtCalc: number;
+  sharesOutstanding: number;
+}) {
+  const { discountRate, perpetuityGrowth, baseCashFlow, yearlyGrowthRates, priceAtCalc, sharesOutstanding } = input;
+  if (discountRate <= perpetuityGrowth || !sharesOutstanding) {
+    return null;
+  }
+  let cashFlow = baseCashFlow;
+  let npvSum = 0;
+  const rows: YearRow[] = [];
+  yearlyGrowthRates.forEach((growth, i) => {
+    const n = i + 1;
+    cashFlow = cashFlow * (1 + growth);
+    const npv = cashFlow / Math.pow(1 + discountRate, n);
+    npvSum += npv;
+    rows.push({ year: n, growth: pct(growth), cashFlow, npv });
+  });
+  const terminalCashFlow = cashFlow * (1 + perpetuityGrowth);
+  const terminalValue = terminalCashFlow / (discountRate - perpetuityGrowth);
+  const n = yearlyGrowthRates.length;
+  const terminalNpv = terminalValue / Math.pow(1 + discountRate, n);
+  const fairMarketCap = npvSum + terminalNpv;
+  const fairPrice = fairMarketCap / sharesOutstanding;
+  const upsidePct = priceAtCalc > 0 ? (fairPrice - priceAtCalc) / priceAtCalc : 0;
+  return { rows, terminalValue, terminalNpv, fairMarketCap, fairPrice, upsidePct };
 }
 
 // ── Página principal ─────────────────────────────────────────────────────────
@@ -64,43 +106,290 @@ function ValuationPage() {
   }, [dash]);
 
   const [selectedAssetId, setSelectedAssetId] = useState<string>("");
-  const selectedAsset = allAssets.find(a => a.assetId === selectedAssetId);
-
+  const asset = allAssets.find(a => a.assetId === selectedAssetId);
   const [showHistory, setShowHistory] = useState(false);
+
+  // ── Estado do formulário (todos os campos "amarelos" da planilha) ──────────
+  const [priceOverride, setPriceOverride] = useState("");
+  const [sharesOutstanding, setSharesOutstanding] = useState("");
+  const [discountRate, setDiscountRate] = useState("8,00");
+  const [perpetuityGrowth, setPerpetuityGrowth] = useState("2,50");
+  const [payout, setPayout] = useState("30,00");
+  const [roe, setRoe] = useState("15,00");
+  const [cashFlowLabel, setCashFlowLabel] = useState<"Lucro Líquido" | "Fluxo de Caixa Livre">("Lucro Líquido");
+  const [baseCashFlow, setBaseCashFlow] = useState("");
+  const [baseYear, setBaseYear] = useState(String(new Date().getFullYear()));
+  const [growthRates, setGrowthRates] = useState<string[]>(["5,00", "5,00", "5,00", "5,00", "5,00"]);
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (asset) setPriceOverride(String(asset.currentPrice));
+  }, [asset?.assetId]);
+
+  const price = priceOverride ? parseNumInput(priceOverride) : (asset?.currentPrice ?? 0);
+  const shares = parseNumInput(sharesOutstanding);
+  const dRate = parsePctInput(discountRate);
+  const pGrowth = parsePctInput(perpetuityGrowth);
+  const bCashFlow = parseNumInput(baseCashFlow);
+
+  const result = useMemo(() => computeClient({
+    discountRate: dRate,
+    perpetuityGrowth: pGrowth,
+    baseCashFlow: bCashFlow,
+    yearlyGrowthRates: growthRates.map(parsePctInput),
+    priceAtCalc: price,
+    sharesOutstanding: shares,
+  }), [dRate, pGrowth, bCashFlow, growthRates, price, shares]);
+
+  const suggestedGrowth = (1 - parsePctInput(payout)) * parsePctInput(roe);
+
+  const applySuggestedGrowth = () => {
+    setGrowthRates(growthRates.map(() => (suggestedGrowth * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })));
+    toast.success(`Aplicado (1-payout)×ROE = ${pct(suggestedGrowth)} a todos os anos`);
+  };
+
+  const addYear = () => setGrowthRates([...growthRates, "3,00"]);
+  const removeYear = (i: number) => growthRates.length > 1 && setGrowthRates(growthRates.filter((_, idx) => idx !== i));
+  const updateYear = (i: number, v: string) => setGrowthRates(growthRates.map((g, idx) => idx === i ? v : g));
+
+  const saveFn = useServerFn(saveValuation);
+
+  const handleSave = async () => {
+    if (!asset) { toast.error("Selecione um ativo"); return; }
+    if (!bCashFlow) { toast.error(`Informe o ${cashFlowLabel.toLowerCase()} do ano base`); return; }
+    if (!shares) { toast.error("Informe o número total de ações"); return; }
+    if (dRate <= pGrowth) { toast.error("A taxa de desconto deve ser maior que o crescimento na perpetuidade"); return; }
+
+    setSaving(true);
+    try {
+      const r = await saveFn({
+        data: {
+          assetId: asset.assetId,
+          discountRate: dRate,
+          perpetuityGrowth: pGrowth,
+          baseCashFlow: bCashFlow,
+          cashFlowLabel,
+          yearlyGrowthRates: growthRates.map(parsePctInput),
+          priceAtCalc: price,
+          sharesOutstanding: shares,
+          currency: asset.currency,
+          notes: notes || undefined,
+        },
+      });
+      toast.success(`Salvo! Preço-teto: ${formatMoney(r.fairPrice, asset.currency as any)}`);
+      refetchValuations();
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao salvar valuation");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const assetCurrency = (asset?.currency ?? currency) as any;
+  const marketCapAtual = price * shares;
+  const isUpside = (result?.upsidePct ?? 0) >= 0;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Calculator className="h-6 w-6 text-primary" /> Valuation
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Calcule o preço-teto de um ativo pelo método de Fluxo de Caixa Descontado (DCF).
-        </p>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
-        <ValuationForm
-          assets={allAssets}
-          selectedAssetId={selectedAssetId}
-          onSelectAsset={setSelectedAssetId}
-          currency={currency}
-          onSaved={() => { refetchValuations(); }}
-        />
-
-        <div className="space-y-4">
-          {selectedAsset ? (
-            <ValuationResultPanel asset={selectedAsset} currency={currency} />
-          ) : (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-2">
-                <Calculator className="h-10 w-10 opacity-30" />
-                <p>Selecione um ativo e preencha as premissas para calcular o preço-teto.</p>
-              </CardContent>
-            </Card>
-          )}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+            <Calculator className="h-6 w-6 text-primary" /> Valuation
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Preço-teto pelo método de Fluxo de Caixa Descontado (DCF).
+          </p>
+        </div>
+        <div className="w-64">
+          <Select value={selectedAssetId} onValueChange={setSelectedAssetId}>
+            <SelectTrigger><SelectValue placeholder="Selecione um ativo…" /></SelectTrigger>
+            <SelectContent>
+              {allAssets.map(a => (
+                <SelectItem key={a.assetId} value={a.assetId}>{a.symbol} — {a.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
+
+      {!asset ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-2">
+            <Calculator className="h-10 w-10 opacity-30" />
+            <p>Selecione um ativo acima para começar o valuation.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+          {/* ── Coluna esquerda: cards de premissas, estilo planilha ──────── */}
+          <div className="space-y-4">
+            <SpreadCard title="Realidade Atual">
+              <SpreadRow label="Ticker" value={asset.symbol} bold />
+              <SpreadRow label="Preço por ação">
+                <Input value={priceOverride} onChange={e => setPriceOverride(e.target.value)}
+                  className="h-7 text-right text-sm font-semibold bg-primary/5 border-primary/20" inputMode="decimal" />
+              </SpreadRow>
+              <SpreadRow label="Nº de ações">
+                <Input value={sharesOutstanding} onChange={e => setSharesOutstanding(e.target.value)}
+                  className="h-7 text-right text-sm font-semibold bg-primary/5 border-primary/20"
+                  inputMode="decimal" placeholder="Ex: 2000000000" />
+              </SpreadRow>
+              <SpreadRow label="Market cap" value={formatMoney(marketCapAtual, assetCurrency)} bold />
+            </SpreadCard>
+
+            <SpreadCard title="Premissas">
+              <SpreadRow label="Taxa de desconto (i)">
+                <PctInput value={discountRate} onChange={setDiscountRate} />
+              </SpreadRow>
+              <SpreadRow label="Cresc. perpétuo (g)">
+                <PctInput value={perpetuityGrowth} onChange={setPerpetuityGrowth} />
+              </SpreadRow>
+              <div className="pt-2 mt-2 border-t border-border space-y-2">
+                <SpreadRow label="Payout">
+                  <PctInput value={payout} onChange={setPayout} />
+                </SpreadRow>
+                <SpreadRow label="ROE">
+                  <PctInput value={roe} onChange={setRoe} />
+                </SpreadRow>
+                <button
+                  onClick={applySuggestedGrowth}
+                  className="w-full flex items-center justify-center gap-1.5 text-xs text-primary hover:underline mt-1"
+                >
+                  <Wand2 className="h-3 w-3" />
+                  Sugerir crescimento: (1-payout)×ROE = {pct(suggestedGrowth)}
+                </button>
+              </div>
+            </SpreadCard>
+
+            <SpreadCard title="Realidade Projetada" tone={isUpside ? "success" : "destructive"}>
+              <SpreadRow label="Preço-teto"
+                value={result ? formatMoney(result.fairPrice, assetCurrency) : "—"} bold big />
+              <SpreadRow label="Market cap justo"
+                value={result ? formatMoney(result.fairMarketCap, assetCurrency) : "—"} />
+              <SpreadRow label="Upside/Downside">
+                <span className={`text-sm font-bold ${isUpside ? "text-success" : "text-destructive"}`}>
+                  {result ? `${isUpside ? "+" : ""}${pct(result.upsidePct)}` : "—"}
+                </span>
+              </SpreadRow>
+            </SpreadCard>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Notas (opcional)</Label>
+              <Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ex: tese baseada em resultado 2026T1" className="h-8 text-sm" />
+            </div>
+
+            <Button onClick={handleSave} disabled={saving} className="w-full folio-gradient text-white border-0">
+              {saving ? "Salvando…" : "Salvar Valuation"}
+            </Button>
+          </div>
+
+          {/* ── Coluna direita: tabela ano a ano, estilo planilha ─────────── */}
+          <Card className="overflow-hidden">
+            <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-base">Projeção de Fluxo de Caixa</CardTitle>
+              <div className="flex items-center gap-3">
+                <Select value={cashFlowLabel} onValueChange={(v: any) => setCashFlowLabel(v)}>
+                  <SelectTrigger className="h-8 w-[190px] text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Lucro Líquido">Lucro Líquido</SelectItem>
+                    <SelectItem value="Fluxo de Caixa Livre">Fluxo de Caixa Livre (FCF)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-xs text-muted-foreground uppercase tracking-wide">
+                      <th className="text-left px-4 py-2.5 font-medium">Ano</th>
+                      <th className="text-right px-4 py-2.5 font-medium">{cashFlowLabel}</th>
+                      <th className="text-right px-4 py-2.5 font-medium">Crescimento</th>
+                      <th className="text-right px-4 py-2.5 font-medium">VPL</th>
+                      <th className="w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* Linha base (ano 0 — ano atual, editável) */}
+                    <tr className="border-b border-border/60 bg-muted/20">
+                      <td className="px-4 py-2">
+                        <Input value={baseYear} onChange={e => setBaseYear(e.target.value)}
+                          className="h-7 w-20 text-sm font-semibold" />
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        <Input value={baseCashFlow} onChange={e => setBaseCashFlow(e.target.value)}
+                          onBlur={e => setBaseCashFlow(fmtNum(e.target.value))}
+                          className="h-7 text-right text-sm font-semibold bg-primary/5 border-primary/20 ml-auto"
+                          inputMode="decimal" placeholder="Ex: 9017329000" />
+                      </td>
+                      <td className="px-4 py-2 text-right text-xs text-muted-foreground">Ano base</td>
+                      <td className="px-4 py-2 text-right text-xs text-muted-foreground">—</td>
+                      <td></td>
+                    </tr>
+
+                    {/* Anos projetados */}
+                    {result?.rows.map((row, i) => (
+                      <tr key={i} className="border-b border-border/60 hover:bg-muted/20 transition-colors">
+                        <td className="px-4 py-2 font-medium tabular-nums">{Number(baseYear) + row.year}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{formatMoney(row.cashFlow, assetCurrency)}</td>
+                        <td className="px-4 py-2 text-right">
+                          <PctInput
+                            value={growthRates[i]}
+                            onChange={(v) => updateYear(i, v)}
+                            className="ml-auto"
+                          />
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums text-primary font-medium">{formatMoney(row.npv, assetCurrency)}</td>
+                        <td className="px-2 py-2">
+                          {growthRates.length > 1 && (
+                            <button onClick={() => removeYear(i)} className="text-muted-foreground hover:text-destructive">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+
+                    {/* Linha para adicionar ano */}
+                    <tr>
+                      <td colSpan={5} className="px-4 py-2">
+                        <button onClick={addYear} className="flex items-center gap-1.5 text-xs text-primary hover:underline">
+                          <Plus className="h-3.5 w-3.5" /> Adicionar ano
+                        </button>
+                      </td>
+                    </tr>
+
+                    {/* Perpetuidade */}
+                    <tr className="border-t-2 border-border bg-primary/5">
+                      <td className="px-4 py-3 font-semibold">Perpétuo</td>
+                      <td className="px-4 py-3 text-right tabular-nums font-semibold">
+                        {result ? formatMoney(result.terminalValue, assetCurrency) : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-right text-xs">
+                        <span className="text-muted-foreground">g = {pct(pGrowth)}</span>
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums font-semibold text-primary">
+                        {result ? formatMoney(result.terminalNpv, assetCurrency) : "—"}
+                      </td>
+                      <td></td>
+                    </tr>
+
+                    {/* Total */}
+                    <tr className="bg-muted/40 font-bold">
+                      <td className="px-4 py-3" colSpan={3}>Market Cap Justo (Total VPL)</td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {result ? formatMoney(result.fairMarketCap, assetCurrency) : "—"}
+                      </td>
+                      <td></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Histórico */}
       <Card>
@@ -120,273 +409,49 @@ function ValuationPage() {
   );
 }
 
-// ── Formulário de premissas ───────────────────────────────────────────────────
+// ── Componentes auxiliares de UI, estilo "planilha" ──────────────────────────
 
-function ValuationForm({
-  assets, selectedAssetId, onSelectAsset, currency, onSaved,
-}: {
-  assets: GroupedAsset[];
-  selectedAssetId: string;
-  onSelectAsset: (id: string) => void;
-  currency: string;
-  onSaved: () => void;
-}) {
-  const asset = assets.find(a => a.assetId === selectedAssetId);
-
-  const [discountRate, setDiscountRate] = useState("8,00");
-  const [perpetuityGrowth, setPerpetuityGrowth] = useState("2,50");
-  const [cashFlowLabel, setCashFlowLabel] = useState<"Lucro Líquido" | "Fluxo de Caixa Livre">("Lucro Líquido");
-  const [baseCashFlow, setBaseCashFlow] = useState("");
-  const [sharesOutstanding, setSharesOutstanding] = useState("");
-  const [priceOverride, setPriceOverride] = useState("");
-  const [growthRates, setGrowthRates] = useState<string[]>(["5,00", "5,00", "5,00", "5,00", "5,00"]);
-  const [notes, setNotes] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const saveFn = useServerFn(saveValuation);
-
-  const addYear = () => setGrowthRates([...growthRates, "3,00"]);
-  const removeYear = (i: number) => setGrowthRates(growthRates.filter((_, idx) => idx !== i));
-  const updateYear = (i: number, v: string) => setGrowthRates(growthRates.map((g, idx) => idx === i ? v : g));
-
-  const handleSave = async () => {
-    if (!asset) { toast.error("Selecione um ativo"); return; }
-    const dRate = parsePctInput(discountRate);
-    const pGrowth = parsePctInput(perpetuityGrowth);
-    const bCashFlow = parseFloat(baseCashFlow.replace(",", "."));
-    const shares = parseFloat(sharesOutstanding.replace(",", "."));
-    const price = priceOverride ? parseFloat(priceOverride.replace(",", ".")) : asset.currentPrice;
-
-    if (!bCashFlow) { toast.error(`Informe o ${cashFlowLabel.toLowerCase()} do ano base`); return; }
-    if (!shares) { toast.error("Informe o número total de ações"); return; }
-    if (dRate <= pGrowth) { toast.error("A taxa de desconto deve ser maior que o crescimento na perpetuidade"); return; }
-
-    setSaving(true);
-    try {
-      const result = await saveFn({
-        data: {
-          assetId: asset.assetId,
-          discountRate: dRate,
-          perpetuityGrowth: pGrowth,
-          baseCashFlow: bCashFlow,
-          cashFlowLabel,
-          yearlyGrowthRates: growthRates.map(g => parsePctInput(g)),
-          priceAtCalc: price,
-          sharesOutstanding: shares,
-          currency: asset.currency,
-          notes: notes || undefined,
-        },
-      });
-      toast.success(`Preço-teto calculado: ${formatMoney(result.fairPrice, currency as any)}`);
-      onSaved();
-    } catch (e: any) {
-      toast.error(e.message ?? "Erro ao calcular valuation");
-    } finally {
-      setSaving(false);
-    }
-  };
-
+function SpreadCard({ title, tone, children }: { title: string; tone?: "success" | "destructive"; children: React.ReactNode }) {
+  const toneClass = tone === "success" ? "border-success/30 bg-success/5"
+    : tone === "destructive" ? "border-destructive/30 bg-destructive/5"
+    : "";
   return (
-    <Card className="h-fit">
-      <CardHeader>
-        <CardTitle className="text-base">Premissas</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-1.5">
-          <Label className="text-xs">Ativo</Label>
-          <Select value={selectedAssetId} onValueChange={onSelectAsset}>
-            <SelectTrigger><SelectValue placeholder="Selecione um ativo…" /></SelectTrigger>
-            <SelectContent>
-              {assets.map(a => (
-                <SelectItem key={a.assetId} value={a.assetId}>{a.symbol} — {a.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {asset && (
-          <div className="rounded-lg bg-muted/40 p-3 text-xs space-y-1">
-            <div className="flex justify-between"><span className="text-muted-foreground">Preço atual</span><span className="font-semibold">{formatMoney(asset.currentPrice, asset.currency as any)}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Moeda</span><span className="font-semibold">{asset.currency}</span></div>
-          </div>
-        )}
-
-        <div className="space-y-1.5">
-          <Label className="text-xs">Preço por ação (opcional — sobrescreve o atual)</Label>
-          <Input value={priceOverride} onChange={e => setPriceOverride(e.target.value)}
-            placeholder={asset ? String(asset.currentPrice) : "0,00"} inputMode="decimal" />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs flex items-center gap-1">
-              Taxa de desconto (% a.a.)
-            </Label>
-            <Input value={discountRate} onChange={e => setDiscountRate(e.target.value)} inputMode="decimal" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Crescimento perpétuo (%)</Label>
-            <Input value={perpetuityGrowth} onChange={e => setPerpetuityGrowth(e.target.value)} inputMode="decimal" />
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-xs">Tipo de fluxo</Label>
-          <Select value={cashFlowLabel} onValueChange={(v: any) => setCashFlowLabel(v)}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Lucro Líquido">Lucro Líquido</SelectItem>
-              <SelectItem value="Fluxo de Caixa Livre">Fluxo de Caixa Livre (FCF)</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-xs">{cashFlowLabel} — ano base (valor total, não por ação)</Label>
-          <Input value={baseCashFlow} onChange={e => setBaseCashFlow(e.target.value)} inputMode="decimal" placeholder="Ex: 58471000000" />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-xs">Número total de ações</Label>
-          <Input value={sharesOutstanding} onChange={e => setSharesOutstanding(e.target.value)} inputMode="decimal" placeholder="Ex: 2716000000" />
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Label className="text-xs">Crescimento projetado por ano (%)</Label>
-            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={addYear}>
-              <Plus className="h-3 w-3 mr-1" />Ano
-            </Button>
-          </div>
-          <div className="space-y-1.5">
-            {growthRates.map((g, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground w-10 shrink-0">Ano {i + 1}</span>
-                <Input value={g} onChange={e => updateYear(i, e.target.value)} inputMode="decimal" className="h-8 text-sm" />
-                {growthRates.length > 1 && (
-                  <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => removeYear(i)}>
-                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                  </Button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-xs">Notas (opcional)</Label>
-          <Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ex: tese baseada em resultado 2026T1" />
-        </div>
-
-        <Button onClick={handleSave} disabled={saving || !asset} className="w-full folio-gradient text-white border-0">
-          {saving ? "Calculando…" : "Calcular Preço-Teto"}
-        </Button>
-      </CardContent>
-    </Card>
+    <div className={`rounded-xl border border-border overflow-hidden ${toneClass}`}>
+      <div className="bg-muted/50 px-3 py-2 border-b border-border">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+      </div>
+      <div className="p-3 space-y-2">
+        {children}
+      </div>
+    </div>
   );
 }
 
-// ── Painel de resultado (usa último valuation salvo para o ativo) ────────────
-
-function ValuationResultPanel({ asset, currency }: { asset: GroupedAsset; currency: string }) {
-  const { data: valuations = [] } = useQuery({
-    queryKey: ["valuations"],
-    queryFn: () => listValuations(),
-    staleTime: 30_000,
-  });
-
-  const latestForAsset = valuations.find((v: any) => v.assetId === asset.assetId);
-
-  if (!latestForAsset) {
-    return (
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-2">
-          <Info className="h-10 w-10 opacity-30" />
-          <p>Nenhum valuation calculado para {asset.symbol} ainda.</p>
-          <p className="text-xs">Preencha as premissas ao lado e clique em "Calcular Preço-Teto".</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const isUpside = latestForAsset.upsidePct >= 0;
-
+function SpreadRow({ label, value, bold, big, children }: {
+  label: string; value?: string; bold?: boolean; big?: boolean; children?: React.ReactNode;
+}) {
   return (
-    <div className="space-y-4">
-      <Card className={isUpside ? "border-success/30" : "border-destructive/30"}>
-        <CardContent className="pt-6">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Preço-teto de {latestForAsset.symbol}</p>
-              <p className="text-4xl font-bold tracking-tight tabular-nums">
-                {formatMoney(latestForAsset.fairPrice, latestForAsset.currency as any)}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Preço atual: {formatMoney(latestForAsset.priceAtCalc, latestForAsset.currency as any)}
-              </p>
-            </div>
-            <div className={`flex items-center gap-2 rounded-xl px-4 py-3 ${isUpside ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
-              {isUpside ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
-              <div>
-                <p className="text-xl font-bold tabular-nums">{isUpside ? "+" : ""}{pct(latestForAsset.upsidePct)}</p>
-                <p className="text-[10px] uppercase tracking-wide">{isUpside ? "Upside" : "Downside"}</p>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-xs text-muted-foreground shrink-0">{label}</span>
+      {children ?? (
+        <span className={`text-right tabular-nums ${bold ? "font-semibold" : ""} ${big ? "text-lg" : "text-sm"}`}>
+          {value}
+        </span>
+      )}
+    </div>
+  );
+}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Premissas utilizadas</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
-            <div>
-              <p className="text-xs text-muted-foreground">Taxa de desconto</p>
-              <p className="font-semibold">{pct(latestForAsset.discountRate)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Crescimento perpétuo</p>
-              <p className="font-semibold">{pct(latestForAsset.perpetuityGrowth)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">{latestForAsset.cashFlowLabel} (base)</p>
-              <p className="font-semibold">{formatMoney(latestForAsset.baseCashFlow, latestForAsset.currency as any)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Ações em circulação</p>
-              <p className="font-semibold">{latestForAsset.sharesOutstanding.toLocaleString("pt-BR")}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Market cap justo</p>
-              <p className="font-semibold">{formatMoney(latestForAsset.fairMarketCap, latestForAsset.currency as any)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Anos projetados</p>
-              <p className="font-semibold">{latestForAsset.yearlyGrowthRates.length}</p>
-            </div>
-          </div>
-
-          <div className="mt-4 pt-4 border-t border-border">
-            <p className="text-xs text-muted-foreground mb-2">Crescimento projetado por ano</p>
-            <div className="flex flex-wrap gap-2">
-              {latestForAsset.yearlyGrowthRates.map((g: number, i: number) => (
-                <span key={i} className="text-xs px-2 py-1 rounded-md bg-muted">
-                  Ano {i + 1}: {pct(g)}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {latestForAsset.notes && (
-            <div className="mt-4 pt-4 border-t border-border">
-              <p className="text-xs text-muted-foreground mb-1">Notas</p>
-              <p className="text-sm">{latestForAsset.notes}</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+function PctInput({ value, onChange, className = "" }: { value: string; onChange: (v: string) => void; className?: string }) {
+  return (
+    <div className={`relative w-24 ${className}`}>
+      <Input
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="h-7 text-right text-sm font-semibold bg-primary/5 border-primary/20 pr-6"
+        inputMode="decimal"
+      />
+      <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
     </div>
   );
 }

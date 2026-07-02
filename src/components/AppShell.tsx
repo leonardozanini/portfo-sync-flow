@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/sheet";
 import {
   LayoutDashboard, ArrowRightLeft, Settings, Shield, LogOut, Sparkles, Wallet, Menu, TrendingUp,
-  Sun, Moon, Target, Brain,
+  Sun, Moon, Target, Brain, Calculator,
 } from "lucide-react";
 import { CurrencySwitcher } from "./CurrencySwitcher";
 import { useTheme } from "@/hooks/useTheme";
@@ -22,6 +22,7 @@ const nav = [
   { to: "/transactions", label: "Lançamentos", shortLabel: "Lança.", icon: ArrowRightLeft },
   { to: "/proventos", label: "Proventos", shortLabel: "Provent.", icon: TrendingUp },
   { to: "/estrategia", label: "Estratégia", shortLabel: "Estrat.", icon: Target },
+  { to: "/valuation", label: "Valuation", shortLabel: "Valuat.", icon: Calculator },
   { to: "/analise", label: "Análise IA", shortLabel: "IA", icon: Brain },
   { to: "/settings", label: "Ajustes", shortLabel: "Ajustes", icon: Settings },
 ] as const;

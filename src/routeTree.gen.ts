@@ -13,13 +13,15 @@ import { Route as SignupRouteImport } from './routes/signup'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedValuationRouteImport } from './routes/_authenticated/valuation'
 import { Route as AuthenticatedTransactionsRouteImport } from './routes/_authenticated/transactions'
-import { Route as AuthenticatedProventosRouteImport } from './routes/_authenticated/proventos'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
+import { Route as AuthenticatedProventosRouteImport } from './routes/_authenticated/proventos'
+import { Route as AuthenticatedEstrategiaRouteImport } from './routes/_authenticated/estrategia'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedAnaliseRouteImport } from './routes/_authenticated/analise'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/_admin'
 import { Route as AuthenticatedAdminCatalogRouteImport } from './routes/_authenticated/_admin/catalog'
-import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/_admin/users'
 import { Route as AuthenticatedAdminAdminRouteImport } from './routes/_authenticated/_admin/admin'
 import { Route as ApiPublicHooksRefreshPricesRouteImport } from './routes/api/public/hooks/refresh-prices'
 
@@ -42,25 +44,40 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedValuationRoute = AuthenticatedValuationRouteImport.update({
+  id: '/valuation',
+  path: '/valuation',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedTransactionsRoute =
   AuthenticatedTransactionsRouteImport.update({
     id: '/transactions',
     path: '/transactions',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedProventosRoute = AuthenticatedProventosRouteImport.update({
-  id: '/proventos',
-  path: '/proventos',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedProventosRoute = AuthenticatedProventosRouteImport.update({
+  id: '/proventos',
+  path: '/proventos',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedEstrategiaRoute = AuthenticatedEstrategiaRouteImport.update({
+  id: '/estrategia',
+  path: '/estrategia',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedAnaliseRoute = AuthenticatedAnaliseRouteImport.update({
+  id: '/analise',
+  path: '/analise',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
@@ -73,11 +90,6 @@ const AuthenticatedAdminCatalogRoute =
     path: '/catalog',
     getParentRoute: () => AuthenticatedAdminRoute,
   } as any)
-const AuthenticatedAdminUsersRoute = AuthenticatedAdminUsersRouteImport.update({
-  id: '/users',
-  path: '/users',
-  getParentRoute: () => AuthenticatedAdminRoute,
-} as any)
 const AuthenticatedAdminAdminRoute = AuthenticatedAdminAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
@@ -94,26 +106,30 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
+  '/analise': typeof AuthenticatedAnaliseRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/estrategia': typeof AuthenticatedEstrategiaRoute
+  '/proventos': typeof AuthenticatedProventosRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/transactions': typeof AuthenticatedTransactionsRoute
-  '/proventos': typeof AuthenticatedProventosRoute
+  '/valuation': typeof AuthenticatedValuationRoute
   '/admin': typeof AuthenticatedAdminAdminRoute
   '/catalog': typeof AuthenticatedAdminCatalogRoute
-  '/users': typeof AuthenticatedAdminUsersRoute
   '/api/public/hooks/refresh-prices': typeof ApiPublicHooksRefreshPricesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
+  '/analise': typeof AuthenticatedAnaliseRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/estrategia': typeof AuthenticatedEstrategiaRoute
+  '/proventos': typeof AuthenticatedProventosRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/transactions': typeof AuthenticatedTransactionsRoute
-  '/transactions': typeof AuthenticatedTransactionsRoute
-  '/proventos': typeof AuthenticatedProventosRoute
+  '/valuation': typeof AuthenticatedValuationRoute
+  '/admin': typeof AuthenticatedAdminAdminRoute
   '/catalog': typeof AuthenticatedAdminCatalogRoute
-  '/users': typeof AuthenticatedAdminUsersRoute
   '/api/public/hooks/refresh-prices': typeof ApiPublicHooksRefreshPricesRoute
 }
 export interface FileRoutesById {
@@ -123,13 +139,15 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
   '/_authenticated/_admin': typeof AuthenticatedAdminRouteWithChildren
+  '/_authenticated/analise': typeof AuthenticatedAnaliseRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/estrategia': typeof AuthenticatedEstrategiaRoute
+  '/_authenticated/proventos': typeof AuthenticatedProventosRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/transactions': typeof AuthenticatedTransactionsRoute
-  '/_authenticated/proventos': typeof AuthenticatedProventosRoute
+  '/_authenticated/valuation': typeof AuthenticatedValuationRoute
   '/_authenticated/_admin/admin': typeof AuthenticatedAdminAdminRoute
   '/_authenticated/_admin/catalog': typeof AuthenticatedAdminCatalogRoute
-  '/_authenticated/_admin/users': typeof AuthenticatedAdminUsersRoute
   '/api/public/hooks/refresh-prices': typeof ApiPublicHooksRefreshPricesRoute
 }
 export interface FileRouteTypes {
@@ -138,10 +156,13 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/signup'
+    | '/analise'
     | '/dashboard'
+    | '/estrategia'
+    | '/proventos'
     | '/settings'
     | '/transactions'
-    | '/proventos'
+    | '/valuation'
     | '/admin'
     | '/catalog'
     | '/api/public/hooks/refresh-prices'
@@ -150,10 +171,13 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/signup'
+    | '/analise'
     | '/dashboard'
+    | '/estrategia'
+    | '/proventos'
     | '/settings'
     | '/transactions'
-    | '/proventos'
+    | '/valuation'
     | '/admin'
     | '/catalog'
     | '/api/public/hooks/refresh-prices'
@@ -164,10 +188,13 @@ export interface FileRouteTypes {
     | '/login'
     | '/signup'
     | '/_authenticated/_admin'
+    | '/_authenticated/analise'
     | '/_authenticated/dashboard'
+    | '/_authenticated/estrategia'
+    | '/_authenticated/proventos'
     | '/_authenticated/settings'
     | '/_authenticated/transactions'
-    | '/_authenticated/proventos'
+    | '/_authenticated/valuation'
     | '/_authenticated/_admin/admin'
     | '/_authenticated/_admin/catalog'
     | '/api/public/hooks/refresh-prices'
@@ -211,18 +238,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/valuation': {
+      id: '/_authenticated/valuation'
+      path: '/valuation'
+      fullPath: '/valuation'
+      preLoaderRoute: typeof AuthenticatedValuationRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/transactions': {
       id: '/_authenticated/transactions'
       path: '/transactions'
       fullPath: '/transactions'
       preLoaderRoute: typeof AuthenticatedTransactionsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/proventos': {
-      id: '/_authenticated/proventos'
-      path: '/proventos'
-      fullPath: '/proventos'
-      preLoaderRoute: typeof AuthenticatedProventosRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/settings': {
@@ -232,11 +259,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSettingsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/proventos': {
+      id: '/_authenticated/proventos'
+      path: '/proventos'
+      fullPath: '/proventos'
+      preLoaderRoute: typeof AuthenticatedProventosRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/estrategia': {
+      id: '/_authenticated/estrategia'
+      path: '/estrategia'
+      fullPath: '/estrategia'
+      preLoaderRoute: typeof AuthenticatedEstrategiaRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/analise': {
+      id: '/_authenticated/analise'
+      path: '/analise'
+      fullPath: '/analise'
+      preLoaderRoute: typeof AuthenticatedAnaliseRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/_admin': {
@@ -251,13 +299,6 @@ declare module '@tanstack/react-router' {
       path: '/catalog'
       fullPath: '/catalog'
       preLoaderRoute: typeof AuthenticatedAdminCatalogRouteImport
-      parentRoute: typeof AuthenticatedAdminRoute
-    }
-    '/_authenticated/_admin/users': {
-      id: '/_authenticated/_admin/users'
-      path: '/users'
-      fullPath: '/admin/users'
-      preLoaderRoute: typeof AuthenticatedAdminUsersRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
     '/_authenticated/_admin/admin': {
@@ -280,13 +321,11 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedAdminRouteChildren {
   AuthenticatedAdminAdminRoute: typeof AuthenticatedAdminAdminRoute
   AuthenticatedAdminCatalogRoute: typeof AuthenticatedAdminCatalogRoute
-  AuthenticatedAdminUsersRoute: typeof AuthenticatedAdminUsersRoute
 }
 
 const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
   AuthenticatedAdminAdminRoute: AuthenticatedAdminAdminRoute,
   AuthenticatedAdminCatalogRoute: AuthenticatedAdminCatalogRoute,
-  AuthenticatedAdminUsersRoute: AuthenticatedAdminUsersRoute,
 }
 
 const AuthenticatedAdminRouteWithChildren =
@@ -294,18 +333,24 @@ const AuthenticatedAdminRouteWithChildren =
 
 interface AuthenticatedRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRouteWithChildren
+  AuthenticatedAnaliseRoute: typeof AuthenticatedAnaliseRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedEstrategiaRoute: typeof AuthenticatedEstrategiaRoute
+  AuthenticatedProventosRoute: typeof AuthenticatedProventosRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedTransactionsRoute: typeof AuthenticatedTransactionsRoute
-  AuthenticatedProventosRoute: typeof AuthenticatedProventosRoute
+  AuthenticatedValuationRoute: typeof AuthenticatedValuationRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRouteWithChildren,
+  AuthenticatedAnaliseRoute: AuthenticatedAnaliseRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedEstrategiaRoute: AuthenticatedEstrategiaRoute,
+  AuthenticatedProventosRoute: AuthenticatedProventosRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedTransactionsRoute: AuthenticatedTransactionsRoute,
-  AuthenticatedProventosRoute: AuthenticatedProventosRoute,
+  AuthenticatedValuationRoute: AuthenticatedValuationRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(

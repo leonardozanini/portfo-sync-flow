@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
-  getDashboard, calculateValuationPreview, saveValuation, listValuations, deleteValuation,
+  getDashboard, saveValuation, listValuations, deleteValuation,
   type GroupedAsset,
 } from "@/lib/portfolio.functions";
 import { useDisplayCurrency } from "@/components/CurrencySwitcher";
@@ -45,7 +45,6 @@ function parsePctInput(v: string): number {
 
 function ValuationPage() {
   const { currency } = useDisplayCurrency();
-  const qc = useQueryClient();
 
   const { data: dash } = useQuery({
     queryKey: ["dashboard"],

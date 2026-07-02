@@ -39,7 +39,19 @@ function parsePctInput(v: string): number {
   return isNaN(n) ? 0 : n / 100;
 }
 function parseNumInput(v: string): number {
-  const n = parseFloat(v.replace(/\./g, "").replace(",", "."));
+  const s = v.trim();
+  let normalized: string;
+  if (s.includes(",")) {
+    // Formato BR: ponto = milhar, vírgula = decimal → "9.017.329.000,00"
+    normalized = s.replace(/\./g, "").replace(",", ".");
+  } else if ((s.match(/\./g) ?? []).length >= 2) {
+    // Múltiplos pontos sem vírgula = todos são separadores de milhar → "1.941.400.000"
+    normalized = s.replace(/\./g, "");
+  } else {
+    // Nenhuma vírgula, no máximo 1 ponto = ponto decimal (formato JS) → "38.13"
+    normalized = s;
+  }
+  const n = parseFloat(normalized);
   return isNaN(n) ? 0 : n;
 }
 function fmtNum(v: string): string {
@@ -124,7 +136,7 @@ function ValuationPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (asset) setPriceOverride(String(asset.currentPrice));
+    if (asset) setPriceOverride(asset.currentPrice.toFixed(2).replace(".", ","));
   }, [asset?.assetId]);
 
   const price = priceOverride ? parseNumInput(priceOverride) : (asset?.currentPrice ?? 0);

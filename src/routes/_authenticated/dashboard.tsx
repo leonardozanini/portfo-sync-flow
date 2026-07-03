@@ -250,16 +250,18 @@ function assetLogoUrl(symbol: string, assetClass: string): string | null {
     case "stock":
     case "reit":
     case "etf":
-      // Ativos B3 — logos oficiais servidas pela Brapi
-      return `https://icons.brapi.dev/logos/${sym}.png`;
+      // Ativos B3 — ícones oficiais servidos pela Brapi (SVG)
+      return `https://icons.brapi.dev/icons/${sym}.svg`;
     case "crypto":
       // Repositório público de ícones de criptomoedas
       return `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${sym.toLowerCase()}.png`;
     case "stock_intl":
     case "etf_intl":
     case "reit_intl":
-      // Logos internacionais — LogoKit (ticker lookup gratuito)
-      return `https://img.logokit.com/ticker/${sym}`;
+      // TODO: LogoKit exige token de API para funcionar de forma confiável
+      // (todos os exemplos oficiais usam ?token=pk_...). Desativado por enquanto
+      // até configurarmos uma chave — sem isso a imagem falha e cai no fallback.
+      return null;
     default:
       return null; // fixed_income, fund, cash, other → sem logo, usa iniciais
   }

@@ -241,6 +241,66 @@ const CLASS_ICONS: Record<AssetClass, React.ComponentType<{ className?: string }
   other: Layers,
 };
 
+// ── Logo do ativo ────────────────────────────────────────────────────────────
+// Busca a logo real do ativo em fontes públicas gratuitas, com fallback
+// automático para o avatar de iniciais caso a imagem não carregue.
+function assetLogoUrl(symbol: string, assetClass: string): string | null {
+  const sym = symbol.trim().toUpperCase();
+  switch (assetClass) {
+    case "stock":
+    case "reit":
+    case "etf":
+      // Ativos B3 — logos oficiais servidas pela Brapi
+      return `https://icons.brapi.dev/logos/${sym}.png`;
+    case "crypto":
+      // Repositório público de ícones de criptomoedas
+      return `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${sym.toLowerCase()}.png`;
+    case "stock_intl":
+    case "etf_intl":
+    case "reit_intl":
+      // Logos internacionais — LogoKit (ticker lookup gratuito)
+      return `https://img.logokit.com/ticker/${sym}`;
+    default:
+      return null; // fixed_income, fund, cash, other → sem logo, usa iniciais
+  }
+}
+
+function AssetLogo({ symbol, assetClass, size = 28, className = "" }: {
+  symbol: string; assetClass: string; size?: number; className?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  const url = assetLogoUrl(symbol, assetClass);
+  const initials = symbol.slice(0, 2).toUpperCase();
+
+  if (!url || failed) {
+    return (
+      <span
+        className={`grid place-items-center rounded bg-foreground/10 text-[10px] font-bold shrink-0 ${className}`}
+        style={{ width: size, height: size }}
+      >
+        {initials}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`grid place-items-center rounded overflow-hidden bg-white shrink-0 border border-border ${className}`}
+      style={{ width: size, height: size }}
+    >
+      <img
+        src={url}
+        alt={symbol}
+        width={size}
+        height={size}
+        className="object-contain w-full h-full"
+        onError={() => setFailed(true)}
+        loading="lazy"
+      />
+    </span>
+  );
+}
+
 const PIE_COLORS = [
   "#4F8EF7", "#7C5CFC", "#22C97A", "#C9A86A",
   "#38BDF8", "#F0465A", "#A78BFA", "#6B7A9A",
@@ -958,14 +1018,11 @@ function AssetRow({
   onRemove: (a: { assetId: string; symbol: string; currentPrice: number; currency: string; qty: number }) => void;
 }) {
   const pctInGroup = groupValue > 0 ? (a.balanceBRL / groupValue) * 100 : 0;
-  const initials = a.symbol.slice(0, 2);
   return (
     <TableRow>
       <TableCell>
         <div className="flex items-center gap-2">
-          <span className="grid h-7 w-7 place-items-center rounded bg-foreground/10 text-[10px] font-bold">
-            {initials}
-          </span>
+          <AssetLogo symbol={a.symbol} assetClass={a.assetClass} size={28} />
           <div className="flex flex-col leading-tight">
             <button
               type="button"

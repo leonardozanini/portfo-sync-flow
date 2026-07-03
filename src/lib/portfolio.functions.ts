@@ -2618,16 +2618,22 @@ function computeValuation(input: {
   discountRate: number;
   perpetuityGrowth: number;
   perpetuityDiscountRate?: number;
+  method?: "classic" | "buffett";
   baseCashFlow: number;
   yearlyGrowthRates: number[];
   priceAtCalc: number;
   sharesOutstanding: number;
 }) {
-  const { discountRate, perpetuityGrowth, baseCashFlow, yearlyGrowthRates, priceAtCalc, sharesOutstanding } = input;
-  // Método clássico: perpetuidade usa a mesma taxa dos anos projetados.
-  // Método Buffett: perpetuidade usa uma taxa própria (ex: 10% fixo — custo de oportunidade do mercado),
-  // independente da taxa específica de risco usada nos anos projetados.
+  const { discountRate, baseCashFlow, yearlyGrowthRates, priceAtCalc, sharesOutstanding } = input;
+  const method = input.method ?? "classic";
+  // Método clássico: perpetuidade usa a mesma taxa dos anos projetados, crescimento positivo normal.
+  // Método Buffett (calibrado empiricamente contra a plataforma de referência do usuário):
+  //   - taxa de desconto do perpétuo é fixa (ex: 10% — custo de oportunidade do mercado)
+  //   - o crescimento perpétuo é aplicado como NEGATIVO (fluxo em declínio no longuíssimo prazo,
+  //     compensando a taxa de desconto mais baixa e evitando um valor terminal inflado)
+  //   - o valor terminal é descontado por (n-1) anos em vez de n
   const perpDiscountRate = input.perpetuityDiscountRate ?? discountRate;
+  const perpetuityGrowth = method === "buffett" ? -Math.abs(input.perpetuityGrowth) : input.perpetuityGrowth;
 
   if (discountRate <= 0 || perpDiscountRate <= perpetuityGrowth) {
     throw new Error("A taxa de desconto do perpétuo deve ser maior que o crescimento na perpetuidade");
@@ -2646,12 +2652,13 @@ function computeValuation(input: {
   });
 
   // Valor terminal (perpetuidade) a partir do último fluxo projetado.
-  // Descontado usando perpDiscountRate — igual à taxa dos anos no método clássico,
-  // ou fixa (ex: 10%) no método Buffett.
   const terminalCashFlow = cashFlow * (1 + perpetuityGrowth);
   const terminalValue = terminalCashFlow / (perpDiscountRate - perpetuityGrowth);
   const n = yearlyGrowthRates.length;
-  const terminalNpv = terminalValue / Math.pow(1 + perpDiscountRate, n);
+  // Método Buffett desconta o valor terminal por (n-1) anos em vez de n — calibrado
+  // empiricamente para bater com a plataforma de referência.
+  const terminalDiscountYears = method === "buffett" ? Math.max(n - 1, 1) : n;
+  const terminalNpv = terminalValue / Math.pow(1 + perpDiscountRate, terminalDiscountYears);
 
   const fairMarketCap = npvSum + terminalNpv;
   const fairPrice = fairMarketCap / sharesOutstanding;

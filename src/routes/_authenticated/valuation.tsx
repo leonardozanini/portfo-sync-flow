@@ -67,13 +67,19 @@ function computeClient(input: {
   discountRate: number;
   perpetuityGrowth: number;
   perpetuityDiscountRate?: number; // undefined = método clássico (usa discountRate); definido = método Buffett
+  method?: "classic" | "buffett";
   baseCashFlow: number;
   yearlyGrowthRates: number[];
   priceAtCalc: number;
   sharesOutstanding: number;
 }) {
-  const { discountRate, perpetuityGrowth, baseCashFlow, yearlyGrowthRates, priceAtCalc, sharesOutstanding } = input;
+  const { discountRate, baseCashFlow, yearlyGrowthRates, priceAtCalc, sharesOutstanding } = input;
+  const method = input.method ?? "classic";
   const perpDiscountRate = input.perpetuityDiscountRate ?? discountRate;
+  // Método Buffett: crescimento perpétuo aplicado como negativo (fluxo em declínio no
+  // longuíssimo prazo) — calibrado para bater com a plataforma de referência do usuário.
+  const perpetuityGrowth = method === "buffett" ? -Math.abs(input.perpetuityGrowth) : input.perpetuityGrowth;
+
   if (discountRate <= 0 || perpDiscountRate <= perpetuityGrowth || !sharesOutstanding) {
     return null;
   }
@@ -90,7 +96,9 @@ function computeClient(input: {
   const terminalCashFlow = cashFlow * (1 + perpetuityGrowth);
   const terminalValue = terminalCashFlow / (perpDiscountRate - perpetuityGrowth);
   const n = yearlyGrowthRates.length;
-  const terminalNpv = terminalValue / Math.pow(1 + perpDiscountRate, n);
+  // Método Buffett desconta o valor terminal por (n-1) anos em vez de n.
+  const terminalDiscountYears = method === "buffett" ? Math.max(n - 1, 1) : n;
+  const terminalNpv = terminalValue / Math.pow(1 + perpDiscountRate, terminalDiscountYears);
   const fairMarketCap = npvSum + terminalNpv;
   const fairPrice = fairMarketCap / sharesOutstanding;
   const upsidePct = priceAtCalc > 0 ? (fairPrice - priceAtCalc) / priceAtCalc : 0;
@@ -195,11 +203,12 @@ function ValuationPage() {
     discountRate: dRate,
     perpetuityGrowth: pGrowth,
     perpetuityDiscountRate: effectivePerpDiscountRate,
+    method,
     baseCashFlow: bCashFlow,
     yearlyGrowthRates: growthRates.map(parsePctInput),
     priceAtCalc: price,
     sharesOutstanding: shares,
-  }), [dRate, pGrowth, effectivePerpDiscountRate, bCashFlow, growthRates, price, shares]);
+  }), [dRate, pGrowth, effectivePerpDiscountRate, method, bCashFlow, growthRates, price, shares]);
 
   const suggestedGrowth = (1 - parsePctInput(payout)) * parsePctInput(roe);
 
@@ -335,14 +344,14 @@ function ValuationPage() {
                 <p className="text-[11px] text-muted-foreground leading-snug">
                   {method === "classic"
                     ? "Desconta a perpetuidade pela mesma taxa usada nos anos projetados."
-                    : "Desconta a perpetuidade por uma taxa fixa — custo de oportunidade do mercado, independente do risco específico da empresa."}
+                    : "Taxa fixa no perpétuo (custo de oportunidade do mercado). O crescimento é aplicado como declínio — fluxo diminuindo no longuíssimo prazo, para evitar um valor terminal inflado."}
                 </p>
               </div>
 
               <SpreadRow label="Taxa de desconto (i)">
                 <PctInput value={discountRate} onChange={setDiscountRate} />
               </SpreadRow>
-              <SpreadRow label="Cresc. perpétuo (g)">
+              <SpreadRow label={method === "buffett" ? "Declínio perpétuo (−g)" : "Cresc. perpétuo (g)"}>
                 <PctInput value={perpetuityGrowth} onChange={setPerpetuityGrowth} />
               </SpreadRow>
               {method === "buffett" && (
@@ -473,7 +482,7 @@ function ValuationPage() {
                       </td>
                       <td className="px-4 py-3 text-right text-xs">
                         <span className="text-muted-foreground">
-                          g = {pct(pGrowth)} · i = {pct(effectivePerpDiscountRate ?? dRate)}
+                          g = {pct(method === "buffett" ? -Math.abs(pGrowth) : pGrowth)} · i = {pct(effectivePerpDiscountRate ?? dRate)}
                           {method === "buffett" && <span className="text-primary"> (Buffett)</span>}
                         </span>
                       </td>

@@ -231,6 +231,18 @@ export function AppShell({ children }: { children: ReactNode }) {
           style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
           {children ?? <Outlet />}
         </main>
+
+        {/* Atribuição obrigatória do TickerLogos (logos de ativos internacionais) */}
+        <footer className="px-4 md:px-8 pb-3 text-center">
+          <a
+            href="https://www.allinvestview.com/tools/ticker-logos/"
+            target="_blank"
+            rel="noopener"
+            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Logos by AllInvestView
+          </a>
+        </footer>
       </div>
     </div>
   );

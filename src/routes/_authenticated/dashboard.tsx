@@ -274,7 +274,21 @@ function AssetLogo({ symbol, assetClass, size = 28, className = "" }: {
   const url = assetLogoUrl(symbol, assetClass);
   const initials = symbol.slice(0, 2).toUpperCase();
 
+  // FIIs não têm identidade visual própria (são fundos, não empresas) — o Investidor10
+  // e outras plataformas usam um ícone genérico de prédio para todos. Fazemos o mesmo.
+  const isReit = assetClass === "reit" || assetClass === "reit_intl";
+
   if (!url || failed) {
+    if (isReit) {
+      return (
+        <span
+          className={`grid place-items-center rounded bg-primary/10 text-primary shrink-0 ${className}`}
+          style={{ width: size, height: size }}
+        >
+          <Building2 style={{ width: size * 0.55, height: size * 0.55 }} />
+        </span>
+      );
+    }
     return (
       <span
         className={`grid place-items-center rounded bg-foreground/10 text-[10px] font-bold shrink-0 ${className}`}

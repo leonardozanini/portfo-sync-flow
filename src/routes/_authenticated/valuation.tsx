@@ -383,107 +383,121 @@ function ValuationPage() {
               <SpreadRow label="Market cap" value={formatMoney(marketCapAtual, assetCurrency)} bold />
             </SpreadCard>
 
-            <SpreadCard title="Premissas">
-              {/* Método: FCD Clássico ou Buffett (taxa fixa no perpétuo) */}
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Método</Label>
-                <div className="flex rounded-lg border border-border overflow-hidden text-xs">
-                  <button
-                    onClick={() => setMethod("classic")}
-                    className={`flex-1 px-2 py-1.5 transition-colors ${
-                      method === "classic" ? "bg-primary text-primary-foreground font-semibold" : "bg-card text-muted-foreground hover:bg-muted"
-                    }`}
-                  >
-                    FCD
-                  </button>
-                  <button
-                    onClick={() => setMethod("buffett")}
-                    className={`flex-1 px-2 py-1.5 transition-colors ${
-                      method === "buffett" ? "bg-primary text-primary-foreground font-semibold" : "bg-card text-muted-foreground hover:bg-muted"
-                    }`}
-                  >
-                    Buffett
-                  </button>
-                  <button
-                    onClick={() => setMethod("bazin")}
-                    className={`flex-1 px-2 py-1.5 transition-colors ${
-                      method === "bazin" ? "bg-primary text-primary-foreground font-semibold" : "bg-card text-muted-foreground hover:bg-muted"
-                    }`}
-                  >
-                    Bazin
-                  </button>
-                </div>
-                <p className="text-[11px] text-muted-foreground leading-snug">
-                  {method === "classic" && "Desconta a perpetuidade pela mesma taxa usada nos anos projetados."}
-                  {method === "buffett" && "Taxa fixa no perpétuo (custo de oportunidade do mercado). O crescimento é aplicado como declínio — fluxo diminuindo no longuíssimo prazo, para evitar um valor terminal inflado."}
-                  {method === "bazin" && "Preço-teto baseado em Dividend Yield desejado — método de Décio Bazin. Preço-teto = DPA ÷ Yield desejado."}
-                </p>
+            {/* ── Nível 1: tipo de valuation (categorias conceitualmente distintas) ── */}
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Tipo de Valuation</Label>
+              <div className="grid grid-cols-2 rounded-lg border border-border overflow-hidden text-xs">
+                <button
+                  onClick={() => setMethod("classic")}
+                  className={`px-3 py-2 transition-colors font-medium ${
+                    method !== "bazin" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  Fluxo de Caixa Descontado
+                </button>
+                <button
+                  onClick={() => setMethod("bazin")}
+                  className={`px-3 py-2 transition-colors font-medium ${
+                    method === "bazin" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  Dividend Yield (Bazin)
+                </button>
               </div>
+            </div>
 
-              {method !== "bazin" && (
-                <>
-                  <SpreadRow label="Taxa de desconto (i)">
-                    <PctInput value={discountRate} onChange={setDiscountRate} />
-                  </SpreadRow>
-                  <SpreadRow label={method === "buffett" ? "Declínio perpétuo (−g)" : "Cresc. perpétuo (g)"}>
-                    <PctInput value={perpetuityGrowth} onChange={setPerpetuityGrowth} />
-                  </SpreadRow>
-                  {method === "buffett" && (
-                    <SpreadRow label="Taxa desc. perpétuo">
-                      <PctInput value={perpetuityDiscountRate} onChange={setPerpetuityDiscountRate} />
-                    </SpreadRow>
-                  )}
-                  <div className="pt-2 mt-2 border-t border-border space-y-2">
-                    <SpreadRow label="Payout">
-                      <PctInput value={payout} onChange={setPayout} />
-                    </SpreadRow>
-                    <SpreadRow label="ROE">
-                      <PctInput value={roe} onChange={setRoe} />
-                    </SpreadRow>
+            {method !== "bazin" ? (
+              <SpreadCard title="Premissas — FCD">
+                {/* ── Nível 2: variante dentro do FCD ── */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Variante</Label>
+                  <div className="flex rounded-lg border border-border overflow-hidden text-xs">
                     <button
-                      onClick={applySuggestedGrowth}
-                      className="w-full flex items-center justify-center gap-1.5 text-xs text-primary hover:underline mt-1"
+                      onClick={() => setMethod("classic")}
+                      className={`flex-1 px-2 py-1.5 transition-colors ${
+                        method === "classic" ? "bg-primary text-primary-foreground font-semibold" : "bg-card text-muted-foreground hover:bg-muted"
+                      }`}
                     >
-                      <Wand2 className="h-3 w-3" />
-                      Sugerir crescimento: (1-payout)×ROE = {pct(suggestedGrowth)}
+                      Clássico
+                    </button>
+                    <button
+                      onClick={() => setMethod("buffett")}
+                      className={`flex-1 px-2 py-1.5 transition-colors ${
+                        method === "buffett" ? "bg-primary text-primary-foreground font-semibold" : "bg-card text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      Buffett
                     </button>
                   </div>
-                </>
-              )}
-
-              {method === "bazin" && (
-                <>
-                  <SpreadRow label="Dividend Yield desejado">
-                    <PctInput value={desiredYield} onChange={setDesiredYield} />
-                  </SpreadRow>
-                  <SpreadRow label="Payout da empresa">
-                    <PctInput value={bazinPayout} onChange={setBazinPayout} />
-                  </SpreadRow>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Lucro projetado (total da empresa)</Label>
-                    <Input
-                      value={projectedProfit}
-                      onChange={e => setProjectedProfit(e.target.value)}
-                      onBlur={e => setProjectedProfit(fmtNum(e.target.value))}
-                      className="h-7 text-right text-sm font-semibold bg-primary/5 border-primary/20"
-                      inputMode="decimal"
-                      placeholder="Ex: 180.353.000"
-                    />
-                  </div>
-                  <SpreadRow label="Multiplicador de unit">
-                    <Input
-                      value={unitMultiplier}
-                      onChange={e => setUnitMultiplier(e.target.value)}
-                      className="h-7 w-16 text-right text-sm font-semibold bg-primary/5 border-primary/20"
-                      inputMode="numeric"
-                    />
-                  </SpreadRow>
                   <p className="text-[11px] text-muted-foreground leading-snug">
-                    Use 3, por exemplo, quando o ativo for uma "unit" composta por 3 ações.
+                    {method === "classic" && "Desconta a perpetuidade pela mesma taxa usada nos anos projetados."}
+                    {method === "buffett" && "Taxa fixa no perpétuo (custo de oportunidade do mercado). O crescimento é aplicado como declínio — fluxo diminuindo no longuíssimo prazo, para evitar um valor terminal inflado."}
                   </p>
-                </>
-              )}
-            </SpreadCard>
+                </div>
+
+                <SpreadRow label="Taxa de desconto (i)">
+                  <PctInput value={discountRate} onChange={setDiscountRate} />
+                </SpreadRow>
+                <SpreadRow label={method === "buffett" ? "Declínio perpétuo (−g)" : "Cresc. perpétuo (g)"}>
+                  <PctInput value={perpetuityGrowth} onChange={setPerpetuityGrowth} />
+                </SpreadRow>
+                {method === "buffett" && (
+                  <SpreadRow label="Taxa desc. perpétuo">
+                    <PctInput value={perpetuityDiscountRate} onChange={setPerpetuityDiscountRate} />
+                  </SpreadRow>
+                )}
+                <div className="pt-2 mt-2 border-t border-border space-y-2">
+                  <SpreadRow label="Payout">
+                    <PctInput value={payout} onChange={setPayout} />
+                  </SpreadRow>
+                  <SpreadRow label="ROE">
+                    <PctInput value={roe} onChange={setRoe} />
+                  </SpreadRow>
+                  <button
+                    onClick={applySuggestedGrowth}
+                    className="w-full flex items-center justify-center gap-1.5 text-xs text-primary hover:underline mt-1"
+                  >
+                    <Wand2 className="h-3 w-3" />
+                    Sugerir crescimento: (1-payout)×ROE = {pct(suggestedGrowth)}
+                  </button>
+                </div>
+              </SpreadCard>
+            ) : (
+              <SpreadCard title="Premissas — Bazin">
+                <p className="text-[11px] text-muted-foreground leading-snug -mt-1 mb-1">
+                  Preço-teto baseado em Dividend Yield desejado — método de Décio Bazin.
+                  Preço-teto = DPA ÷ Yield desejado.
+                </p>
+                <SpreadRow label="Dividend Yield desejado">
+                  <PctInput value={desiredYield} onChange={setDesiredYield} />
+                </SpreadRow>
+                <SpreadRow label="Payout da empresa">
+                  <PctInput value={bazinPayout} onChange={setBazinPayout} />
+                </SpreadRow>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Lucro projetado (total da empresa)</Label>
+                  <Input
+                    value={projectedProfit}
+                    onChange={e => setProjectedProfit(e.target.value)}
+                    onBlur={e => setProjectedProfit(fmtNum(e.target.value))}
+                    className="h-7 text-right text-sm font-semibold bg-primary/5 border-primary/20"
+                    inputMode="decimal"
+                    placeholder="Ex: 180.353.000"
+                  />
+                </div>
+                <SpreadRow label="Multiplicador de unit">
+                  <Input
+                    value={unitMultiplier}
+                    onChange={e => setUnitMultiplier(e.target.value)}
+                    className="h-7 w-16 text-right text-sm font-semibold bg-primary/5 border-primary/20"
+                    inputMode="numeric"
+                  />
+                </SpreadRow>
+                <p className="text-[11px] text-muted-foreground leading-snug">
+                  Use 3, por exemplo, quando o ativo for uma "unit" composta por 3 ações.
+                </p>
+              </SpreadCard>
+            )}
 
             <SpreadCard title="Realidade Projetada" tone={isUpside ? "success" : "destructive"}>
               {method === "bazin" && (

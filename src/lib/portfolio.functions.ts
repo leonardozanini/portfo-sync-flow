@@ -2598,21 +2598,56 @@ export const adminSyncTreasury = createServerFn({ method: "POST" })
 
 const valuationInputSchema = z.object({
   assetId: z.string().uuid(),
-  discountRate: z.number().min(0.001).max(1),        // ex: 0.08 = 8%  — usada nos anos projetados
-  perpetuityGrowth: z.number().min(-0.1).max(0.15),   // ex: 0.025 = 2.5%
-  // Taxa de desconto usada SÓ no valor terminal/perpetuidade.
-  // undefined/null → método clássico (usa a mesma discountRate dos anos).
-  // valor definido (ex: 0.10) → método "Buffett" (custo de oportunidade fixo do mercado).
+  method: z.enum(["classic", "buffett", "bazin"]).default("classic"),
+
+  // ── Campos do FCD (clássico e Buffett) — opcionais quando method === "bazin" ──
+  discountRate: z.number().min(0.001).max(1).optional(),        // ex: 0.08 = 8%
+  perpetuityGrowth: z.number().min(-0.1).max(0.15).optional(),  // ex: 0.025 = 2.5%
   perpetuityDiscountRate: z.number().min(0.001).max(1).optional(),
-  method: z.enum(["classic", "buffett"]).default("classic"),
-  baseCashFlow: z.number(),                            // pode ser negativo em anos ruins
+  baseCashFlow: z.number().optional(),
   cashFlowLabel: z.enum(["Lucro Líquido", "Fluxo de Caixa Livre"]).default("Lucro Líquido"),
-  yearlyGrowthRates: z.array(z.number().min(-1).max(2)).min(1).max(10), // uma taxa por ano projetado
+  yearlyGrowthRates: z.array(z.number().min(-1).max(2)).max(10).optional(),
+
+  // ── Campos do Método Bazin — obrigatórios quando method === "bazin" ──────────
+  desiredYield: z.number().min(0.001).max(1).optional(),  // ex: 0.07 = 7%
+  payout: z.number().min(0).max(1).optional(),            // ex: 0.85 = 85%
+  projectedProfit: z.number().optional(),                  // lucro projetado total da empresa
+  unitMultiplier: z.number().min(1).max(20).default(1),    // ex: 3 para units compostas por 3 ações
+
   priceAtCalc: z.number().positive(),
   sharesOutstanding: z.number().positive(),
   currency: z.enum(["BRL", "USD", "EUR", "GBP", "JPY"]),
   notes: z.string().max(2000).optional(),
 });
+
+// ── Método Bazin (Dividend Yield) ─────────────────────────────────────────────
+// Preço Teto = DPA ÷ Yield desejado
+// DPA = (Lucro projetado × Payout ÷ Nº de ações) × Multiplicador da unit
+// Yield Projetivo = DPA ÷ Cotação atual
+// Margem de Segurança = (Preço Teto ÷ Cotação atual) − 1
+// Fórmulas calibradas empiricamente contra a plataforma de referência do usuário.
+function computeBazin(input: {
+  desiredYield: number;
+  payout: number;
+  projectedProfit: number;
+  sharesOutstanding: number;
+  unitMultiplier: number;
+  priceAtCalc: number;
+}) {
+  const { desiredYield, payout, projectedProfit, sharesOutstanding, unitMultiplier, priceAtCalc } = input;
+
+  if (desiredYield <= 0) throw new Error("O Dividend Yield desejado deve ser maior que zero");
+  if (!sharesOutstanding) throw new Error("Informe o número de ações");
+
+  const dpa = (projectedProfit * payout / sharesOutstanding) * unitMultiplier;
+  const fairPrice = dpa / desiredYield;
+  const projectedYield = priceAtCalc > 0 ? dpa / priceAtCalc : 0;
+  const safetyMargin = priceAtCalc > 0 ? (fairPrice / priceAtCalc) - 1 : 0;
+  const fairMarketCap = fairPrice * sharesOutstanding / unitMultiplier;
+  const upsidePct = safetyMargin; // mesma métrica, nomenclatura diferente do FCD
+
+  return { dpa, fairPrice, fairMarketCap, projectedYield, safetyMargin, upsidePct };
+}
 
 function computeValuation(input: {
   discountRate: number;
@@ -2667,11 +2702,39 @@ function computeValuation(input: {
   return { fairPrice, fairMarketCap, upsidePct, projectedYears, terminalNpv };
 }
 
+function runValuation(data: any) {
+  if (data.method === "bazin") {
+    if (data.desiredYield == null) throw new Error("Informe o Dividend Yield desejado");
+    if (data.projectedProfit == null) throw new Error("Informe o lucro projetado");
+    return computeBazin({
+      desiredYield: data.desiredYield,
+      payout: data.payout ?? 0,
+      projectedProfit: data.projectedProfit,
+      sharesOutstanding: data.sharesOutstanding,
+      unitMultiplier: data.unitMultiplier ?? 1,
+      priceAtCalc: data.priceAtCalc,
+    });
+  }
+  if (data.discountRate == null || data.perpetuityGrowth == null || data.baseCashFlow == null || !data.yearlyGrowthRates?.length) {
+    throw new Error("Preencha todas as premissas do FCD (taxa de desconto, crescimento, lucro base e anos projetados)");
+  }
+  return computeValuation({
+    discountRate: data.discountRate,
+    perpetuityGrowth: data.perpetuityGrowth,
+    perpetuityDiscountRate: data.perpetuityDiscountRate,
+    method: data.method,
+    baseCashFlow: data.baseCashFlow,
+    yearlyGrowthRates: data.yearlyGrowthRates,
+    priceAtCalc: data.priceAtCalc,
+    sharesOutstanding: data.sharesOutstanding,
+  });
+}
+
 export const calculateValuationPreview = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => valuationInputSchema.omit({ assetId: true, notes: true }).parse(input))
   .handler(async ({ data }) => {
-    return computeValuation(data);
+    return runValuation(data);
   });
 
 export const saveValuation = createServerFn({ method: "POST" })
@@ -2679,19 +2742,23 @@ export const saveValuation = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => valuationInputSchema.parse(input))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
-    const result = computeValuation(data);
+    const result = runValuation(data) as any;
 
     const { error } = await (supabase as any).from("asset_valuations").insert({
       user_id: userId,
       asset_id: data.assetId,
-      discount_rate: data.discountRate,
-      perpetuity_growth: data.perpetuityGrowth,
-      perpetuity_discount_rate: data.perpetuityDiscountRate ?? null,
       method: data.method,
-      base_cash_flow: data.baseCashFlow,
+      discount_rate: data.discountRate ?? null,
+      perpetuity_growth: data.perpetuityGrowth ?? null,
+      perpetuity_discount_rate: data.perpetuityDiscountRate ?? null,
+      base_cash_flow: data.baseCashFlow ?? null,
       cash_flow_label: data.cashFlowLabel,
-      projection_years: data.yearlyGrowthRates.length,
-      yearly_growth_rates: data.yearlyGrowthRates,
+      projection_years: data.yearlyGrowthRates?.length ?? null,
+      yearly_growth_rates: data.yearlyGrowthRates ?? null,
+      desired_yield: data.desiredYield ?? null,
+      payout: data.payout ?? null,
+      projected_profit: data.projectedProfit ?? null,
+      unit_multiplier: data.unitMultiplier ?? 1,
       price_at_calc: data.priceAtCalc,
       shares_outstanding: data.sharesOutstanding,
       currency: data.currency,
@@ -2722,13 +2789,17 @@ export const listValuations = createServerFn({ method: "GET" })
         assetId: v.asset_id,
         symbol: asset?.symbol ?? "?",
         name: asset?.name ?? "?",
-        discountRate: Number(v.discount_rate),
-        perpetuityGrowth: Number(v.perpetuity_growth),
-        perpetuityDiscountRate: v.perpetuity_discount_rate != null ? Number(v.perpetuity_discount_rate) : null,
         method: v.method ?? "classic",
-        baseCashFlow: Number(v.base_cash_flow),
+        discountRate: v.discount_rate != null ? Number(v.discount_rate) : null,
+        perpetuityGrowth: v.perpetuity_growth != null ? Number(v.perpetuity_growth) : null,
+        perpetuityDiscountRate: v.perpetuity_discount_rate != null ? Number(v.perpetuity_discount_rate) : null,
+        baseCashFlow: v.base_cash_flow != null ? Number(v.base_cash_flow) : null,
         cashFlowLabel: v.cash_flow_label,
-        yearlyGrowthRates: v.yearly_growth_rates,
+        yearlyGrowthRates: v.yearly_growth_rates ?? null,
+        desiredYield: v.desired_yield != null ? Number(v.desired_yield) : null,
+        payout: v.payout != null ? Number(v.payout) : null,
+        projectedProfit: v.projected_profit != null ? Number(v.projected_profit) : null,
+        unitMultiplier: v.unit_multiplier != null ? Number(v.unit_multiplier) : 1,
         priceAtCalc: Number(v.price_at_calc),
         sharesOutstanding: Number(v.shares_outstanding),
         currency: v.currency,

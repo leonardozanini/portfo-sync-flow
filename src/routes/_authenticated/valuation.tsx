@@ -141,9 +141,12 @@ function ValuationPage() {
     staleTime: 30_000,
   });
 
+  // Valuation faz sentido para ações e REITs (empresas com lucro/dividendos) —
+  // FIIs "de papel", cripto, ETFs e renda fixa ficam de fora dessa lista.
+  const VALUATION_CLASSES = new Set(["stock", "stock_intl", "reit_intl"]); // Ações, Stocks e REITs — não inclui FIIs ("reit")
   const allAssets: GroupedAsset[] = useMemo(() => {
     if (!dash) return [];
-    return dash.groups.flatMap(g => g.assets);
+    return dash.groups.flatMap(g => g.assets).filter(a => VALUATION_CLASSES.has(a.assetClass));
   }, [dash]);
 
   const [selectedAssetId, setSelectedAssetId] = useState<string>("");
@@ -786,10 +789,15 @@ function ValuationHistory({ valuations, onDeleted, onEdit }: { valuations: any[]
       <div className="space-y-2">
         {valuations.map((v) => {
           const isUpside = v.upsidePct >= 0;
+          const methodLabel = v.method === "bazin" ? "Bazin" : v.method === "buffett" ? "Buffett" : "FCD Clássico";
+          const methodColor = v.method === "bazin" ? "bg-purple-500/10 text-purple-500" : v.method === "buffett" ? "bg-amber-500/10 text-amber-600" : "bg-primary/10 text-primary";
           return (
             <div key={v.id} className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="font-mono font-semibold text-sm w-20 shrink-0">{v.symbol}</div>
+                <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${methodColor}`}>
+                  {methodLabel}
+                </span>
                 <div className="text-xs text-muted-foreground">
                   {new Date(v.createdAt).toLocaleDateString("pt-BR")} · Preço-teto: <span className="font-semibold text-foreground">{formatMoney(v.fairPrice, v.currency)}</span>
                 </div>

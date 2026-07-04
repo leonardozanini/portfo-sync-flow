@@ -67,7 +67,7 @@ function computeClient(input: {
   discountRate: number;
   perpetuityGrowth: number;
   perpetuityDiscountRate?: number; // undefined = método clássico (usa discountRate); definido = método Buffett
-  method?: "classic" | "buffett";
+  method?: "classic" | "buffett" | "bazin";
   baseCashFlow: number;
   yearlyGrowthRates: number[];
   priceAtCalc: number;
@@ -105,6 +105,25 @@ function computeClient(input: {
   return { rows, terminalValue, terminalNpv, fairMarketCap, fairPrice, upsidePct };
 }
 
+// Método Bazin — espelha exatamente a lógica do servidor (computeBazin)
+function computeBazinClient(input: {
+  desiredYield: number;
+  payout: number;
+  projectedProfit: number;
+  sharesOutstanding: number;
+  unitMultiplier: number;
+  priceAtCalc: number;
+}) {
+  const { desiredYield, payout, projectedProfit, sharesOutstanding, unitMultiplier, priceAtCalc } = input;
+  if (desiredYield <= 0 || !sharesOutstanding) return null;
+  const dpa = (projectedProfit * payout / sharesOutstanding) * unitMultiplier;
+  const fairPrice = dpa / desiredYield;
+  const projectedYield = priceAtCalc > 0 ? dpa / priceAtCalc : 0;
+  const safetyMargin = priceAtCalc > 0 ? (fairPrice / priceAtCalc) - 1 : 0;
+  const fairMarketCap = fairPrice * sharesOutstanding / unitMultiplier;
+  return { dpa, fairPrice, fairMarketCap, projectedYield, safetyMargin, upsidePct: safetyMargin };
+}
+
 // ── Página principal ─────────────────────────────────────────────────────────
 
 function ValuationPage() {
@@ -134,12 +153,17 @@ function ValuationPage() {
   // ── Estado do formulário (todos os campos "amarelos" da planilha) ──────────
   const [priceOverride, setPriceOverride] = useState("");
   const [sharesOutstanding, setSharesOutstanding] = useState("");
-  const [method, setMethod] = useState<"classic" | "buffett">("classic");
+  const [method, setMethod] = useState<"classic" | "buffett" | "bazin">("classic");
   const [discountRate, setDiscountRate] = useState("8,00");
   const [perpetuityGrowth, setPerpetuityGrowth] = useState("2,50");
   const [perpetuityDiscountRate, setPerpetuityDiscountRate] = useState("10,00");
   const [payout, setPayout] = useState("30,00");
   const [roe, setRoe] = useState("15,00");
+  // Método Bazin
+  const [desiredYield, setDesiredYield] = useState("7,00");
+  const [bazinPayout, setBazinPayout] = useState("85,00");
+  const [projectedProfit, setProjectedProfit] = useState("");
+  const [unitMultiplier, setUnitMultiplier] = useState("1");
   const [cashFlowLabel, setCashFlowLabel] = useState<"Lucro Líquido" | "Fluxo de Caixa Livre">("Lucro Líquido");
   const [baseCashFlow, setBaseCashFlow] = useState("");
   const [baseYear, setBaseYear] = useState(String(new Date().getFullYear()));
@@ -162,8 +186,15 @@ function ValuationPage() {
         : "10,00"
     );
     setCashFlowLabel(v.cashFlowLabel);
-    setBaseCashFlow(Number(v.baseCashFlow).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-    setGrowthRates((v.yearlyGrowthRates as number[]).map(g => (g * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })));
+    if (v.method === "bazin") {
+      setDesiredYield(v.desiredYield != null ? (Number(v.desiredYield) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "7,00");
+      setBazinPayout(v.payout != null ? (Number(v.payout) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "85,00");
+      setProjectedProfit(v.projectedProfit != null ? Number(v.projectedProfit).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "");
+      setUnitMultiplier(String(v.unitMultiplier ?? 1));
+    } else {
+      setBaseCashFlow(v.baseCashFlow != null ? Number(v.baseCashFlow).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "");
+      setGrowthRates(v.yearlyGrowthRates ? (v.yearlyGrowthRates as number[]).map(g => (g * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })) : ["5,00", "5,00", "5,00", "5,00", "5,00"]);
+    }
     setNotes(v.notes ?? "");
     setLoadedFromId(v.id);
   };
@@ -186,6 +217,10 @@ function ValuationPage() {
       setCashFlowLabel("Lucro Líquido");
       setBaseCashFlow("");
       setGrowthRates(["5,00", "5,00", "5,00", "5,00", "5,00"]);
+      setDesiredYield("7,00");
+      setBazinPayout("85,00");
+      setProjectedProfit("");
+      setUnitMultiplier("1");
       setNotes("");
       setLoadedFromId(null);
     }
@@ -199,16 +234,32 @@ function ValuationPage() {
   const bCashFlow = parseNumInput(baseCashFlow);
   const effectivePerpDiscountRate = method === "buffett" ? pPerpDiscountRate : undefined;
 
-  const result = useMemo(() => computeClient({
+  const dDesiredYield = parsePctInput(desiredYield);
+  const dBazinPayout = parsePctInput(bazinPayout);
+  const dProjectedProfit = parseNumInput(projectedProfit);
+  const dUnitMultiplier = parseNumInput(unitMultiplier) || 1;
+
+  const dcfResult = useMemo(() => computeClient({
     discountRate: dRate,
     perpetuityGrowth: pGrowth,
     perpetuityDiscountRate: effectivePerpDiscountRate,
-    method,
+    method: method === "bazin" ? "classic" : method,
     baseCashFlow: bCashFlow,
     yearlyGrowthRates: growthRates.map(parsePctInput),
     priceAtCalc: price,
     sharesOutstanding: shares,
   }), [dRate, pGrowth, effectivePerpDiscountRate, method, bCashFlow, growthRates, price, shares]);
+
+  const bazinResult = useMemo(() => computeBazinClient({
+    desiredYield: dDesiredYield,
+    payout: dBazinPayout,
+    projectedProfit: dProjectedProfit,
+    sharesOutstanding: shares,
+    unitMultiplier: dUnitMultiplier,
+    priceAtCalc: price,
+  }), [dDesiredYield, dBazinPayout, dProjectedProfit, shares, dUnitMultiplier, price]);
+
+  const result = method === "bazin" ? bazinResult : dcfResult;
 
   const suggestedGrowth = (1 - parsePctInput(payout)) * parsePctInput(roe);
 
@@ -225,23 +276,36 @@ function ValuationPage() {
 
   const handleSave = async () => {
     if (!asset) { toast.error("Selecione um ativo"); return; }
-    if (!bCashFlow) { toast.error(`Informe o ${cashFlowLabel.toLowerCase()} do ano base`); return; }
     if (!shares) { toast.error("Informe o número total de ações"); return; }
-    const effRate = method === "buffett" ? pPerpDiscountRate : dRate;
-    if (effRate <= pGrowth) { toast.error("A taxa de desconto do perpétuo deve ser maior que o crescimento na perpetuidade"); return; }
+
+    if (method === "bazin") {
+      if (!dProjectedProfit) { toast.error("Informe o lucro projetado"); return; }
+      if (dDesiredYield <= 0) { toast.error("Informe o Dividend Yield desejado"); return; }
+    } else {
+      if (!bCashFlow) { toast.error(`Informe o ${cashFlowLabel.toLowerCase()} do ano base`); return; }
+      const effRate = method === "buffett" ? pPerpDiscountRate : dRate;
+      if (effRate <= pGrowth) { toast.error("A taxa de desconto do perpétuo deve ser maior que o crescimento na perpetuidade"); return; }
+    }
 
     setSaving(true);
     try {
       const r = await saveFn({
         data: {
           assetId: asset.assetId,
-          discountRate: dRate,
-          perpetuityGrowth: pGrowth,
-          perpetuityDiscountRate: method === "buffett" ? pPerpDiscountRate : undefined,
           method,
-          baseCashFlow: bCashFlow,
-          cashFlowLabel,
-          yearlyGrowthRates: growthRates.map(parsePctInput),
+          ...(method === "bazin" ? {
+            desiredYield: dDesiredYield,
+            payout: dBazinPayout,
+            projectedProfit: dProjectedProfit,
+            unitMultiplier: dUnitMultiplier,
+          } : {
+            discountRate: dRate,
+            perpetuityGrowth: pGrowth,
+            perpetuityDiscountRate: method === "buffett" ? pPerpDiscountRate : undefined,
+            baseCashFlow: bCashFlow,
+            cashFlowLabel,
+            yearlyGrowthRates: growthRates.map(parsePctInput),
+          }),
           priceAtCalc: price,
           sharesOutstanding: shares,
           currency: asset.currency,
@@ -330,7 +394,7 @@ function ValuationPage() {
                       method === "classic" ? "bg-primary text-primary-foreground font-semibold" : "bg-card text-muted-foreground hover:bg-muted"
                     }`}
                   >
-                    FCD Clássico
+                    FCD
                   </button>
                   <button
                     onClick={() => setMethod("buffett")}
@@ -340,48 +404,101 @@ function ValuationPage() {
                   >
                     Buffett
                   </button>
+                  <button
+                    onClick={() => setMethod("bazin")}
+                    className={`flex-1 px-2 py-1.5 transition-colors ${
+                      method === "bazin" ? "bg-primary text-primary-foreground font-semibold" : "bg-card text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    Bazin
+                  </button>
                 </div>
                 <p className="text-[11px] text-muted-foreground leading-snug">
-                  {method === "classic"
-                    ? "Desconta a perpetuidade pela mesma taxa usada nos anos projetados."
-                    : "Taxa fixa no perpétuo (custo de oportunidade do mercado). O crescimento é aplicado como declínio — fluxo diminuindo no longuíssimo prazo, para evitar um valor terminal inflado."}
+                  {method === "classic" && "Desconta a perpetuidade pela mesma taxa usada nos anos projetados."}
+                  {method === "buffett" && "Taxa fixa no perpétuo (custo de oportunidade do mercado). O crescimento é aplicado como declínio — fluxo diminuindo no longuíssimo prazo, para evitar um valor terminal inflado."}
+                  {method === "bazin" && "Preço-teto baseado em Dividend Yield desejado — método de Décio Bazin. Preço-teto = DPA ÷ Yield desejado."}
                 </p>
               </div>
 
-              <SpreadRow label="Taxa de desconto (i)">
-                <PctInput value={discountRate} onChange={setDiscountRate} />
-              </SpreadRow>
-              <SpreadRow label={method === "buffett" ? "Declínio perpétuo (−g)" : "Cresc. perpétuo (g)"}>
-                <PctInput value={perpetuityGrowth} onChange={setPerpetuityGrowth} />
-              </SpreadRow>
-              {method === "buffett" && (
-                <SpreadRow label="Taxa desc. perpétuo">
-                  <PctInput value={perpetuityDiscountRate} onChange={setPerpetuityDiscountRate} />
-                </SpreadRow>
+              {method !== "bazin" && (
+                <>
+                  <SpreadRow label="Taxa de desconto (i)">
+                    <PctInput value={discountRate} onChange={setDiscountRate} />
+                  </SpreadRow>
+                  <SpreadRow label={method === "buffett" ? "Declínio perpétuo (−g)" : "Cresc. perpétuo (g)"}>
+                    <PctInput value={perpetuityGrowth} onChange={setPerpetuityGrowth} />
+                  </SpreadRow>
+                  {method === "buffett" && (
+                    <SpreadRow label="Taxa desc. perpétuo">
+                      <PctInput value={perpetuityDiscountRate} onChange={setPerpetuityDiscountRate} />
+                    </SpreadRow>
+                  )}
+                  <div className="pt-2 mt-2 border-t border-border space-y-2">
+                    <SpreadRow label="Payout">
+                      <PctInput value={payout} onChange={setPayout} />
+                    </SpreadRow>
+                    <SpreadRow label="ROE">
+                      <PctInput value={roe} onChange={setRoe} />
+                    </SpreadRow>
+                    <button
+                      onClick={applySuggestedGrowth}
+                      className="w-full flex items-center justify-center gap-1.5 text-xs text-primary hover:underline mt-1"
+                    >
+                      <Wand2 className="h-3 w-3" />
+                      Sugerir crescimento: (1-payout)×ROE = {pct(suggestedGrowth)}
+                    </button>
+                  </div>
+                </>
               )}
-              <div className="pt-2 mt-2 border-t border-border space-y-2">
-                <SpreadRow label="Payout">
-                  <PctInput value={payout} onChange={setPayout} />
-                </SpreadRow>
-                <SpreadRow label="ROE">
-                  <PctInput value={roe} onChange={setRoe} />
-                </SpreadRow>
-                <button
-                  onClick={applySuggestedGrowth}
-                  className="w-full flex items-center justify-center gap-1.5 text-xs text-primary hover:underline mt-1"
-                >
-                  <Wand2 className="h-3 w-3" />
-                  Sugerir crescimento: (1-payout)×ROE = {pct(suggestedGrowth)}
-                </button>
-              </div>
+
+              {method === "bazin" && (
+                <>
+                  <SpreadRow label="Dividend Yield desejado">
+                    <PctInput value={desiredYield} onChange={setDesiredYield} />
+                  </SpreadRow>
+                  <SpreadRow label="Payout da empresa">
+                    <PctInput value={bazinPayout} onChange={setBazinPayout} />
+                  </SpreadRow>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Lucro projetado (total da empresa)</Label>
+                    <Input
+                      value={projectedProfit}
+                      onChange={e => setProjectedProfit(e.target.value)}
+                      onBlur={e => setProjectedProfit(fmtNum(e.target.value))}
+                      className="h-7 text-right text-sm font-semibold bg-primary/5 border-primary/20"
+                      inputMode="decimal"
+                      placeholder="Ex: 180.353.000"
+                    />
+                  </div>
+                  <SpreadRow label="Multiplicador de unit">
+                    <Input
+                      value={unitMultiplier}
+                      onChange={e => setUnitMultiplier(e.target.value)}
+                      className="h-7 w-16 text-right text-sm font-semibold bg-primary/5 border-primary/20"
+                      inputMode="numeric"
+                    />
+                  </SpreadRow>
+                  <p className="text-[11px] text-muted-foreground leading-snug">
+                    Use 3, por exemplo, quando o ativo for uma "unit" composta por 3 ações.
+                  </p>
+                </>
+              )}
             </SpreadCard>
 
             <SpreadCard title="Realidade Projetada" tone={isUpside ? "success" : "destructive"}>
+              {method === "bazin" && (
+                <SpreadRow label="DPA (projetivo)"
+                  value={result && "dpa" in result ? formatMoney((result as any).dpa, assetCurrency) : "—"} bold />
+              )}
               <SpreadRow label="Preço-teto"
                 value={result ? formatMoney(result.fairPrice, assetCurrency) : "—"} bold big />
               <SpreadRow label="Market cap justo"
                 value={result ? formatMoney(result.fairMarketCap, assetCurrency) : "—"} />
-              <SpreadRow label="Upside/Downside">
+              {method === "bazin" && result && "projectedYield" in result && (
+                <SpreadRow label="Yield (projetivo)"
+                  value={pct((result as any).projectedYield)} />
+              )}
+              <SpreadRow label={method === "bazin" ? "Margem de segurança" : "Upside/Downside"}>
                 <span className={`text-sm font-bold ${isUpside ? "text-success" : "text-destructive"}`}>
                   {result ? `${isUpside ? "+" : ""}${pct(result.upsidePct)}` : "—"}
                 </span>
@@ -398,7 +515,51 @@ function ValuationPage() {
             </Button>
           </div>
 
-          {/* ── Coluna direita: tabela ano a ano, estilo planilha ─────────── */}
+          {/* ── Coluna direita: tabela ano a ano (FCD/Buffett) ou resumo (Bazin) ── */}
+          {method === "bazin" ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Resumo do Cálculo — Método Bazin</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <p className="text-xs text-muted-foreground">Lucro projetado</p>
+                    <p className="text-sm font-semibold mt-1">{formatMoney(dProjectedProfit, assetCurrency)}</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <p className="text-xs text-muted-foreground">Payout</p>
+                    <p className="text-sm font-semibold mt-1">{pct(dBazinPayout)}</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <p className="text-xs text-muted-foreground">Nº de ações</p>
+                    <p className="text-sm font-semibold mt-1">{shares.toLocaleString("pt-BR")}</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <p className="text-xs text-muted-foreground">Multiplicador unit</p>
+                    <p className="text-sm font-semibold mt-1">{dUnitMultiplier}x</p>
+                  </div>
+                  <div className="rounded-lg bg-primary/10 border border-primary/20 p-3">
+                    <p className="text-xs text-muted-foreground">DPA (projetivo)</p>
+                    <p className="text-sm font-bold text-primary mt-1">
+                      {result && "dpa" in result ? formatMoney((result as any).dpa, assetCurrency) : "—"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <p className="text-xs text-muted-foreground">Dividend Yield desejado</p>
+                    <p className="text-sm font-semibold mt-1">{pct(dDesiredYield)}</p>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-border space-y-2 text-xs text-muted-foreground">
+                  <p><strong className="text-foreground">DPA</strong> = (Lucro projetado × Payout ÷ Nº de ações) × Multiplicador de unit</p>
+                  <p><strong className="text-foreground">Preço-teto</strong> = DPA ÷ Dividend Yield desejado</p>
+                  <p><strong className="text-foreground">Yield projetivo</strong> = DPA ÷ Cotação atual</p>
+                  <p><strong className="text-foreground">Margem de segurança</strong> = (Preço-teto ÷ Cotação atual) − 1</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
           <Card className="overflow-hidden">
             <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Projeção de Fluxo de Caixa</CardTitle>
@@ -505,6 +666,7 @@ function ValuationPage() {
               </div>
             </CardContent>
           </Card>
+          )}
         </div>
       )}
 

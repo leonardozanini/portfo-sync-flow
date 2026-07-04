@@ -763,8 +763,74 @@ function PctInput({ value, onChange, className = "" }: { value: string; onChange
 
 // ── Histórico ─────────────────────────────────────────────────────────────────
 
+function methodBadge(method: string) {
+  const label = method === "bazin" ? "Bazin" : method === "buffett" ? "Buffett" : "FCD Clássico";
+  const color = method === "bazin" ? "bg-purple-500/10 text-purple-500"
+    : method === "buffett" ? "bg-amber-500/10 text-amber-600"
+    : "bg-primary/10 text-primary";
+  return { label, color };
+}
+
+function ValuationHistoryRow({ v, onEdit, onDelete }: { v: any; onEdit: (v: any) => void; onDelete: (id: string) => void }) {
+  const isUpside = v.upsidePct >= 0;
+  const { label, color } = methodBadge(v.method);
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="font-mono font-semibold text-sm w-20 shrink-0">{v.symbol}</div>
+        <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${color}`}>
+          {label}
+        </span>
+        <div className="text-xs text-muted-foreground">
+          {new Date(v.createdAt).toLocaleDateString("pt-BR")} · Preço-teto: <span className="font-semibold text-foreground">{formatMoney(v.fairPrice, v.currency)}</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-3 shrink-0">
+        <span className={`text-sm font-semibold ${isUpside ? "text-success" : "text-destructive"}`}>
+          {isUpside ? "+" : ""}{pct(v.upsidePct)}
+        </span>
+        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1" onClick={() => onEdit(v)}>
+          <Pencil className="h-3 w-3" /> Editar
+        </Button>
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onDelete(v.id)}>
+          <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ValuationHistoryRowCompact({ v, onEdit, onDelete }: { v: any; onEdit: (v: any) => void; onDelete: (id: string) => void }) {
+  const isUpside = v.upsidePct >= 0;
+  const { label, color } = methodBadge(v.method);
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3 min-w-0">
+        <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${color}`}>
+          {label}
+        </span>
+        <div className="text-xs text-muted-foreground">
+          {new Date(v.createdAt).toLocaleDateString("pt-BR")} · Preço-teto: <span className="font-semibold text-foreground">{formatMoney(v.fairPrice, v.currency)}</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-3 shrink-0">
+        <span className={`text-xs font-semibold ${isUpside ? "text-success" : "text-destructive"}`}>
+          {isUpside ? "+" : ""}{pct(v.upsidePct)}
+        </span>
+        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs gap-1" onClick={() => onEdit(v)}>
+          <Pencil className="h-3 w-3" /> Editar
+        </Button>
+        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onDelete(v.id)}>
+          <Trash2 className="h-3 w-3 text-muted-foreground" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function ValuationHistory({ valuations, onDeleted, onEdit }: { valuations: any[]; onDeleted: () => void; onEdit: (v: any) => void }) {
   const [toDelete, setToDelete] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const deleteFn = useServerFn(deleteValuation);
 
   const handleDelete = async () => {
@@ -784,35 +850,68 @@ function ValuationHistory({ valuations, onDeleted, onEdit }: { valuations: any[]
     return <p className="text-sm text-muted-foreground py-4 text-center">Nenhum valuation calculado ainda.</p>;
   }
 
+  // Agrupa por ativo (assetId), preservando a ordem geral (mais recente primeiro)
+  const groups = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const v of valuations) {
+      if (!map.has(v.assetId)) map.set(v.assetId, []);
+      map.get(v.assetId)!.push(v);
+    }
+    return Array.from(map.values());
+  }, [valuations]);
+
+  const toggleExpanded = (assetId: string) => {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      next.has(assetId) ? next.delete(assetId) : next.add(assetId);
+      return next;
+    });
+  };
+
   return (
     <>
       <div className="space-y-2">
-        {valuations.map((v) => {
-          const isUpside = v.upsidePct >= 0;
-          const methodLabel = v.method === "bazin" ? "Bazin" : v.method === "buffett" ? "Buffett" : "FCD Clássico";
-          const methodColor = v.method === "bazin" ? "bg-purple-500/10 text-purple-500" : v.method === "buffett" ? "bg-amber-500/10 text-amber-600" : "bg-primary/10 text-primary";
+        {groups.map((group) => {
+          if (group.length === 1) {
+            return <ValuationHistoryRow key={group[0].id} v={group[0]} onEdit={onEdit} onDelete={setToDelete} />;
+          }
+
+          const assetId = group[0].assetId;
+          const isOpen = expanded.has(assetId);
+          const latest = group[0];
+          const isUpside = latest.upsidePct >= 0;
+
           return (
-            <div key={v.id} className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="font-mono font-semibold text-sm w-20 shrink-0">{v.symbol}</div>
-                <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${methodColor}`}>
-                  {methodLabel}
-                </span>
-                <div className="text-xs text-muted-foreground">
-                  {new Date(v.createdAt).toLocaleDateString("pt-BR")} · Preço-teto: <span className="font-semibold text-foreground">{formatMoney(v.fairPrice, v.currency)}</span>
+            <div key={assetId} className="rounded-lg border border-border overflow-hidden">
+              <button
+                onClick={() => toggleExpanded(assetId)}
+                className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-muted/30 transition-colors"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="font-mono font-semibold text-sm w-20 shrink-0 text-left">{latest.symbol}</div>
+                  <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 bg-muted text-muted-foreground">
+                    {group.length} valuations
+                  </span>
+                  <div className="text-xs text-muted-foreground text-left">
+                    Mais recente: {new Date(latest.createdAt).toLocaleDateString("pt-BR")} · <span className="font-semibold text-foreground">{formatMoney(latest.fairPrice, latest.currency)}</span>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-3 shrink-0">
-                <span className={`text-sm font-semibold ${isUpside ? "text-success" : "text-destructive"}`}>
-                  {isUpside ? "+" : ""}{pct(v.upsidePct)}
-                </span>
-                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1" onClick={() => onEdit(v)}>
-                  <Pencil className="h-3 w-3" /> Editar
-                </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setToDelete(v.id)}>
-                  <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
-              </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className={`text-sm font-semibold ${isUpside ? "text-success" : "text-destructive"}`}>
+                    {isUpside ? "+" : ""}{pct(latest.upsidePct)}
+                  </span>
+                  {isOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                </div>
+              </button>
+              {isOpen && (
+                <div className="border-t border-border divide-y divide-border/50 bg-muted/10">
+                  {group.map((v) => (
+                    <div key={v.id} className="px-4 py-2">
+                      <ValuationHistoryRowCompact v={v} onEdit={onEdit} onDelete={setToDelete} />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}

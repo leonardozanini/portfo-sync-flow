@@ -2777,7 +2777,7 @@ export const listValuations = createServerFn({ method: "GET" })
     const { supabase, userId } = context;
     const [valRes, assetsRes] = await Promise.all([
       (supabase as any).from("asset_valuations").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
-      supabase.from("assets").select("id, symbol, name, currency"),
+      supabase.from("assets").select("id, symbol, name, currency, asset_class"),
     ]);
     if (valRes.error) throw new Error(valRes.error.message);
     const assetById = new Map((assetsRes.data ?? []).map((a: any) => [a.id, a]));
@@ -2789,6 +2789,7 @@ export const listValuations = createServerFn({ method: "GET" })
         assetId: v.asset_id,
         symbol: asset?.symbol ?? "?",
         name: asset?.name ?? "?",
+        assetClass: asset?.asset_class ?? "other",
         method: v.method ?? "classic",
         discountRate: v.discount_rate != null ? Number(v.discount_rate) : null,
         perpetuityGrowth: v.perpetuity_growth != null ? Number(v.perpetuity_growth) : null,

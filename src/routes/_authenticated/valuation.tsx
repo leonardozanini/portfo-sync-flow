@@ -336,29 +336,48 @@ function ValuationPage() {
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <Calculator className="h-6 w-6 text-primary" /> Valuation
           </h1>
-          <p className="text-sm text-muted-foreground">
-            Preço-teto pelo método de Fluxo de Caixa Descontado (DCF).
-          </p>
           {loadedFromId && (
             <p className="text-xs text-primary mt-1 flex items-center gap-1">
               <Pencil className="h-3 w-3" /> Premissas salvas carregadas — altere o que quiser e clique em "Salvar" para atualizar.
             </p>
           )}
         </div>
-        <div className="w-64">
-          <Select value={selectedAssetId} onValueChange={setSelectedAssetId}>
-            <SelectTrigger><SelectValue placeholder="Selecione um ativo…" /></SelectTrigger>
-            <SelectContent>
-              {allAssets.map(a => {
-                const hasValuation = valuations.some((v: any) => v.assetId === a.assetId);
-                return (
-                  <SelectItem key={a.assetId} value={a.assetId}>
-                    {a.symbol} — {a.name} {hasValuation ? "✓" : ""}
-                  </SelectItem>
-                );
-              })}
-            </SelectContent>
-          </Select>
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Tipo de Valuation — nível 1, agora no topo junto ao seletor de ativo */}
+          <div className="flex rounded-lg border border-border overflow-hidden text-xs">
+            <button
+              onClick={() => setMethod("classic")}
+              className={`px-3 py-2 transition-colors font-medium whitespace-nowrap ${
+                method !== "bazin" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              Fluxo de Caixa Descontado
+            </button>
+            <button
+              onClick={() => setMethod("bazin")}
+              className={`px-3 py-2 transition-colors font-medium whitespace-nowrap ${
+                method === "bazin" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              Dividend Yield (Bazin)
+            </button>
+          </div>
+
+          <div className="w-64">
+            <Select value={selectedAssetId} onValueChange={setSelectedAssetId}>
+              <SelectTrigger><SelectValue placeholder="Selecione um ativo…" /></SelectTrigger>
+              <SelectContent>
+                {allAssets.map(a => {
+                  const hasValuation = valuations.some((v: any) => v.assetId === a.assetId);
+                  return (
+                    <SelectItem key={a.assetId} value={a.assetId}>
+                      {a.symbol} — {a.name} {hasValuation ? "✓" : ""}
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
@@ -386,29 +405,6 @@ function ValuationPage() {
               </SpreadRow>
               <SpreadRow label="Market cap" value={formatMoney(marketCapAtual, assetCurrency)} bold />
             </SpreadCard>
-
-            {/* ── Nível 1: tipo de valuation (categorias conceitualmente distintas) ── */}
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Tipo de Valuation</Label>
-              <div className="grid grid-cols-2 rounded-lg border border-border overflow-hidden text-xs">
-                <button
-                  onClick={() => setMethod("classic")}
-                  className={`px-3 py-2 transition-colors font-medium ${
-                    method !== "bazin" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted"
-                  }`}
-                >
-                  Fluxo de Caixa Descontado
-                </button>
-                <button
-                  onClick={() => setMethod("bazin")}
-                  className={`px-3 py-2 transition-colors font-medium ${
-                    method === "bazin" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted"
-                  }`}
-                >
-                  Dividend Yield (Bazin)
-                </button>
-              </div>
-            </div>
 
             {method !== "bazin" ? (
               <SpreadCard title="Premissas — FCD">

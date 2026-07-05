@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { AssetLogo } from "@/components/AssetLogo";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useServerFn } from "@tanstack/react-start";
@@ -777,6 +778,7 @@ function ValuationHistoryRow({ v, onEdit, onDelete }: { v: any; onEdit: (v: any)
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3">
       <div className="flex items-center gap-3 min-w-0">
+        <AssetLogo symbol={v.symbol} assetClass={v.assetClass ?? "other"} size={24} />
         <div className="font-mono font-semibold text-sm w-20 shrink-0">{v.symbol}</div>
         <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${color}`}>
           {label}
@@ -888,6 +890,7 @@ function ValuationHistory({ valuations, onDeleted, onEdit }: { valuations: any[]
                 className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-muted/30 transition-colors"
               >
                 <div className="flex items-center gap-3 min-w-0">
+                  <AssetLogo symbol={latest.symbol} assetClass={latest.assetClass ?? "other"} size={24} />
                   <div className="font-mono font-semibold text-sm w-20 shrink-0 text-left">{latest.symbol}</div>
                   <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 bg-muted text-muted-foreground">
                     {group.length} valuations

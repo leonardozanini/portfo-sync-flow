@@ -29,6 +29,7 @@ import {
 } from "recharts";
 import { useDisplayCurrency } from "@/components/CurrencySwitcher";
 import { convert, formatMoney, type Currency } from "@/lib/currency";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { NewTransactionDialog, type TxPreset } from "@/components/NewTransactionDialog";
 import { AssetLotsDialog } from "@/components/AssetLotsDialog";
 import { AssetLogo } from "@/components/AssetLogo";
@@ -982,7 +983,14 @@ function AssetRow({
       <TableCell className="text-right tabular-nums">{a.qty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</TableCell>
       <TableCell className="text-right tabular-nums">{formatMoney(a.avgPrice, a.currency)}</TableCell>
       <TableCell className="text-right tabular-nums">{formatMoney(a.currentPrice, a.currency)}</TableCell>
-      <TableCell className="text-right"><Pill value={a.variation} suffix="%" /></TableCell>
+      <TableCell className="text-right">
+        <VariationPill
+          value={a.variation}
+          moneyAmount={(a.currentPrice - a.avgPrice) * a.qty}
+          assetCurrency={a.currency as Currency}
+          displayCurrency={currency}
+        />
+      </TableCell>
       <TableCell className="text-right"><Pill value={a.yieldPct} suffix="%" arrow /></TableCell>
       <TableCell className="text-right tabular-nums">{formatMoney(convert(a.balanceBRL, currency), currency)}</TableCell>
       <TableCell className="text-right tabular-nums">{pctInGroup.toFixed(2)}%</TableCell>
@@ -1060,5 +1068,36 @@ function Pill({ value, suffix = "", arrow = false }: { value: number; suffix?: s
       {arrow ? (pos ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />)
             : (pos ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />)}
     </span>
+  );
+}
+
+// Pill de variação com popover — ao passar o mouse (desktop) ou tocar (mobile),
+// mostra quanto aquela % representa em valor monetário, na moeda de exibição do Folio.
+function VariationPill({
+  value, moneyAmount, assetCurrency, displayCurrency,
+}: {
+  value: number; moneyAmount: number; assetCurrency: Currency; displayCurrency: Currency;
+}) {
+  const pos = value >= 0;
+  const converted = convert(moneyAmount, displayCurrency, assetCurrency);
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className="inline-block">
+          <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium tabular-nums cursor-pointer transition-opacity hover:opacity-80 ${
+            pos ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
+          }`}>
+            {value.toFixed(2)}%
+            {pos ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto px-3 py-2 text-xs" side="top">
+        <p className="text-muted-foreground">Essa variação representa</p>
+        <p className={`font-semibold tabular-nums ${pos ? "text-success" : "text-destructive"}`}>
+          {pos ? "+" : ""}{formatMoney(converted, displayCurrency)}
+        </p>
+      </PopoverContent>
+    </Popover>
   );
 }

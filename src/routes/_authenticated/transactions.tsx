@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, MoreVertical, Pencil, Trash2, Loader2, Inbox } from "lucide-react";
+import { Plus, MoreVertical, Pencil, Trash2, Loader2, Inbox, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { NewTransactionDialog } from "@/components/NewTransactionDialog";
 import {
@@ -165,6 +165,17 @@ function TransactionsPage() {
     });
     return Array.from(map.entries());
   }, [visible]);
+
+  // Paginação independente por categoria — 10 lançamentos por página
+  const PAGE_SIZE = 10;
+  const [categoryPage, setCategoryPage] = useState<Record<string, number>>({});
+  const getPage = (cls: string) => categoryPage[cls] ?? 1;
+  const setPage = (cls: string, page: number) => setCategoryPage(prev => ({ ...prev, [cls]: page }));
+
+  // Ao mudar qualquer filtro, volta todas as categorias para a página 1
+  useEffect(() => {
+    setCategoryPage({});
+  }, [filterClass, filterSymbol, filterBroker, filterMonth]);
 
   // KPI: total investido e vendido no mês filtrado
   const monthlyTotals = useMemo(() => {
@@ -663,9 +674,16 @@ function TransactionsPage() {
         );
       })()}
 
-      {grouped.filter(([, rows]) => (rows as TxRow[])[0]?.assetClass !== "fixed_income").map(([cls, rows]) => (
+      {grouped.filter(([, rows]) => (rows as TxRow[])[0]?.assetClass !== "fixed_income").map(([cls, allRows]) => {
+        const totalPages = Math.max(1, Math.ceil(allRows.length / PAGE_SIZE));
+        const page = Math.min(getPage(cls), totalPages);
+        const rows = allRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+        return (
         <Card key={cls}>
-          <CardHeader><CardTitle className="text-base">{cls}</CardTitle></CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-base">{cls}</CardTitle>
+            <span className="text-xs text-muted-foreground">{allRows.length} lançamento{allRows.length === 1 ? "" : "s"}</span>
+          </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
@@ -736,9 +754,34 @@ function TransactionsPage() {
                 })}
               </TableBody>
             </Table>
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between pt-4">
+                <span className="text-xs text-muted-foreground">
+                  Página {page} de {totalPages}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline" size="sm" className="h-8 px-2"
+                    disabled={page <= 1}
+                    onClick={() => setPage(cls, page - 1)}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline" size="sm" className="h-8 px-2"
+                    disabled={page >= totalPages}
+                    onClick={() => setPage(cls, page + 1)}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
-      ))}
+        );
+      })}
 
       <NewTransactionDialog open={openNew} onOpenChange={setOpenNew} />
 

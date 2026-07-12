@@ -2,14 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { listCryptoLiquidity, adminRunCryptoLiquidityCheck } from "@/lib/portfolio.functions";
+import { listCryptoLiquidity, adminRunCryptoLiquidityCheck, checkSpecificCryptoAsset } from "@/lib/portfolio.functions";
 import { AssetLogo } from "@/components/AssetLogo";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Droplets, RefreshCw, CheckCircle2, AlertTriangle, XCircle, HelpCircle, Info,
-  ArrowUp, ArrowDown, ArrowUpDown, Search, X,
+  ArrowUp, ArrowDown, ArrowUpDown, Search, X, PlusCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -90,6 +90,8 @@ function LiquidezPage() {
   const { isAdmin } = useAuth();
   const [running, setRunning] = useState(false);
   const runCheckFn = useServerFn(adminRunCryptoLiquidityCheck);
+  const [addingAsset, setAddingAsset] = useState(false);
+  const checkSpecificFn = useServerFn(checkSpecificCryptoAsset);
 
   const { data: rows = [], isLoading, refetch } = useQuery({
     queryKey: ["crypto-liquidity"],
@@ -112,6 +114,22 @@ function LiquidezPage() {
       toast.error(e.message ?? "Erro ao executar checagem");
     } finally {
       setRunning(false);
+    }
+  };
+
+  const handleAddSpecific = async () => {
+    const symbol = search.trim().toUpperCase();
+    if (!symbol) return;
+    setAddingAsset(true);
+    try {
+      const result = await checkSpecificFn({ data: { symbol } });
+      toast.success(`${result.name} (${result.symbol}) adicionado! Status: ${STATUS_CONFIG[result.overall_status]?.label ?? result.overall_status}`);
+      setSearch("");
+      refetch();
+    } catch (e: any) {
+      toast.error(e.message ?? "Não foi possível encontrar esse ativo na CoinMarketCap");
+    } finally {
+      setAddingAsset(false);
     }
   };
 
@@ -253,7 +271,20 @@ function LiquidezPage() {
           ) : rows.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground">Nenhum criptoativo no catálogo.</div>
           ) : filteredRows.length === 0 ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">Nenhum ativo encontrado para "{search}".</div>
+            <div className="p-8 text-center space-y-3">
+              <p className="text-sm text-muted-foreground">Nenhum ativo encontrado para "{search}" no catálogo.</p>
+              <Button
+                size="sm"
+                onClick={handleAddSpecific}
+                disabled={addingAsset}
+                className="gap-1.5"
+              >
+                {addingAsset
+                  ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Buscando na CoinMarketCap…</>
+                  : <><PlusCircle className="h-3.5 w-3.5" /> Buscar "{search.toUpperCase()}" na CoinMarketCap e adicionar</>
+                }
+              </Button>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

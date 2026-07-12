@@ -2822,3 +2822,96 @@ export const deleteValuation = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true as const };
   });
+
+// ── Liquidez de Criptoativos (CoinMarketCap) ──────────────────────────────────
+// Regra de bolso:
+//   Volume 24h / Market Cap entre 2% e 4%   → liquidez saudável no curto prazo
+//   Volume 7d  / Market Cap entre 10% e 20% → liquidez saudável na semana
+
+export type CryptoLiquidityRow = {
+  assetId: string;
+  symbol: string;
+  name: string;
+  marketCap: number | null;
+  volume24h: number | null;
+  volume7d: number | null;
+  ratio24h: number | null;
+  ratio7d: number | null;
+  status24h: string | null;
+  status7d: string | null;
+  overallStatus: string | null;
+  checkedAt: string | null;
+};
+
+export const listCryptoLiquidity = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<CryptoLiquidityRow[]> => {
+    const { supabase } = context;
+
+    const [assetsRes, checksRes] = await Promise.all([
+      supabase.from("assets").select("id, symbol, name").eq("asset_class", "crypto").eq("status", "approved"),
+      (supabase as any).from("crypto_liquidity_checks").select("*"),
+    ]);
+
+    if (assetsRes.error) throw new Error(assetsRes.error.message);
+
+    const checkByAsset = new Map((checksRes.data ?? []).map((c: any) => [c.asset_id, c]));
+
+    // Deduplica por símbolo (o catálogo pode ter o mesmo símbolo em moedas diferentes)
+    const seenSymbols = new Set<string>();
+    const rows: CryptoLiquidityRow[] = [];
+
+    for (const a of (assetsRes.data ?? [])) {
+      const sym = a.symbol.toUpperCase();
+      if (seenSymbols.has(sym)) continue;
+      seenSymbols.add(sym);
+
+      const check = checkByAsset.get(a.id) as any;
+      rows.push({
+        assetId: a.id,
+        symbol: a.symbol,
+        name: a.name ?? a.symbol,
+        marketCap: check?.market_cap != null ? Number(check.market_cap) : null,
+        volume24h: check?.volume_24h != null ? Number(check.volume_24h) : null,
+        volume7d: check?.volume_7d != null ? Number(check.volume_7d) : null,
+        ratio24h: check?.ratio_24h != null ? Number(check.ratio_24h) : null,
+        ratio7d: check?.ratio_7d != null ? Number(check.ratio_7d) : null,
+        status24h: check?.status_24h ?? null,
+        status7d: check?.status_7d ?? null,
+        overallStatus: check?.overall_status ?? null,
+        checkedAt: check?.checked_at ?? null,
+      });
+    }
+
+    // Ordena: piores primeiro (low > warning > healthy > unknown), depois por market cap desc
+    const STATUS_ORDER: Record<string, number> = { low: 0, warning: 1, unknown: 2, healthy: 3 };
+    rows.sort((a, b) => {
+      const oa = STATUS_ORDER[a.overallStatus ?? "unknown"] ?? 2;
+      const ob = STATUS_ORDER[b.overallStatus ?? "unknown"] ?? 2;
+      if (oa !== ob) return oa - ob;
+      return (b.marketCap ?? 0) - (a.marketCap ?? 0);
+    });
+
+    return rows;
+  });
+
+export const adminRunCryptoLiquidityCheck = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // Verifica admin
+    const { data: roleData } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", context.userId)
+      .eq("role", "admin")
+      .single();
+    if (!roleData) throw new Error("Acesso negado — apenas admins");
+
+    const { data, error } = await supabaseAdmin.functions.invoke("check-crypto-liquidity", {
+      method: "POST",
+    });
+    if (error) throw new Error(error.message ?? "Erro na Edge Function");
+    return data as { ok: boolean; summary?: Record<string, number>; error?: string };
+  });

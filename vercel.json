@@ -26,6 +26,10 @@
     {
       "path": "/api/cron/sync-treasury",
       "schedule": "0 22 * * 1-5"
+    },
+    {
+      "path": "/api/cron/check-crypto-liquidity",
+      "schedule": "30 22 * * *"
     }
   ]
 }

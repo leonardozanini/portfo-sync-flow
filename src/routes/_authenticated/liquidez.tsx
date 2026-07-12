@@ -6,9 +6,10 @@ import { listCryptoLiquidity, adminRunCryptoLiquidityCheck } from "@/lib/portfol
 import { AssetLogo } from "@/components/AssetLogo";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Droplets, RefreshCw, CheckCircle2, AlertTriangle, XCircle, HelpCircle, Info,
-  ArrowUp, ArrowDown, ArrowUpDown,
+  ArrowUp, ArrowDown, ArrowUpDown, Search, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -114,6 +115,17 @@ function LiquidezPage() {
     }
   };
 
+  // Busca por nome/símbolo
+  const [search, setSearch] = useState("");
+
+  const filteredRows = useMemo(() => {
+    if (!search.trim()) return rows;
+    const q = search.trim().toLowerCase();
+    return rows.filter(r =>
+      r.symbol.toLowerCase().includes(q) || r.name.toLowerCase().includes(q)
+    );
+  }, [rows, search]);
+
   // Ordenação clicável de colunas
   const [sort, setSort] = useState<{ key: string; dir: SortDir }>({ key: "", dir: null });
 
@@ -127,8 +139,8 @@ function LiquidezPage() {
   };
 
   const sortedRows = useMemo(() => {
-    if (!sort.dir) return rows;
-    const getVal = (r: typeof rows[number]): number => {
+    if (!sort.dir) return filteredRows;
+    const getVal = (r: typeof filteredRows[number]): number => {
       switch (sort.key) {
         case "marketCap": return r.marketCap ?? -Infinity;
         case "volume24h": return r.volume24h ?? -Infinity;
@@ -138,9 +150,9 @@ function LiquidezPage() {
         default: return 0;
       }
     };
-    const sorted = [...rows].sort((a, b) => getVal(a) - getVal(b));
+    const sorted = [...filteredRows].sort((a, b) => getVal(a) - getVal(b));
     return sort.dir === "asc" ? sorted : sorted.reverse();
-  }, [rows, sort]);
+  }, [filteredRows, sort]);
 
   const withData = rows.filter(r => r.overallStatus && r.overallStatus !== "unknown");
   const healthyCount = withData.filter(r => r.overallStatus === "healthy").length;
@@ -213,14 +225,35 @@ function LiquidezPage() {
 
       {/* Tabela */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Todos os criptoativos ({rows.length})</CardTitle>
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 space-y-0">
+          <CardTitle className="text-base">
+            Todos os criptoativos ({filteredRows.length}{search ? ` de ${rows.length}` : ""})
+          </CardTitle>
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Buscar por nome ou símbolo…"
+              className="h-8 pl-8 pr-8 text-sm"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
             <div className="p-8 text-center text-sm text-muted-foreground">Carregando…</div>
           ) : rows.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground">Nenhum criptoativo no catálogo.</div>
+          ) : filteredRows.length === 0 ? (
+            <div className="p-8 text-center text-sm text-muted-foreground">Nenhum ativo encontrado para "{search}".</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { listCryptoLiquidity, adminRunCryptoLiquidityCheck } from "@/lib/portfolio.functions";
 import { AssetLogo } from "@/components/AssetLogo";
@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   Droplets, RefreshCw, CheckCircle2, AlertTriangle, XCircle, HelpCircle, Info,
+  ArrowUp, ArrowDown, ArrowUpDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -51,6 +52,37 @@ function StatusBadge({ status }: { status: string | null }) {
   );
 }
 
+// ── Ordenação clicável de colunas — reutilizável em outras tabelas do Folio ──
+type SortDir = "asc" | "desc" | null;
+
+function SortableHeader({
+  label, sortKey, activeSort, onSort, align = "right",
+}: {
+  label: string;
+  sortKey: string;
+  activeSort: { key: string; dir: SortDir };
+  onSort: (key: string) => void;
+  align?: "left" | "right" | "center";
+}) {
+  const isActive = activeSort.key === sortKey;
+  const dir = isActive ? activeSort.dir : null;
+  const alignClass = align === "left" ? "text-left justify-start" : align === "center" ? "text-center justify-center" : "text-right justify-end";
+
+  return (
+    <th className={`px-4 py-2.5 font-medium ${align === "left" ? "text-left" : align === "center" ? "text-center" : "text-right"}`}>
+      <button
+        onClick={() => onSort(sortKey)}
+        className={`inline-flex items-center gap-1 hover:text-foreground transition-colors ${alignClass} ${isActive ? "text-foreground" : ""}`}
+      >
+        {label}
+        {dir === "asc" && <ArrowUp className="h-3 w-3" />}
+        {dir === "desc" && <ArrowDown className="h-3 w-3" />}
+        {!isActive && <ArrowUpDown className="h-3 w-3 opacity-30" />}
+      </button>
+    </th>
+  );
+}
+
 // ── Página principal ─────────────────────────────────────────────────────────
 
 function LiquidezPage() {
@@ -81,6 +113,34 @@ function LiquidezPage() {
       setRunning(false);
     }
   };
+
+  // Ordenação clicável de colunas
+  const [sort, setSort] = useState<{ key: string; dir: SortDir }>({ key: "", dir: null });
+
+  const handleSort = (key: string) => {
+    setSort(prev => {
+      if (prev.key !== key) return { key, dir: "desc" }; // 1º clique: maior pro menor
+      if (prev.dir === "desc") return { key, dir: "asc" };
+      if (prev.dir === "asc") return { key, dir: null };  // 3º clique: remove ordenação
+      return { key, dir: "desc" };
+    });
+  };
+
+  const sortedRows = useMemo(() => {
+    if (!sort.dir) return rows;
+    const getVal = (r: typeof rows[number]): number => {
+      switch (sort.key) {
+        case "marketCap": return r.marketCap ?? -Infinity;
+        case "volume24h": return r.volume24h ?? -Infinity;
+        case "volume7d": return r.volume7d ?? -Infinity;
+        case "ratio24h": return r.ratio24h ?? -Infinity;
+        case "ratio7d": return r.ratio7d ?? -Infinity;
+        default: return 0;
+      }
+    };
+    const sorted = [...rows].sort((a, b) => getVal(a) - getVal(b));
+    return sort.dir === "asc" ? sorted : sorted.reverse();
+  }, [rows, sort]);
 
   const withData = rows.filter(r => r.overallStatus && r.overallStatus !== "unknown");
   const healthyCount = withData.filter(r => r.overallStatus === "healthy").length;
@@ -167,18 +227,18 @@ function LiquidezPage() {
                 <thead>
                   <tr className="border-b border-border bg-muted/40 text-xs text-muted-foreground uppercase tracking-wide">
                     <th className="text-left px-4 py-2.5 font-medium">Ativo</th>
-                    <th className="text-right px-4 py-2.5 font-medium">Market Cap</th>
-                    <th className="text-right px-4 py-2.5 font-medium">Volume 24h</th>
-                    <th className="text-right px-4 py-2.5 font-medium">Volume 7d</th>
-                    <th className="text-right px-4 py-2.5 font-medium">Ratio 24h</th>
+                    <SortableHeader label="Market Cap" sortKey="marketCap" activeSort={sort} onSort={handleSort} />
+                    <SortableHeader label="Volume 24h" sortKey="volume24h" activeSort={sort} onSort={handleSort} />
+                    <SortableHeader label="Volume 7d" sortKey="volume7d" activeSort={sort} onSort={handleSort} />
+                    <SortableHeader label="Ratio 24h" sortKey="ratio24h" activeSort={sort} onSort={handleSort} />
                     <th className="text-center px-4 py-2.5 font-medium">Status 24h</th>
-                    <th className="text-right px-4 py-2.5 font-medium">Ratio 7d</th>
+                    <SortableHeader label="Ratio 7d" sortKey="ratio7d" activeSort={sort} onSort={handleSort} />
                     <th className="text-center px-4 py-2.5 font-medium">Status 7d</th>
                     <th className="text-center px-4 py-2.5 font-medium">Geral</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r) => (
+                  {sortedRows.map((r) => (
                     <tr key={r.assetId} className="border-b border-border/60 hover:bg-muted/20 transition-colors">
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2">

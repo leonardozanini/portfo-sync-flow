@@ -2915,3 +2915,20 @@ export const adminRunCryptoLiquidityCheck = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message ?? "Erro na Edge Function");
     return data as { ok: boolean; summary?: Record<string, number>; error?: string };
   });
+
+export const checkSpecificCryptoAsset = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ symbol: z.string().min(1).max(20) }).parse(input))
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { data: result, error } = await supabaseAdmin.functions.invoke("check-crypto-liquidity", {
+      method: "POST",
+      body: { symbol: data.symbol },
+    });
+
+    if (error) throw new Error(error.message ?? "Erro ao verificar o ativo");
+    if (!result?.ok) throw new Error(result?.error ?? "Ativo não encontrado");
+
+    return result as { ok: true; symbol: string; name: string; is_new: boolean; overall_status: string };
+  });

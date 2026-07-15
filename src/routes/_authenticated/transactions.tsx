@@ -482,9 +482,14 @@ function TransactionsPage() {
           if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, { rows: [], totalApplied: 0, weightedRate: 0 });
           const entry = bySymbol.get(t.symbol)!;
           const applied = t.metadata?.applied_amount ?? (t.unitPrice * t.quantity);
+          const appliedConverted = convert(applied, currency, t.currency as Currency);
           entry.rows.push(t);
-          entry.totalApplied += convert(applied, currency, t.currency as Currency);
-          entry.weightedRate += (t.metadata?.rate ?? 0) * applied;
+          entry.totalApplied += appliedConverted;
+          // BUG CORRIGIDO: antes usava "applied" (moeda original do ativo, ex: BRL)
+          // multiplicado pela taxa, mas dividia por "totalApplied" (já convertido pra
+          // moeda de exibição). Isso inflava/reduzia a taxa pela cotação cambial.
+          // Agora o numerador usa o valor JÁ convertido, batendo com o denominador.
+          entry.weightedRate += (t.metadata?.rate ?? 0) * appliedConverted;
         }
 
         const totalFI = Array.from(bySymbol.values()).reduce((s, e) => s + e.totalApplied, 0);
@@ -493,7 +498,8 @@ function TransactionsPage() {
         const globalWeightedRate = totalFI > 0
           ? fiRows.reduce((sum, t) => {
               const applied = t.metadata?.applied_amount ?? (t.unitPrice * t.quantity);
-              return sum + (t.metadata?.rate ?? 0) * applied;
+              const appliedConverted = convert(applied, currency, t.currency as Currency);
+              return sum + (t.metadata?.rate ?? 0) * appliedConverted;
             }, 0) / totalFI
           : 0;
 
@@ -502,11 +508,15 @@ function TransactionsPage() {
         for (const t of fiRows) {
           const bm = t.metadata?.benchmark ?? "Outro";
           const applied = t.metadata?.applied_amount ?? (t.unitPrice * t.quantity);
+          // Converte pra moeda de exibição ANTES de acumular — funcionava por
+          // coincidência quando toda a renda fixa estava em BRL, mas quebraria
+          // se algum dia houver títulos em outras moedas no mesmo indexador.
+          const appliedConverted = convert(applied, currency, t.currency as Currency);
           const rate = t.metadata?.rate ?? 0;
           if (!rateByBenchmark.has(bm)) rateByBenchmark.set(bm, { totalRate: 0, totalApplied: 0 });
           const entry = rateByBenchmark.get(bm)!;
-          entry.totalRate += rate * applied;
-          entry.totalApplied += applied;
+          entry.totalRate += rate * appliedConverted;
+          entry.totalApplied += appliedConverted;
         }
         const avgRateByBenchmark = Array.from(rateByBenchmark.entries()).map(([bm, e]) => ({
           benchmark: bm,
@@ -636,7 +646,7 @@ function TransactionsPage() {
                       <div key={item.benchmark} className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2">
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-muted-foreground">
-                            {formatMoney(convert(item.totalApplied, currency, "BRL" as Currency), currency)} aplicados
+                            {formatMoney(item.totalApplied, currency)} aplicados
                           </span>
                         </div>
                         <span className="text-sm font-bold text-emerald-500 tabular-nums">

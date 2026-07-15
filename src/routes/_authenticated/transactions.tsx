@@ -627,6 +627,23 @@ function TransactionsPage() {
                   <p className="text-base font-bold mt-1">{new Set(fiRows.map(t => t.symbol)).size}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">{fiRows.length} lançamentos</p>
                 </div>
+                {/* Taxa média ponderada */}
+                {globalWeightedRate > 0 && (
+                  <div className="rounded-lg bg-primary/10 border border-primary/20 p-3">
+                    <p className="text-xs text-muted-foreground">Taxa média ponderada</p>
+                    <p className="text-base font-bold text-primary mt-1">
+                      {avgRateByBenchmark.length === 1
+                        ? `${avgRateByBenchmark[0].benchmark} ${globalWeightedRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
+                        : `${globalWeightedRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
+                      }
+                    </p>
+                    {avgMaturityYears > 0 && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Prazo médio: {avgMaturityYears.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} anos
+                      </p>
+                    )}
+                  </div>
+                )}
                 {uniqueVenc.length > 0 && (
                   <div className="rounded-lg bg-muted/40 p-3">
                     <p className="text-xs text-muted-foreground">Próximo vencimento</p>
@@ -636,30 +653,6 @@ function TransactionsPage() {
                   </div>
                 )}
               </div>
-
-              {/* Resumo estilo relatório gerencial — rentabilidade média ponderada + prazo médio,
-                  com destaque visual (fundo amarelo/grifo) igual a relatórios de FIIs de papel */}
-              {globalWeightedRate > 0 && (
-                <div className="rounded-lg bg-yellow-500/15 border border-yellow-500/30 px-4 py-3">
-                  <p className="text-sm leading-relaxed">
-                    <span className="bg-yellow-500/30 px-1 rounded">
-                      com uma rentabilidade média ponderada de{" "}
-                      <strong>
-                        {avgRateByBenchmark.length === 1
-                          ? `${avgRateByBenchmark[0].benchmark} ${globalWeightedRate.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 })}% a.a.`
-                          : `${globalWeightedRate.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 })}% a.a.`
-                        }
-                      </strong>
-                      {avgMaturityYears > 0 && (
-                        <>
-                          , prazo médio de{" "}
-                          <strong>{avgMaturityYears.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} anos</strong>
-                        </>
-                      )}
-                    </span>
-                  </p>
-                </div>
-              )}
 
               {/* Taxa por benchmark */}
               {avgRateByBenchmark.length > 0 && (

@@ -503,6 +503,20 @@ function TransactionsPage() {
             }, 0) / totalFI
           : 0;
 
+        // Prazo médio ponderado (em anos) — mesma lógica de ponderação por valor aplicado,
+        // igual a relatórios gerenciais de FIIs de papel (ex: "prazo médio de 4,0 anos")
+        const today = new Date();
+        const avgMaturityYears = totalFI > 0
+          ? fiRows.reduce((sum, t) => {
+              if (!t.metadata?.maturity_date) return sum;
+              const applied = t.metadata?.applied_amount ?? (t.unitPrice * t.quantity);
+              const appliedConverted = convert(applied, currency, t.currency as Currency);
+              const maturity = parseDate(t.metadata.maturity_date);
+              const yearsToMaturity = (maturity.getTime() - today.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+              return sum + Math.max(yearsToMaturity, 0) * appliedConverted;
+            }, 0) / totalFI
+          : 0;
+
         // Taxa média ponderada por benchmark
         const rateByBenchmark = new Map<string, { totalRate: number; totalApplied: number }>();
         for (const t of fiRows) {
@@ -613,18 +627,6 @@ function TransactionsPage() {
                   <p className="text-base font-bold mt-1">{new Set(fiRows.map(t => t.symbol)).size}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">{fiRows.length} lançamentos</p>
                 </div>
-                {/* Taxa média ponderada */}
-                {globalWeightedRate > 0 && (
-                  <div className="rounded-lg bg-primary/10 border border-primary/20 p-3">
-                    <p className="text-xs text-muted-foreground">Taxa média ponderada</p>
-                    <p className="text-base font-bold text-primary mt-1">
-                      {avgRateByBenchmark.length === 1
-                        ? `${avgRateByBenchmark[0].benchmark} ${globalWeightedRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
-                        : `${globalWeightedRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
-                      }
-                    </p>
-                  </div>
-                )}
                 {uniqueVenc.length > 0 && (
                   <div className="rounded-lg bg-muted/40 p-3">
                     <p className="text-xs text-muted-foreground">Próximo vencimento</p>
@@ -634,6 +636,30 @@ function TransactionsPage() {
                   </div>
                 )}
               </div>
+
+              {/* Resumo estilo relatório gerencial — rentabilidade média ponderada + prazo médio,
+                  com destaque visual (fundo amarelo/grifo) igual a relatórios de FIIs de papel */}
+              {globalWeightedRate > 0 && (
+                <div className="rounded-lg bg-yellow-500/15 border border-yellow-500/30 px-4 py-3">
+                  <p className="text-sm leading-relaxed">
+                    <span className="bg-yellow-500/30 px-1 rounded">
+                      com uma rentabilidade média ponderada de{" "}
+                      <strong>
+                        {avgRateByBenchmark.length === 1
+                          ? `${avgRateByBenchmark[0].benchmark} ${globalWeightedRate.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 })}% a.a.`
+                          : `${globalWeightedRate.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 })}% a.a.`
+                        }
+                      </strong>
+                      {avgMaturityYears > 0 && (
+                        <>
+                          , prazo médio de{" "}
+                          <strong>{avgMaturityYears.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} anos</strong>
+                        </>
+                      )}
+                    </span>
+                  </p>
+                </div>
+              )}
 
               {/* Taxa por benchmark */}
               {avgRateByBenchmark.length > 0 && (

@@ -61,6 +61,14 @@ function fmtNum(v: string): string {
   return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Formata número inteiro com separador de milhar (ponto), sem casas decimais —
+// usado pra campos de contagem, como número de ações (ex: 2.720.000.000)
+function fmtInt(v: string): string {
+  const n = parseNumInput(v);
+  if (!n) return v;
+  return Math.round(n).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+}
+
 type YearRow = { year: number; growth: string; cashFlow: number; npv: number };
 
 // Motor de cálculo — espelha exatamente a lógica do servidor (computeValuation)
@@ -180,7 +188,7 @@ function ValuationPage() {
   // Preenche o formulário a partir de um valuation salvo (existente ou selecionado no histórico)
   const loadValuationIntoForm = (v: any) => {
     setPriceOverride(Number(v.priceAtCalc).toFixed(2).replace(".", ","));
-    setSharesOutstanding(String(v.sharesOutstanding));
+    setSharesOutstanding(Number(v.sharesOutstanding).toLocaleString("pt-BR", { maximumFractionDigits: 0 }));
     setDiscountRate((Number(v.discountRate) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 }));
     setPerpetuityGrowth((Number(v.perpetuityGrowth) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 }));
     setMethod(v.method === "buffett" ? "buffett" : "classic");
@@ -400,8 +408,9 @@ function ValuationPage() {
               </SpreadRow>
               <SpreadRow label="Nº de ações">
                 <Input value={sharesOutstanding} onChange={e => setSharesOutstanding(e.target.value)}
+                  onBlur={e => setSharesOutstanding(fmtInt(e.target.value))}
                   className="h-7 text-right text-sm font-semibold bg-primary/5 border-primary/20"
-                  inputMode="decimal" placeholder="Ex: 2000000000" />
+                  inputMode="decimal" placeholder="Ex: 2.720.000.000" />
               </SpreadRow>
               <SpreadRow label="Market cap" value={formatMoney(marketCapAtual, assetCurrency)} bold />
             </SpreadCard>

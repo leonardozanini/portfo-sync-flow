@@ -2932,3 +2932,95 @@ export const checkSpecificCryptoAsset = createServerFn({ method: "POST" })
 
     return result as { ok: true; symbol: string; name: string; is_new: boolean; overall_status: string };
   });
+
+// ── Maiores Altas / Maiores Baixas ────────────────────────────────────────────
+// Compara o preço de fechamento mais recente com o de referência (D-1, D-7 ou
+// D-30) para cada ativo que o usuário possui atualmente, ranqueando por variação.
+
+export type PriceMover = {
+  assetId: string;
+  symbol: string;
+  name: string;
+  assetClass: string;
+  currentPrice: number;
+  referencePrice: number;
+  changePct: number;
+};
+
+export const getPriceMovers = createServerFn({ method: "GET" })
+  .inputValidator((input: unknown) => z.object({ period: z.enum(["day", "week", "month"]).default("day") }).parse(input))
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ data, context }): Promise<{ gainers: PriceMover[]; losers: PriceMover[] }> => {
+    const { supabase, userId } = context;
+
+    const [txRes, assetsRes] = await Promise.all([
+      supabase.from("transactions").select("asset_id, tx_type, quantity").eq("user_id", userId),
+      supabase.from("assets").select("id, symbol, name, asset_class"),
+    ]);
+    if (txRes.error) throw new Error(txRes.error.message);
+
+    const assetById = new Map((assetsRes.data ?? []).map((a: any) => [a.id, a]));
+
+    // Quantidade líquida por ativo — só entram no ranking ativos que o usuário possui hoje
+    const netQty = new Map<string, number>();
+    for (const t of (txRes.data ?? [])) {
+      if (!t.asset_id) continue;
+      const sign = t.tx_type === "sell" ? -1 : t.tx_type === "buy" ? 1 : 0;
+      if (sign === 0) continue;
+      netQty.set(t.asset_id, (netQty.get(t.asset_id) ?? 0) + sign * Number(t.quantity));
+    }
+    const heldAssetIds = Array.from(netQty.entries()).filter(([, q]) => q > 1e-8).map(([id]) => id);
+    if (!heldAssetIds.length) return { gainers: [], losers: [] };
+
+    const daysBack = data.period === "day" ? 1 : data.period === "week" ? 7 : 30;
+    const referenceDate = new Date();
+    referenceDate.setDate(referenceDate.getDate() - daysBack);
+    const referenceDateStr = referenceDate.toISOString().slice(0, 10);
+
+    const { data: priceRows, error: priceErr } = await supabase
+      .from("asset_prices")
+      .select("asset_id, close_price, price_date")
+      .in("asset_id", heldAssetIds)
+      .order("price_date", { ascending: false });
+    if (priceErr) throw new Error(priceErr.message);
+
+    // Para cada ativo: preço mais recente + preço mais próximo (igual ou anterior) da data de referência
+    const latestByAsset = new Map<string, { price: number; date: string }>();
+    const referenceByAsset = new Map<string, { price: number; date: string }>();
+
+    for (const row of (priceRows ?? [])) {
+      const id = row.asset_id;
+      if (!latestByAsset.has(id)) {
+        latestByAsset.set(id, { price: Number(row.close_price), date: row.price_date });
+      }
+      if (row.price_date <= referenceDateStr && !referenceByAsset.has(id)) {
+        referenceByAsset.set(id, { price: Number(row.close_price), date: row.price_date });
+      }
+    }
+
+    const movers: PriceMover[] = [];
+    for (const assetId of heldAssetIds) {
+      const asset = assetById.get(assetId);
+      const latest = latestByAsset.get(assetId);
+      const reference = referenceByAsset.get(assetId);
+      if (!asset || !latest || !reference || reference.price <= 0) continue;
+      if (latest.date === reference.date) continue; // sem histórico suficiente pro período
+
+      const changePct = ((latest.price - reference.price) / reference.price) * 100;
+      movers.push({
+        assetId,
+        symbol: asset.symbol,
+        name: asset.name ?? asset.symbol,
+        assetClass: asset.asset_class,
+        currentPrice: latest.price,
+        referencePrice: reference.price,
+        changePct,
+      });
+    }
+
+    movers.sort((a, b) => b.changePct - a.changePct);
+    const gainers = movers.filter(m => m.changePct > 0).slice(0, 5);
+    const losers = movers.filter(m => m.changePct < 0).slice(-5).reverse();
+
+    return { gainers, losers };
+  });

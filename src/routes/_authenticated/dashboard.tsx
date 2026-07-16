@@ -21,7 +21,7 @@ import {
   Plus, TrendingUp, TrendingDown, Wallet, PiggyBank, Coins, LineChart as LineIcon,
   ChevronDown, ChevronUp, BarChart3, Settings2, ArrowUpRight, ArrowDownRight,
   CheckCircle2, XCircle, MoreHorizontal, GripVertical, Landmark, Building2, Bitcoin,
-  Layers, ListOrdered, Trash2,
+  Layers, ListOrdered, Trash2, Info,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
@@ -490,6 +490,11 @@ function Dashboard() {
             { label: "Dividendos Recebidos", value: formatMoney(dividends, currency) },
           ]}
           onClick={() => setMoversOpen(true)}
+          rightSlot={
+            <span title="Clique para ver as maiores altas e baixas da sua carteira">
+              <Info className="h-4 w-4 text-muted-foreground/60" />
+            </span>
+          }
         />
         <KpiCard
           icon={PiggyBank}

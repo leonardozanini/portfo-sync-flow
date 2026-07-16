@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
-import { queryOptions, useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
+import { queryOptions, useSuspenseQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { NewTransactionDialog, type TxPreset } from "@/components/NewTransactionDialog";
 import { AssetLotsDialog } from "@/components/AssetLotsDialog";
 import { AssetLogo } from "@/components/AssetLogo";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { getPriceMovers } from "@/lib/portfolio.functions";
 import { getDashboard, getDividendSyncQueue, syncAssetDividends, removeAssetFromPortfolio, type AssetClass, type AssetGroup, type GroupedAsset } from "@/lib/portfolio.functions";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
@@ -392,6 +394,7 @@ function Dashboard() {
   const [open, setOpen] = useState(false);
   const [preset, setPreset] = useState<TxPreset | undefined>(undefined);
   const [lotsAsset, setLotsAsset] = useState<{ id: string; symbol: string } | null>(null);
+  const [moversOpen, setMoversOpen] = useState(false);
   const { data } = useSuspenseQuery(dashboardQueryOptions);
   const qc = useQueryClient();
 
@@ -461,6 +464,7 @@ function Dashboard() {
           <Plus className="mr-2 h-4 w-4" />Adicionar Lançamento
         </Button>
         <NewTransactionDialog open={open} onOpenChange={setOpen} preset={preset} />
+        <PriceMoversDialog open={moversOpen} onOpenChange={setMoversOpen} />
         <AssetLotsDialog
           open={!!lotsAsset}
           onOpenChange={(v) => !v && setLotsAsset(null)}
@@ -485,6 +489,7 @@ function Dashboard() {
             { label: "Ganho de Capital", value: formatMoney(pnl, currency), tone: pnl >= 0 ? "success" : "destructive" },
             { label: "Dividendos Recebidos", value: formatMoney(dividends, currency) },
           ]}
+          onClick={() => setMoversOpen(true)}
         />
         <KpiCard
           icon={PiggyBank}
@@ -699,7 +704,7 @@ function EmptyChart({ label }: { label: string }) {
 }
 
 function KpiCard({
-  icon: Icon, title, value, valueTone, delta, subLabel, subValue, subValueTone, twoCols, rightSlot,
+  icon: Icon, title, value, valueTone, delta, subLabel, subValue, subValueTone, twoCols, rightSlot, onClick,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
@@ -711,10 +716,14 @@ function KpiCard({
   subValueTone?: "success" | "destructive";
   twoCols?: { label: string; value: string; tone?: "success" | "destructive" }[];
   rightSlot?: React.ReactNode;
+  onClick?: () => void;
 }) {
   const toneCls = valueTone === "success" ? "text-success" : valueTone === "destructive" ? "text-destructive" : "text-foreground";
   return (
-    <Card>
+    <Card
+      onClick={onClick}
+      className={onClick ? "cursor-pointer transition-colors hover:bg-muted/30" : undefined}
+    >
       <CardContent className="pt-5">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -1099,5 +1108,96 @@ function VariationPill({
         </p>
       </PopoverContent>
     </Popover>
+  );
+}
+
+// ── Maiores Altas / Maiores Baixas ────────────────────────────────────────────
+
+function PriceMoversDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+  const { currency } = useDisplayCurrency();
+  const [period, setPeriod] = useState<"day" | "week" | "month">("day");
+  const getMoversFn = useServerFn(getPriceMovers);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["price-movers", period],
+    queryFn: () => getMoversFn({ data: { period } }),
+    enabled: open,
+    staleTime: 60_000,
+  });
+
+  const PERIOD_LABEL = { day: "Dia", week: "Semana", month: "Mês" };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Maiores Altas e Baixas</DialogTitle>
+        </DialogHeader>
+
+        <div className="flex gap-2">
+          {(["day", "week", "month"] as const).map((p) => (
+            <button
+              key={p}
+              onClick={() => setPeriod(p)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                period === p ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70"
+              }`}
+            >
+              {PERIOD_LABEL[p]}
+            </button>
+          ))}
+        </div>
+
+        {isLoading ? (
+          <div className="py-10 text-center text-sm text-muted-foreground">Carregando…</div>
+        ) : !data || (data.gainers.length === 0 && data.losers.length === 0) ? (
+          <div className="py-10 text-center text-sm text-muted-foreground">
+            Sem dados suficientes pra esse período ainda.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-success mb-2">📈 Maiores Altas</p>
+              <div className="space-y-1.5">
+                {data.gainers.length === 0 && (
+                  <p className="text-xs text-muted-foreground">Nenhuma alta no período.</p>
+                )}
+                {data.gainers.map((m) => (
+                  <div key={m.assetId} className="flex items-center justify-between gap-2 rounded-lg bg-success/5 px-3 py-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <AssetLogo symbol={m.symbol} assetClass={m.assetClass} size={22} />
+                      <span className="font-mono text-sm font-semibold truncate">{m.symbol}</span>
+                    </div>
+                    <span className="text-sm font-bold text-success shrink-0">+{m.changePct.toFixed(2)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-destructive mb-2">📉 Maiores Baixas</p>
+              <div className="space-y-1.5">
+                {data.losers.length === 0 && (
+                  <p className="text-xs text-muted-foreground">Nenhuma baixa no período.</p>
+                )}
+                {data.losers.map((m) => (
+                  <div key={m.assetId} className="flex items-center justify-between gap-2 rounded-lg bg-destructive/5 px-3 py-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <AssetLogo symbol={m.symbol} assetClass={m.assetClass} size={22} />
+                      <span className="font-mono text-sm font-semibold truncate">{m.symbol}</span>
+                    </div>
+                    <span className="text-sm font-bold text-destructive shrink-0">{m.changePct.toFixed(2)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <p className="text-xs text-muted-foreground pt-2 border-t border-border">
+          Comparação entre o preço de fechamento mais recente e o fechamento de referência do período — atualizado 1x ao dia.
+        </p>
+      </DialogContent>
+    </Dialog>
   );
 }

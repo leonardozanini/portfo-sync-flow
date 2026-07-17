@@ -17,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Calculator, Plus, Trash2, ChevronDown, ChevronUp, Wand2, Pencil,
+  Calculator, Plus, Trash2, ChevronDown, ChevronUp, Wand2, Pencil, Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -777,60 +777,163 @@ function methodBadge(method: string) {
   return { label, color };
 }
 
+// Painel de premissas usadas naquele valuation específico — usado pelo botão
+// "Visualizar", que NÃO altera o formulário (diferente de "Editar").
+function ValuationPremissesDetail({ v }: { v: any }) {
+  const isBazin = v.method === "bazin";
+  return (
+    <div className="rounded-lg bg-muted/30 border border-border p-3 text-xs space-y-2">
+      {isBazin ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div>
+            <p className="text-muted-foreground">Dividend Yield desejado</p>
+            <p className="font-medium">{pct(v.desiredYield)}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground">Payout</p>
+            <p className="font-medium">{pct(v.payout)}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground">Lucro projetado</p>
+            <p className="font-medium">{formatMoney(v.projectedProfit, v.currency)}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground">Multiplicador de unit</p>
+            <p className="font-medium">{v.unitMultiplier}x</p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div>
+              <p className="text-muted-foreground">Taxa de desconto</p>
+              <p className="font-medium">{pct(v.discountRate)}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Cresc. perpétuo</p>
+              <p className="font-medium">{pct(v.perpetuityGrowth)}</p>
+            </div>
+            {v.method === "buffett" && v.perpetuityDiscountRate != null && (
+              <div>
+                <p className="text-muted-foreground">Taxa desc. perpétuo</p>
+                <p className="font-medium">{pct(v.perpetuityDiscountRate)}</p>
+              </div>
+            )}
+            <div>
+              <p className="text-muted-foreground">{v.cashFlowLabel} (ano base)</p>
+              <p className="font-medium">{formatMoney(v.baseCashFlow, v.currency)}</p>
+            </div>
+          </div>
+          {v.yearlyGrowthRates?.length > 0 && (
+            <div>
+              <p className="text-muted-foreground mb-1">Crescimento projetado por ano</p>
+              <div className="flex flex-wrap gap-1.5">
+                {v.yearlyGrowthRates.map((g: number, i: number) => (
+                  <span key={i} className="px-2 py-0.5 rounded-md bg-background border border-border">
+                    Ano {i + 1}: {pct(g)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+      <div className="flex justify-between pt-2 border-t border-border/60">
+        <span className="text-muted-foreground">Nº de ações</span>
+        <span className="font-medium">{Number(v.sharesOutstanding).toLocaleString("pt-BR")}</span>
+      </div>
+      <div className="flex justify-between">
+        <span className="text-muted-foreground">Preço na data do cálculo</span>
+        <span className="font-medium">{formatMoney(v.priceAtCalc, v.currency)}</span>
+      </div>
+      {v.notes && (
+        <div className="pt-2 border-t border-border/60">
+          <p className="text-muted-foreground mb-0.5">Notas</p>
+          <p className="text-foreground">{v.notes}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ValuationHistoryRow({ v, onEdit, onDelete }: { v: any; onEdit: (v: any) => void; onDelete: (id: string) => void }) {
+  const [viewing, setViewing] = useState(false);
   const isUpside = v.upsidePct >= 0;
   const { label, color } = methodBadge(v.method);
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3">
-      <div className="flex items-center gap-3 min-w-0">
-        <AssetLogo symbol={v.symbol} assetClass={v.assetClass ?? "other"} size={24} />
-        <div className="font-mono font-semibold text-sm w-20 shrink-0">{v.symbol}</div>
-        <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${color}`}>
-          {label}
-        </span>
-        <div className="text-xs text-muted-foreground">
-          {new Date(v.createdAt).toLocaleDateString("pt-BR")} · Preço-teto: <span className="font-semibold text-foreground">{formatMoney(v.fairPrice, v.currency)}</span>
+    <div className="rounded-lg border border-border overflow-hidden">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          <AssetLogo symbol={v.symbol} assetClass={v.assetClass ?? "other"} size={24} />
+          <span className="font-mono font-semibold text-sm">{v.symbol}</span>
+          <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${color}`}>
+            {label}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {new Date(v.createdAt).toLocaleDateString("pt-BR")} · Preço-teto:{" "}
+            <span className="font-semibold text-foreground">{formatMoney(v.fairPrice, v.currency)}</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
+          <span className={`text-sm font-semibold ${isUpside ? "text-success" : "text-destructive"}`}>
+            {isUpside ? "+" : ""}{pct(v.upsidePct)}
+          </span>
+          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1" onClick={() => setViewing(x => !x)}>
+            <Eye className="h-3 w-3" /> Visualizar
+          </Button>
+          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1" onClick={() => onEdit(v)}>
+            <Pencil className="h-3 w-3" /> Editar
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onDelete(v.id)}>
+            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+          </Button>
         </div>
       </div>
-      <div className="flex items-center gap-3 shrink-0">
-        <span className={`text-sm font-semibold ${isUpside ? "text-success" : "text-destructive"}`}>
-          {isUpside ? "+" : ""}{pct(v.upsidePct)}
-        </span>
-        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1" onClick={() => onEdit(v)}>
-          <Pencil className="h-3 w-3" /> Editar
-        </Button>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onDelete(v.id)}>
-          <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-        </Button>
-      </div>
+      {viewing && (
+        <div className="px-4 pb-3">
+          <ValuationPremissesDetail v={v} />
+        </div>
+      )}
     </div>
   );
 }
 
 function ValuationHistoryRowCompact({ v, onEdit, onDelete }: { v: any; onEdit: (v: any) => void; onDelete: (id: string) => void }) {
+  const [viewing, setViewing] = useState(false);
   const isUpside = v.upsidePct >= 0;
   const { label, color } = methodBadge(v.method);
   return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="flex items-center gap-3 min-w-0">
-        <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${color}`}>
-          {label}
-        </span>
-        <div className="text-xs text-muted-foreground">
-          {new Date(v.createdAt).toLocaleDateString("pt-BR")} · Preço-teto: <span className="font-semibold text-foreground">{formatMoney(v.fairPrice, v.currency)}</span>
+    <div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${color}`}>
+            {label}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {new Date(v.createdAt).toLocaleDateString("pt-BR")} · Preço-teto:{" "}
+            <span className="font-semibold text-foreground">{formatMoney(v.fairPrice, v.currency)}</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
+          <span className={`text-xs font-semibold ${isUpside ? "text-success" : "text-destructive"}`}>
+            {isUpside ? "+" : ""}{pct(v.upsidePct)}
+          </span>
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-xs gap-1" onClick={() => setViewing(x => !x)}>
+            <Eye className="h-3 w-3" /> Visualizar
+          </Button>
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-xs gap-1" onClick={() => onEdit(v)}>
+            <Pencil className="h-3 w-3" /> Editar
+          </Button>
+          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onDelete(v.id)}>
+            <Trash2 className="h-3 w-3 text-muted-foreground" />
+          </Button>
         </div>
       </div>
-      <div className="flex items-center gap-3 shrink-0">
-        <span className={`text-xs font-semibold ${isUpside ? "text-success" : "text-destructive"}`}>
-          {isUpside ? "+" : ""}{pct(v.upsidePct)}
-        </span>
-        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs gap-1" onClick={() => onEdit(v)}>
-          <Pencil className="h-3 w-3" /> Editar
-        </Button>
-        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onDelete(v.id)}>
-          <Trash2 className="h-3 w-3 text-muted-foreground" />
-        </Button>
-      </div>
+      {viewing && (
+        <div className="mt-2">
+          <ValuationPremissesDetail v={v} />
+        </div>
+      )}
     </div>
   );
 }
@@ -892,19 +995,20 @@ function ValuationHistory({ valuations, onDeleted, onEdit }: { valuations: any[]
             <div key={assetId} className="rounded-lg border border-border overflow-hidden">
               <button
                 onClick={() => toggleExpanded(assetId)}
-                className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-muted/30 transition-colors"
+                className="w-full flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-3 hover:bg-muted/30 transition-colors text-left"
               >
-                <div className="flex items-center gap-3 min-w-0">
+                <div className="flex flex-wrap items-center gap-2 min-w-0">
                   <AssetLogo symbol={latest.symbol} assetClass={latest.assetClass ?? "other"} size={24} />
-                  <div className="font-mono font-semibold text-sm w-20 shrink-0 text-left">{latest.symbol}</div>
+                  <span className="font-mono font-semibold text-sm">{latest.symbol}</span>
                   <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 bg-muted text-muted-foreground">
                     {group.length} valuations
                   </span>
-                  <div className="text-xs text-muted-foreground text-left">
-                    Mais recente: {new Date(latest.createdAt).toLocaleDateString("pt-BR")} · <span className="font-semibold text-foreground">{formatMoney(latest.fairPrice, latest.currency)}</span>
-                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    Mais recente: {new Date(latest.createdAt).toLocaleDateString("pt-BR")} ·{" "}
+                    <span className="font-semibold text-foreground">{formatMoney(latest.fairPrice, latest.currency)}</span>
+                  </span>
                 </div>
-                <div className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center gap-2 shrink-0">
                   <span className={`text-sm font-semibold ${isUpside ? "text-success" : "text-destructive"}`}>
                     {isUpside ? "+" : ""}{pct(latest.upsidePct)}
                   </span>

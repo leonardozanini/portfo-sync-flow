@@ -324,7 +324,10 @@ function TxForm({
   const fees = feesCents / 100;
   const qtyNum = parseFloat(qty) || 0;
   // Renda fixa: total = valor aplicado (price), sem qty
-  const total = qtyNum * price + fees; // funciona para ambos: qty*pu+fees (renda fixa) e qty*price+fees (demais)
+  // Compra: taxas SOMAM ao custo (você paga mais do que qty*preço)
+  // Venda: taxas SUBTRAEM do valor recebido (você recebe menos do que qty*preço)
+  const gross = qtyNum * price;
+  const total = txType === "sell" ? gross - fees : gross + fees;
   const qc = useQueryClient();
   const createTx = useServerFn(createTransaction);
 

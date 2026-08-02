@@ -17,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel,
 } from "@/components/ui/select";
 import {
-  Calculator, Plus, Trash2, ChevronDown, ChevronUp, Wand2, Pencil, Eye,
+  Calculator, Plus, Trash2, ChevronDown, ChevronUp, Wand2, Pencil, Eye, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -203,9 +203,13 @@ function ValuationPage() {
   const [loadedFromId, setLoadedFromId] = useState<string | null>(null);
   const skipNextAutoLoad = useRef(false);
 
-  // Preenche o formulário a partir de um valuation salvo (existente ou selecionado no histórico)
+  // Preenche o formulário a partir de um valuation salvo (existente ou selecionado no histórico).
+  // IMPORTANTE: o preço usa sempre a cotação ATUAL do ativo, não o preço salvo na época
+  // do cálculo original — assim a margem de segurança fica sempre atualizada. O preço
+  // histórico usado naquele cálculo continua visível no painel "Visualizar".
   const loadValuationIntoForm = (v: any) => {
-    setPriceOverride(Number(v.priceAtCalc).toFixed(2).replace(".", ","));
+    const livePrice = asset?.currentPrice ?? Number(v.priceAtCalc);
+    setPriceOverride(livePrice.toFixed(2).replace(".", ","));
     setSharesOutstanding(Number(v.sharesOutstanding).toLocaleString("pt-BR", { maximumFractionDigits: 0 }));
     setDiscountRate((Number(v.discountRate) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 }));
     setPerpetuityGrowth((Number(v.perpetuityGrowth) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 }));
@@ -427,9 +431,19 @@ function ValuationPage() {
           <div className="space-y-4">
             <SpreadCard title="Realidade Atual">
               <SpreadRow label="Ticker" value={asset.symbol} bold />
-              <SpreadRow label="Preço por ação">
-                <Input value={priceOverride} onChange={e => setPriceOverride(e.target.value)}
-                  className="h-7 text-right text-sm font-semibold bg-primary/5 border-primary/20" inputMode="decimal" />
+              <SpreadRow label={`Preço por ação (${assetCurrency})`}>
+                <div className="flex items-center gap-1">
+                  <Input value={priceOverride} onChange={e => setPriceOverride(e.target.value)}
+                    className="h-7 text-right text-sm font-semibold bg-primary/5 border-primary/20" inputMode="decimal" />
+                  <button
+                    type="button"
+                    title="Atualizar para a cotação mais recente"
+                    onClick={() => asset && setPriceOverride(asset.currentPrice.toFixed(2).replace(".", ","))}
+                    className="shrink-0 text-muted-foreground hover:text-primary transition-colors"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </SpreadRow>
               <SpreadRow label="Nº de ações">
                 <Input value={sharesOutstanding} onChange={e => setSharesOutstanding(e.target.value)}

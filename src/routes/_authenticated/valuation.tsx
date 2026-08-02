@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel,
 } from "@/components/ui/select";
 import {
   Calculator, Plus, Trash2, ChevronDown, ChevronUp, Wand2, Pencil, Eye,
@@ -153,10 +153,24 @@ function ValuationPage() {
   // Valuation faz sentido para ações e REITs (empresas com lucro/dividendos) —
   // FIIs "de papel", cripto, ETFs e renda fixa ficam de fora dessa lista.
   const VALUATION_CLASSES = new Set(["stock", "stock_intl", "reit_intl"]); // Ações, Stocks e REITs — não inclui FIIs ("reit")
+  const CLASS_ORDER = ["stock", "stock_intl", "reit_intl"];
+  const CLASS_LABEL: Record<string, string> = { stock: "Ações BR", stock_intl: "Stocks", reit_intl: "REITs" };
+
   const allAssets: GroupedAsset[] = useMemo(() => {
     if (!dash) return [];
     return dash.groups.flatMap(g => g.assets).filter(a => VALUATION_CLASSES.has(a.assetClass));
   }, [dash]);
+
+  // Agrupado por categoria, na ordem Ações BR → Stocks → REITs, pra exibir no seletor
+  const assetsByClass = useMemo(() => {
+    const map = new Map<string, GroupedAsset[]>();
+    for (const cls of CLASS_ORDER) map.set(cls, []);
+    for (const a of allAssets) {
+      if (!map.has(a.assetClass)) map.set(a.assetClass, []);
+      map.get(a.assetClass)!.push(a);
+    }
+    return Array.from(map.entries()).filter(([, list]) => list.length > 0);
+  }, [allAssets]);
 
   const [selectedAssetId, setSelectedAssetId] = useState<string>("");
   const asset = allAssets.find(a => a.assetId === selectedAssetId);
@@ -179,6 +193,10 @@ function ValuationPage() {
   const [cashFlowLabel, setCashFlowLabel] = useState<"Lucro Líquido" | "Fluxo de Caixa Livre">("Lucro Líquido");
   const [baseCashFlow, setBaseCashFlow] = useState("");
   const [baseYear, setBaseYear] = useState(String(new Date().getFullYear()));
+  // Dois anos anteriores ao ano base — só informativo, ajuda a calibrar as premissas
+  // de crescimento olhando o histórico real; não entra na conta do DCF.
+  const [histYear2, setHistYear2] = useState(""); // ano base - 2
+  const [histYear1, setHistYear1] = useState(""); // ano base - 1
   const [growthRates, setGrowthRates] = useState<string[]>(["5,00", "5,00", "5,00", "5,00", "5,00"]);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
@@ -228,6 +246,8 @@ function ValuationPage() {
       setPerpetuityDiscountRate("10,00");
       setCashFlowLabel("Lucro Líquido");
       setBaseCashFlow("");
+      setHistYear2("");
+      setHistYear1("");
       setGrowthRates(["5,00", "5,00", "5,00", "5,00", "5,00"]);
       setDesiredYield("7,00");
       setBazinPayout("85,00");
@@ -375,14 +395,19 @@ function ValuationPage() {
             <Select value={selectedAssetId} onValueChange={setSelectedAssetId}>
               <SelectTrigger><SelectValue placeholder="Selecione um ativo…" /></SelectTrigger>
               <SelectContent>
-                {allAssets.map(a => {
-                  const hasValuation = valuations.some((v: any) => v.assetId === a.assetId);
-                  return (
-                    <SelectItem key={a.assetId} value={a.assetId}>
-                      {a.symbol} — {a.name} {hasValuation ? "✓" : ""}
-                    </SelectItem>
-                  );
-                })}
+                {assetsByClass.map(([cls, list]) => (
+                  <SelectGroup key={cls}>
+                    <SelectLabel>{CLASS_LABEL[cls] ?? cls}</SelectLabel>
+                    {list.map(a => {
+                      const hasValuation = valuations.some((v: any) => v.assetId === a.assetId);
+                      return (
+                        <SelectItem key={a.assetId} value={a.assetId}>
+                          {a.symbol} — {a.name} {hasValuation ? "✓" : ""}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectGroup>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -609,6 +634,36 @@ function ValuationPage() {
                     </tr>
                   </thead>
                   <tbody>
+                    {/* Dois anos históricos antes do ano base — só referência visual,
+                        ajuda a calibrar a taxa de crescimento olhando o passado real. */}
+                    <tr className="border-b border-border/40">
+                      <td className="px-4 py-2 text-muted-foreground">{Number(baseYear) - 2 || "—"}</td>
+                      <td className="px-4 py-2 text-right">
+                        <Input value={histYear2} onChange={e => setHistYear2(e.target.value)}
+                          onBlur={e => setHistYear2(fmtNum(e.target.value))}
+                          className="h-7 text-right text-sm bg-muted/20 ml-auto"
+                          inputMode="decimal" placeholder="Opcional" />
+                      </td>
+                      <td className="px-4 py-2 text-right text-xs text-muted-foreground">Histórico</td>
+                      <td className="px-4 py-2 text-right text-xs text-muted-foreground">—</td>
+                      <td></td>
+                    </tr>
+                    <tr className="border-b border-border/40">
+                      <td className="px-4 py-2 text-muted-foreground">{Number(baseYear) - 1 || "—"}</td>
+                      <td className="px-4 py-2 text-right">
+                        <Input value={histYear1} onChange={e => setHistYear1(e.target.value)}
+                          onBlur={e => setHistYear1(fmtNum(e.target.value))}
+                          className="h-7 text-right text-sm bg-muted/20 ml-auto"
+                          inputMode="decimal" placeholder="Opcional" />
+                      </td>
+                      <td className="px-4 py-2 text-right text-xs text-muted-foreground">
+                        {histYear2 && histYear1
+                          ? pct((parseNumInput(histYear1) - parseNumInput(histYear2)) / parseNumInput(histYear2))
+                          : "Histórico"}
+                      </td>
+                      <td className="px-4 py-2 text-right text-xs text-muted-foreground">—</td>
+                      <td></td>
+                    </tr>
                     {/* Linha base (ano 0 — ano atual, editável) */}
                     <tr className="border-b border-border/60 bg-muted/20">
                       <td className="px-4 py-2">
@@ -621,7 +676,11 @@ function ValuationPage() {
                           className="h-7 text-right text-sm font-semibold bg-primary/5 border-primary/20 ml-auto"
                           inputMode="decimal" placeholder="Ex: 9017329000" />
                       </td>
-                      <td className="px-4 py-2 text-right text-xs text-muted-foreground">Ano base</td>
+                      <td className="px-4 py-2 text-right text-xs text-muted-foreground">
+                        {histYear1 && baseCashFlow
+                          ? pct((parseNumInput(baseCashFlow) - parseNumInput(histYear1)) / parseNumInput(histYear1))
+                          : "Ano base"}
+                      </td>
                       <td className="px-4 py-2 text-right text-xs text-muted-foreground">—</td>
                       <td></td>
                     </tr>
@@ -941,6 +1000,7 @@ function ValuationHistoryRowCompact({ v, onEdit, onDelete }: { v: any; onEdit: (
 function ValuationHistory({ valuations, onDeleted, onEdit }: { valuations: any[]; onDeleted: () => void; onEdit: (v: any) => void }) {
   const [toDelete, setToDelete] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [sortByMargin, setSortByMargin] = useState(false);
   const deleteFn = useServerFn(deleteValuation);
 
   const handleDelete = async () => {
@@ -967,8 +1027,13 @@ function ValuationHistory({ valuations, onDeleted, onEdit }: { valuations: any[]
       if (!map.has(v.assetId)) map.set(v.assetId, []);
       map.get(v.assetId)!.push(v);
     }
-    return Array.from(map.values());
-  }, [valuations]);
+    const list = Array.from(map.values());
+    if (sortByMargin) {
+      // Ordena pela margem (upsidePct) do registro mais recente de cada grupo — maior primeiro
+      return [...list].sort((a, b) => (b[0]?.upsidePct ?? -Infinity) - (a[0]?.upsidePct ?? -Infinity));
+    }
+    return list;
+  }, [valuations, sortByMargin]);
 
   const toggleExpanded = (assetId: string) => {
     setExpanded(prev => {
@@ -980,6 +1045,16 @@ function ValuationHistory({ valuations, onDeleted, onEdit }: { valuations: any[]
 
   return (
     <>
+      <div className="flex items-center justify-end mb-2">
+        <button
+          onClick={() => setSortByMargin(x => !x)}
+          className={`text-xs font-medium px-2.5 py-1 rounded-md transition-colors ${
+            sortByMargin ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70"
+          }`}
+        >
+          {sortByMargin ? "✓ Ordenado por margem (maior → menor)" : "Ordenar por margem"}
+        </button>
+      </div>
       <div className="space-y-2">
         {groups.map((group) => {
           if (group.length === 1) {

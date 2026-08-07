@@ -737,6 +737,7 @@ const createTxSchema = z.object({
     rate: z.number().optional(),
     maturity_date: z.string().nullable().optional(),
     issuer: z.string().nullable().optional(),
+    notes: z.string().nullable().optional(),
     product_type: z.string().optional(),
     applied_amount: z.number().optional(),
   }).optional(),

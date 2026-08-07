@@ -309,6 +309,7 @@ function TxForm({
   const [fiMaturity, setFiMaturity] = useState<string>("");
   const [fiMaturityDisplay, setFiMaturityDisplay] = useState<string>("");
   const [fiIssuer, setFiIssuer] = useState<string>("");
+  const [fiNotes, setFiNotes] = useState<string>("");
   const [fiProductType, setFiProductType] = useState<string>("Tesouro Direto");
 
   const isFixedIncome = assetClass === "fixed_income";
@@ -373,6 +374,7 @@ function TxForm({
           rate: fiRateCents / 100,
           maturity_date: fiMaturity || null,
           issuer: fiIssuer || null,
+          notes: fiNotes || null,
           product_type: fiProductType,
           applied_amount: total,
         } : undefined,
@@ -529,6 +531,15 @@ function TxForm({
                 value={fiIssuer}
                 onChange={(e) => setFiIssuer(e.target.value)}
                 placeholder="Ex: Banco XP, Tesouro Nacional"
+              />
+            </Field>
+
+            {/* Observações — ex: "garantia de limite de cartão", finalidade específica do título */}
+            <Field label={<>Observações <span className="float-right text-xs text-muted-foreground">(Opcional)</span></>}>
+              <Input
+                value={fiNotes}
+                onChange={(e) => setFiNotes(e.target.value)}
+                placeholder="Ex: Garantia de limite de cartão"
               />
             </Field>
           </>

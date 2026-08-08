@@ -15,7 +15,7 @@ import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from "@/components/ui/command";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, ArrowDownToLine, ArrowUpFromLine, CalendarDays, Loader2, ChevronsUpDown, Check, Building2, CheckCircle2, Landmark } from "lucide-react";
+import { Plus, ArrowDownToLine, ArrowUpFromLine, ArrowRightLeft, CalendarDays, Loader2, ChevronsUpDown, Check, Building2, CheckCircle2, Landmark } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { createTransaction, searchAssets, listBrokers, type AssetClass, type CurrencyCode } from "@/lib/portfolio.functions";
@@ -145,7 +145,7 @@ export function NewTransactionDialog({
               </DialogTitle>
             </DialogHeader>
             <Tabs key={resetKey} defaultValue="buy" className="w-full">
-              <TabsList className="grid w-full grid-cols-2 h-12 p-1 bg-muted/60">
+              <TabsList className="grid w-full grid-cols-3 h-12 p-1 bg-muted/60">
                 <TabsTrigger value="buy" className="gap-2 data-[state=active]:bg-background data-[state=active]:shadow-sm">
                   <ArrowDownToLine className="h-4 w-4 text-success" />
                   <span className="font-medium">Compra</span>
@@ -153,6 +153,10 @@ export function NewTransactionDialog({
                 <TabsTrigger value="sell" className="gap-2 data-[state=active]:bg-background data-[state=active]:shadow-sm">
                   <ArrowUpFromLine className="h-4 w-4 text-destructive" />
                   <span className="font-medium">Venda</span>
+                </TabsTrigger>
+                <TabsTrigger value="transfer" className="gap-2 data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                  <ArrowRightLeft className="h-4 w-4 text-primary" />
+                  <span className="font-medium">Transferência</span>
                 </TabsTrigger>
               </TabsList>
               <TabsContent value="buy" className="mt-4">
@@ -168,6 +172,18 @@ export function NewTransactionDialog({
                 <TxForm
                   key={`sell-${resetKey}`}
                   txType="sell"
+                  onClose={handleClose}
+                  onSuccess={setSuccessInfo}
+                  preset={preset}
+                />
+              </TabsContent>
+              <TabsContent value="transfer" className="mt-4">
+                <p className="mb-3 text-xs text-muted-foreground">
+                  Registre a movimentação de um criptoativo entre corretora e carteira própria (ou entre duas carteiras) — não altera seu patrimônio total, só de onde ele está guardado.
+                </p>
+                <TxForm
+                  key={`transfer-${resetKey}`}
+                  txType="transfer"
                   onClose={handleClose}
                   onSuccess={setSuccessInfo}
                   preset={preset}
@@ -283,12 +299,14 @@ function AssetCombobox({
 function TxForm({
   txType, onClose, onSuccess, preset,
 }: {
-  txType: "buy" | "sell";
+  txType: "buy" | "sell" | "transfer";
   onClose: () => void;
   onSuccess: (info: { symbol: string; total: string; currency: string }) => void;
   preset?: TxPreset;
 }) {
-  const [assetClass, setAssetClass] = useState<AssetClass>(preset?.assetClass ?? "stock");
+  const isTransfer = txType === "transfer";
+  // Transferência interna é exclusiva de criptoativos — força a classe do ativo
+  const [assetClass, setAssetClass] = useState<AssetClass>(isTransfer ? "crypto" : (preset?.assetClass ?? "stock"));
   const [symbol, setSymbol] = useState(preset?.symbol ?? "");
   const [currency, setCurrency] = useState<CurrencyCode>(preset?.currency ?? "BRL");
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10));
@@ -301,7 +319,9 @@ function TxForm({
   const [qty, setQty] = useState<string>("");
   const [priceCents, setPriceCents] = useState<number>(0);
   const [feesCents, setFeesCents] = useState<number>(0);
-  const [brokerId, setBrokerId] = useState<string>("");
+  const [brokerId, setBrokerId] = useState<string>(""); // p/ transfer = corretora/wallet de DESTINO
+  const [fromBrokerId, setFromBrokerId] = useState<string>(""); // só transfer — origem
+  const [transferFeeQty, setTransferFeeQty] = useState<string>(""); // taxa de rede, em unidades do próprio ativo
 
   // ── Renda fixa — campos extras ────────────────────────────────────────────
   const [fiBenchmark, setFiBenchmark] = useState<string>("IPCA+");
@@ -351,12 +371,22 @@ function TxForm({
     onError: (err: Error) => toast.error(err.message ?? "Erro ao salvar"),
   });
 
+  const transferFeeQtyNum = parseFloat((transferFeeQty || "0").replace(",", ".")) || 0;
+  const transferNetQty = Math.max(qtyNum - transferFeeQtyNum, 0);
+
   const submit = () => {
     if (!symbol.trim()) { toast.error("Informe o ativo (símbolo)"); return; }
-    // Renda fixa: valida valor aplicado; outros: valida quantidade
-    if (isFixedIncome && qtyNum <= 0) { toast.error("Informe a quantidade de títulos"); return; }
-    if (isFixedIncome && price <= 0) { toast.error("Informe o PU (preço unitário) na compra"); return; }
-    if (!isFixedIncome && qtyNum <= 0) { toast.error("Quantidade deve ser maior que zero"); return; }
+    if (isTransfer) {
+      if (qtyNum <= 0) { toast.error("Informe a quantidade transferida"); return; }
+      if (!fromBrokerId || fromBrokerId === "none") { toast.error("Informe de onde a transferência saiu"); return; }
+      if (!brokerId || brokerId === "none") { toast.error("Informe para onde a transferência foi"); return; }
+      if (fromBrokerId === brokerId) { toast.error("Origem e destino devem ser diferentes"); return; }
+    } else {
+      // Renda fixa: valida valor aplicado; outros: valida quantidade
+      if (isFixedIncome && qtyNum <= 0) { toast.error("Informe a quantidade de títulos"); return; }
+      if (isFixedIncome && price <= 0) { toast.error("Informe o PU (preço unitário) na compra"); return; }
+      if (!isFixedIncome && qtyNum <= 0) { toast.error("Quantidade deve ser maior que zero"); return; }
+    }
     mutation.mutate({
       data: {
         symbol: symbol.trim().toUpperCase(),
@@ -364,11 +394,14 @@ function TxForm({
         txType,
         occurredAt: date,
         // Renda fixa: quantity = 1, unitPrice = valor aplicado
+        // Transferência: quantity = quantidade bruta transferida, unitPrice = referência de mercado (opcional)
         quantity: qtyNum,
         unitPrice: price,
-        fees,
+        fees: isTransfer ? 0 : fees,
         currency,
-        brokerId: (brokerId && brokerId !== "none") ? brokerId : undefined,
+        brokerId: isTransfer
+          ? brokerId
+          : ((brokerId && brokerId !== "none") ? brokerId : undefined),
         metadata: isFixedIncome ? {
           benchmark: fiBenchmark,
           rate: fiRateCents / 100,
@@ -377,6 +410,9 @@ function TxForm({
           notes: fiNotes || null,
           product_type: fiProductType,
           applied_amount: total,
+        } : isTransfer ? {
+          from_broker_id: fromBrokerId,
+          fee_quantity: transferFeeQtyNum,
         } : undefined,
       },
     });
@@ -385,14 +421,20 @@ function TxForm({
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Tipo de ativo">
-          <Select value={assetClass} onValueChange={(v) => { setAssetClass(v as AssetClass); setSymbol(""); }} disabled={preset?.lockAsset}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {ASSET_CLASSES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </Field>
+        {isTransfer ? (
+          <Field label="Tipo de ativo">
+            <Input value="Criptomoedas" disabled className="bg-muted/40 text-muted-foreground" />
+          </Field>
+        ) : (
+          <Field label="Tipo de ativo">
+            <Select value={assetClass} onValueChange={(v) => { setAssetClass(v as AssetClass); setSymbol(""); }} disabled={preset?.lockAsset}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {ASSET_CLASSES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </Field>
+        )}
         <Field label="Ativo">
           <AssetCombobox
             value={symbol}
@@ -429,7 +471,77 @@ function TxForm({
           </div>
         </Field>
         {/* Campos padrão: Quantidade + Preço */}
-        {!isFixedIncome && (
+        {isTransfer ? (
+          <>
+            <Field label="Quantidade transferida (bruta)">
+              <Input
+                type="text"
+                inputMode="decimal"
+                value={qty}
+                onChange={(e) => {
+                  const v = e.target.value.replace(",", ".");
+                  if (v === "" || /^\d*\.?\d*$/.test(v)) setQty(v);
+                }}
+                placeholder="Ex: 0,05"
+              />
+            </Field>
+            <Field label={<>Taxa de rede <span className="float-right text-xs text-muted-foreground">(Opcional, na própria moeda)</span></>}>
+              <Input
+                type="text"
+                inputMode="decimal"
+                value={transferFeeQty}
+                onChange={(e) => {
+                  const v = e.target.value.replace(",", ".");
+                  if (v === "" || /^\d*\.?\d*$/.test(v)) setTransferFeeQty(v);
+                }}
+                placeholder="Ex: 0,0001"
+              />
+            </Field>
+
+            <Field label={<>Preço de referência <span className="float-right text-xs text-muted-foreground">(Opcional — só p/ registro)</span></>}>
+              <MoneyInput cents={priceCents} onChange={setPriceCents} currency={currency} />
+            </Field>
+            <div className="flex items-end pb-2 text-xs text-muted-foreground">
+              {qtyNum > 0 && (
+                <span>Chega no destino: <strong className="text-foreground">{transferNetQty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</strong></span>
+              )}
+            </div>
+
+            <Field label={<><Building2 className="inline h-3.5 w-3.5 mr-1 opacity-60" />De <span className="float-right text-xs text-muted-foreground">Origem</span></>}>
+              <Select value={fromBrokerId} onValueChange={setFromBrokerId}>
+                <SelectTrigger><SelectValue placeholder="De onde saiu" /></SelectTrigger>
+                <SelectContent>
+                  {(brokers as any[]).map((b) => (
+                    <SelectItem key={b.id} value={b.id}>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ background: b.color }} />
+                        {b.name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label={<><Building2 className="inline h-3.5 w-3.5 mr-1 opacity-60" />Para <span className="float-right text-xs text-muted-foreground">Destino</span></>}>
+              <Select value={brokerId} onValueChange={setBrokerId}>
+                <SelectTrigger><SelectValue placeholder="Para onde foi" /></SelectTrigger>
+                <SelectContent>
+                  {(brokers as any[]).map((b) => (
+                    <SelectItem key={b.id} value={b.id}>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ background: b.color }} />
+                        {b.name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <p className="col-span-2 text-xs text-muted-foreground -mt-2">
+              Não encontrou sua carteira própria na lista? Cadastre uma nova "corretora" com o nome dela (ex: "Ledger", "MetaMask") em Ajustes.
+            </p>
+          </>
+        ) : !isFixedIncome && (
           <>
             <Field label="Quantidade">
               <Input
@@ -553,32 +665,36 @@ function TxForm({
           </Select>
         </Field>
 
-        <Field label={<>Outros custos <span className="float-right text-xs text-muted-foreground">(Opcional)</span></>}>
-          <MoneyInput cents={feesCents} onChange={setFeesCents} currency={currency} />
-        </Field>
+        {!isTransfer && (
+          <>
+            <Field label={<>Outros custos <span className="float-right text-xs text-muted-foreground">(Opcional)</span></>}>
+              <MoneyInput cents={feesCents} onChange={setFeesCents} currency={currency} />
+            </Field>
 
-        <Field label={<><Building2 className="inline h-3.5 w-3.5 mr-1 opacity-60" />Corretora <span className="float-right text-xs text-muted-foreground">(Opcional)</span></>}>
-          <Select value={brokerId} onValueChange={setBrokerId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Selecionar corretora" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">Sem corretora</SelectItem>
-              {(brokers as any[]).map((b) => (
-                <SelectItem key={b.id} value={b.id}>
-                  <div className="flex items-center gap-2">
-                    <span className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ background: b.color }} />
-                    {b.name}
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
+            <Field label={<><Building2 className="inline h-3.5 w-3.5 mr-1 opacity-60" />Corretora <span className="float-right text-xs text-muted-foreground">(Opcional)</span></>}>
+              <Select value={brokerId} onValueChange={setBrokerId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecionar corretora" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sem corretora</SelectItem>
+                  {(brokers as any[]).map((b) => (
+                    <SelectItem key={b.id} value={b.id}>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ background: b.color }} />
+                        {b.name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          </>
+        )}
       </div>
 
       <div className="flex items-center justify-between rounded-lg bg-muted px-4 py-3">
-        <span className="font-medium">{isFixedIncome ? "Valor total (qtd × PU)" : "Valor total"}</span>
+        <span className="font-medium">{isFixedIncome ? "Valor total (qtd × PU)" : isTransfer ? "Valor de referência (opcional)" : "Valor total"}</span>
         <span className="text-lg font-semibold tabular-nums">{fmt(total)}</span>
       </div>
 

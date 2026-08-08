@@ -488,6 +488,14 @@ export const getDashboard = createServerFn({ method: "GET" })
         const avg = agg.qty > 0 ? agg.invested / agg.qty : price;
         agg.qty -= qty;
         agg.invested -= qty * avg;
+      } else if (t.tx_type === "transfer") {
+        // Transferência interna (entre corretora e carteira própria, por ex.) — não é
+        // compra nem venda, só muda "onde está guardado". A quantidade total só diminui
+        // pela taxa de rede paga (fee_quantity, em unidades do próprio ativo); o capital
+        // investido continua o mesmo, o que naturalmente eleva um pouco o preço médio
+        // do saldo restante — reflexo correto do custo da transferência no patrimônio.
+        const feeQty = Number((t.metadata as any)?.fee_quantity ?? 0);
+        agg.qty -= feeQty;
       }
       agg.lastPrice = price;
       agg.currency = cur;
@@ -725,7 +733,7 @@ const createTxSchema = z.object({
   symbol: z.string().min(1).max(64).regex(/^[A-Za-z0-9 ._+%-]+$/),
   name: z.string().max(120).optional(),
   assetClass: z.enum(["stock","reit","etf","stock_intl","reit_intl","etf_intl","crypto","fixed_income","fund","cash","other"]),
-  txType: z.enum(["buy","sell","dividend","deposit","withdraw"]),
+  txType: z.enum(["buy","sell","dividend","deposit","withdraw","transfer"]),
   occurredAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   quantity: z.number().positive().max(1e12),
   unitPrice: z.number().min(0).max(1e12),
@@ -740,8 +748,23 @@ const createTxSchema = z.object({
     notes: z.string().nullable().optional(),
     product_type: z.string().optional(),
     applied_amount: z.number().optional(),
+    // Transferência interna (só cripto): de onde saiu + taxa de rede (em unidades do próprio ativo)
+    from_broker_id: z.string().uuid().nullable().optional(),
+    fee_quantity: z.number().min(0).optional(),
   }).optional(),
-});
+}).refine(
+  (d) => d.txType !== "transfer" || d.assetClass === "crypto",
+  { message: "Transferência interna só é permitida para criptoativos" }
+).refine(
+  (d) => d.txType !== "transfer" || !!d.brokerId,
+  { message: "Informe a carteira/corretora de destino da transferência" }
+).refine(
+  (d) => d.txType !== "transfer" || !!d.metadata?.from_broker_id,
+  { message: "Informe a carteira/corretora de origem da transferência" }
+).refine(
+  (d) => d.txType !== "transfer" || d.metadata?.from_broker_id !== d.brokerId,
+  { message: "Origem e destino da transferência devem ser diferentes" }
+);
 
 export const createTransaction = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -970,6 +993,9 @@ export const getAssetLots = createServerFn({ method: "GET" })
       else if (t.tx_type === "sell") {
         const avg = qty > 0 ? invested / qty : p;
         qty -= q; invested -= q * avg;
+      } else if (t.tx_type === "transfer") {
+        const feeQty = Number((t.metadata as any)?.fee_quantity ?? 0);
+        qty -= feeQty; // só a taxa de rede reduz o saldo; capital investido não muda
       }
     }
     const currentValue = qty * currentPrice;

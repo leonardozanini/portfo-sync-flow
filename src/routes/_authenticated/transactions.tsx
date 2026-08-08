@@ -416,9 +416,10 @@ function TransactionsPage() {
         const brokerValueMap = new Map<string, number>();
         let unassigned = 0;
         for (const t of visible as TxRow[]) {
-          if (t.txType !== "buy" && t.txType !== "sell") continue;
+          if (t.txType !== "buy" && t.txType !== "sell" && t.txType !== "transfer") continue;
           const total = t.quantity * t.unitPrice;
           if (t.brokerId && t.brokerName) {
+            // Transferência conta pro destino (broker_id = onde o saldo passou a ficar)
             brokerValueMap.set(t.brokerId, (brokerValueMap.get(t.brokerId) ?? 0) + total);
           } else {
             unassigned += total;

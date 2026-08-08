@@ -1346,6 +1346,60 @@ export const listBrokers = createServerFn({ method: "GET" })
     return (data ?? []) as { id: string; name: string; type: string; country: string; color: string }[];
   });
 
+const brokerSchema = z.object({
+  name: z.string().min(1).max(60),
+  type: z.enum(["broker", "brazil", "international", "wallet"]).default("broker"),
+  country: z.string().max(10).default("BR"),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default("#6366f1"),
+});
+
+export const createBroker = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => brokerSchema.parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { data: inserted, error } = await (supabase as any)
+      .from("brokers")
+      .insert({ user_id: userId, name: data.name, type: data.type, country: data.country, color: data.color })
+      .select("id, name, type, country, color")
+      .single();
+    if (error) throw new Error(error.message);
+    return inserted as { id: string; name: string; type: string; country: string; color: string };
+  });
+
+export const updateBroker = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => brokerSchema.extend({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { error } = await (supabase as any)
+      .from("brokers")
+      .update({ name: data.name, type: data.type, country: data.country, color: data.color })
+      .eq("id", data.id)
+      .eq("user_id", userId);
+    if (error) throw new Error(error.message);
+    return { ok: true as const };
+  });
+
+export const deleteBroker = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    // Verifica se há lançamentos usando essa corretora antes de excluir
+    const { count } = await (supabase as any)
+      .from("transactions")
+      .select("id", { count: "exact", head: true })
+      .eq("broker_id", data.id)
+      .eq("user_id", userId);
+    if (count && count > 0) {
+      throw new Error(`Não é possível excluir — ${count} lançamento(s) usam essa corretora/wallet. Edite os lançamentos primeiro.`);
+    }
+    const { error } = await (supabase as any).from("brokers").delete().eq("id", data.id).eq("user_id", userId);
+    if (error) throw new Error(error.message);
+    return { ok: true as const };
+  });
+
 export const searchAssets = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>

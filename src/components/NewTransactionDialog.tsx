@@ -18,7 +18,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Plus, ArrowDownToLine, ArrowUpFromLine, ArrowRightLeft, CalendarDays, Loader2, ChevronsUpDown, Check, Building2, CheckCircle2, Landmark } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { createTransaction, searchAssets, listBrokers, type AssetClass, type CurrencyCode } from "@/lib/portfolio.functions";
+import { createTransaction, searchAssets, listBrokers, getDashboard, type AssetClass, type CurrencyCode } from "@/lib/portfolio.functions";
 
 const ASSET_CLASSES: { value: AssetClass; label: string }[] = [
   { value: "stock", label: "Ações" },
@@ -341,6 +341,20 @@ function TxForm({
     staleTime: 5 * 60_000,
   });
 
+  // Transferência: em vez de buscar em todo o catálogo, lista só as criptos que
+  // o usuário já possui de fato — reaproveita o cache do dashboard (mesma queryKey),
+  // então normalmente não gera nenhuma chamada de rede extra.
+  const getDashboardFn = useServerFn(getDashboard);
+  const { data: dashData } = useQuery({
+    queryKey: ["dashboard"],
+    queryFn: () => getDashboardFn(),
+    enabled: isTransfer,
+    staleTime: 30_000,
+  });
+  const heldCryptoAssets = isTransfer
+    ? (dashData?.groups.flatMap(g => g.assets).filter(a => a.assetClass === "crypto" && a.qty > 0) ?? [])
+    : [];
+
   const price = priceCents / 100;
   const fees = feesCents / 100;
   const qtyNum = parseFloat(qty) || 0;
@@ -436,13 +450,52 @@ function TxForm({
           </Field>
         )}
         <Field label="Ativo">
-          <AssetCombobox
-            value={symbol}
-            onChange={setSymbol}
-            assetClass={assetClass}
-            onPickCurrency={(c) => setCurrency(c)}
-            disabled={preset?.lockAsset}
-          />
+          {isTransfer ? (
+            <Select
+              value={symbol}
+              onValueChange={(v) => {
+                setSymbol(v);
+                const picked = heldCryptoAssets.find(a => a.symbol === v);
+                if (picked) setCurrency(picked.currency as CurrencyCode);
+              }}
+            >
+              <SelectTrigger><SelectValue placeholder={heldCryptoAssets.length ? "Selecione o ativo" : "Nenhuma cripto na carteira"} /></SelectTrigger>
+              <SelectContent>
+                {heldCryptoAssets.length === 0 ? (
+                  <div className="px-2 py-3 text-xs text-muted-foreground">
+                    Você ainda não tem nenhum criptoativo lançado na carteira.
+                  </div>
+                ) : (
+                  heldCryptoAssets.map((a) => (
+                    <SelectItem key={a.assetId} value={a.symbol}>
+                      <div className="flex items-center justify-between gap-3 w-full">
+                        <span className="font-medium">{a.symbol}</span>
+                        <span className="text-xs text-muted-foreground">
+                          Saldo: {a.qty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          ) : (
+            <AssetCombobox
+              value={symbol}
+              onChange={setSymbol}
+              assetClass={assetClass}
+              onPickCurrency={(c) => setCurrency(c)}
+              disabled={preset?.lockAsset}
+            />
+          )}
+          {isTransfer && symbol && (() => {
+            const picked = heldCryptoAssets.find(a => a.symbol === symbol);
+            return picked ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Saldo disponível: <strong className="text-foreground">{picked.qty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })} {picked.symbol}</strong>
+              </p>
+            ) : null;
+          })()}
         </Field>
 
         <Field label="Data da transação">

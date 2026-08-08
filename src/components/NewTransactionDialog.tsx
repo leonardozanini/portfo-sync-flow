@@ -484,8 +484,13 @@ function TxForm({
                 }}
                 placeholder="Ex: 0,05"
               />
+              {qtyNum > 0 && transferFeeQtyNum > 0 && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Chega no destino: <strong className="text-foreground">{transferNetQty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</strong>
+                </p>
+              )}
             </Field>
-            <Field label={<>Taxa de rede <span className="float-right text-xs text-muted-foreground">(Opcional, na própria moeda)</span></>}>
+            <Field label={<>Taxa de rede <span className="float-right text-xs text-muted-foreground">Opcional</span></>}>
               <Input
                 type="text"
                 inputMode="decimal"
@@ -498,46 +503,53 @@ function TxForm({
               />
             </Field>
 
-            <Field label={<>Preço de referência <span className="float-right text-xs text-muted-foreground">(Opcional — só p/ registro)</span></>}>
-              <MoneyInput cents={priceCents} onChange={setPriceCents} currency={currency} />
-            </Field>
-            <div className="flex items-end pb-2 text-xs text-muted-foreground">
-              {qtyNum > 0 && (
-                <span>Chega no destino: <strong className="text-foreground">{transferNetQty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</strong></span>
-              )}
+            {/* "De" e "Para" sempre lado a lado, num sub-grid próprio — não depende
+                da paridade dos campos anteriores no grid externo */}
+            <div className="col-span-2 grid grid-cols-2 gap-4">
+              <Field label={<><Building2 className="inline h-3.5 w-3.5 mr-1 opacity-60" />De <span className="float-right text-xs text-muted-foreground">Origem</span></>}>
+                <Select value={fromBrokerId} onValueChange={setFromBrokerId}>
+                  <SelectTrigger><SelectValue placeholder="De onde saiu" /></SelectTrigger>
+                  <SelectContent>
+                    {(brokers as any[]).map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        <div className="flex items-center gap-2">
+                          <span className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ background: b.color }} />
+                          {b.name}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label={<><Building2 className="inline h-3.5 w-3.5 mr-1 opacity-60" />Para <span className="float-right text-xs text-muted-foreground">Destino</span></>}>
+                <Select value={brokerId} onValueChange={setBrokerId}>
+                  <SelectTrigger><SelectValue placeholder="Para onde foi" /></SelectTrigger>
+                  <SelectContent>
+                    {(brokers as any[]).map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        <div className="flex items-center gap-2">
+                          <span className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ background: b.color }} />
+                          {b.name}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
             </div>
 
-            <Field label={<><Building2 className="inline h-3.5 w-3.5 mr-1 opacity-60" />De <span className="float-right text-xs text-muted-foreground">Origem</span></>}>
-              <Select value={fromBrokerId} onValueChange={setFromBrokerId}>
-                <SelectTrigger><SelectValue placeholder="De onde saiu" /></SelectTrigger>
-                <SelectContent>
-                  {(brokers as any[]).map((b) => (
-                    <SelectItem key={b.id} value={b.id}>
-                      <div className="flex items-center gap-2">
-                        <span className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ background: b.color }} />
-                        {b.name}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label={<><Building2 className="inline h-3.5 w-3.5 mr-1 opacity-60" />Para <span className="float-right text-xs text-muted-foreground">Destino</span></>}>
-              <Select value={brokerId} onValueChange={setBrokerId}>
-                <SelectTrigger><SelectValue placeholder="Para onde foi" /></SelectTrigger>
-                <SelectContent>
-                  {(brokers as any[]).map((b) => (
-                    <SelectItem key={b.id} value={b.id}>
-                      <div className="flex items-center gap-2">
-                        <span className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ background: b.color }} />
-                        {b.name}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <p className="col-span-2 text-xs text-muted-foreground -mt-2">
+            <details className="col-span-2 -mt-1">
+              <summary className="cursor-pointer text-xs text-primary hover:underline">
+                Adicionar preço de referência (opcional)
+              </summary>
+              <div className="mt-2">
+                <Field label={<>Preço de referência <span className="float-right text-xs text-muted-foreground">só p/ registro, não afeta o cálculo</span></>}>
+                  <MoneyInput cents={priceCents} onChange={setPriceCents} currency={currency} />
+                </Field>
+              </div>
+            </details>
+
+            <p className="col-span-2 text-xs text-muted-foreground">
               Não encontrou sua carteira própria na lista? Cadastre uma nova "corretora" com o nome dela (ex: "Ledger", "MetaMask") em Ajustes.
             </p>
           </>
@@ -656,14 +668,16 @@ function TxForm({
             </Field>
           </>
         )}
-        <Field label="Moeda">
-          <Select value={currency} onValueChange={(v) => setCurrency(v as CurrencyCode)} disabled={preset?.lockAsset}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </Field>
+        {!isTransfer && (
+          <Field label="Moeda">
+            <Select value={currency} onValueChange={(v) => setCurrency(v as CurrencyCode)} disabled={preset?.lockAsset}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </Field>
+        )}
 
         {!isTransfer && (
           <>

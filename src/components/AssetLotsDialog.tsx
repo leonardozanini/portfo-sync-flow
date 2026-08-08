@@ -131,10 +131,12 @@ function Lots({ data }: { data: any }) {
                     <Badge variant="outline" className={
                       isBuy ? "border-success/40 text-success"
                       : lot.txType === "sell" ? "border-destructive/40 text-destructive"
+                      : lot.txType === "transfer" ? "border-primary/40 text-primary"
                       : "border-border"
                     }>
                       {isBuy ? "Compra" : lot.txType === "sell" ? "Venda"
-                        : lot.txType === "dividend" ? "Provento" : lot.txType}
+                        : lot.txType === "dividend" ? "Provento"
+                        : lot.txType === "transfer" ? "Transferência" : lot.txType}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right tabular-nums">

@@ -4,6 +4,7 @@ import { queryOptions, useSuspenseQuery, useQuery, useQueryClient } from "@tanst
 import { useServerFn } from "@tanstack/react-start";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -21,7 +22,7 @@ import {
   Plus, TrendingUp, TrendingDown, Wallet, PiggyBank, Coins, LineChart as LineIcon,
   ChevronDown, ChevronUp, BarChart3, Settings2, ArrowUpRight, ArrowDownRight,
   CheckCircle2, XCircle, MoreHorizontal, GripVertical, Landmark, Building2, Bitcoin,
-  Layers, ListOrdered, Trash2, Info,
+  Layers, ListOrdered, Trash2, Info, SplitSquareHorizontal,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
@@ -34,7 +35,7 @@ import { NewTransactionDialog, type TxPreset } from "@/components/NewTransaction
 import { AssetLotsDialog } from "@/components/AssetLotsDialog";
 import { AssetLogo } from "@/components/AssetLogo";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { getPriceMovers } from "@/lib/portfolio.functions";
+import { getPriceMovers, applyStockSplit } from "@/lib/portfolio.functions";
 import { getDashboard, getDividendSyncQueue, syncAssetDividends, removeAssetFromPortfolio, type AssetClass, type AssetGroup, type GroupedAsset } from "@/lib/portfolio.functions";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
@@ -395,6 +396,7 @@ function Dashboard() {
   const [preset, setPreset] = useState<TxPreset | undefined>(undefined);
   const [lotsAsset, setLotsAsset] = useState<{ id: string; symbol: string } | null>(null);
   const [moversOpen, setMoversOpen] = useState(false);
+  const [splitAsset, setSplitAsset] = useState<{ id: string; symbol: string } | null>(null);
   const { data } = useSuspenseQuery(dashboardQueryOptions);
   const qc = useQueryClient();
 
@@ -465,6 +467,7 @@ function Dashboard() {
         </Button>
         <NewTransactionDialog open={open} onOpenChange={setOpen} preset={preset} />
         <PriceMoversDialog open={moversOpen} onOpenChange={setMoversOpen} />
+        <StockSplitDialog asset={splitAsset} onClose={() => setSplitAsset(null)} />
         <AssetLotsDialog
           open={!!lotsAsset}
           onOpenChange={(v) => !v && setLotsAsset(null)}
@@ -684,7 +687,8 @@ function Dashboard() {
           <div className="space-y-3">
             {data.groups.map((g) => (
               <AssetGroupCard key={g.assetClass} group={g} currency={currency}
-                onAdd={(p) => openNew(p)} onShowLots={openLots} onRemove={setRemoveAsset} />
+                onAdd={(p) => openNew(p)} onShowLots={openLots} onRemove={setRemoveAsset}
+                onSplit={setSplitAsset} />
             ))}
           </div>
         )}
@@ -884,13 +888,14 @@ function RemoveAssetDialog({
 }
 
 function AssetGroupCard({
-  group, currency, onAdd, onShowLots, onRemove,
+  group, currency, onAdd, onShowLots, onRemove, onSplit,
 }: {
   group: AssetGroup;
   currency: Currency;
   onAdd: (preset?: TxPreset) => void;
   onShowLots: (a: { id: string; symbol: string }) => void;
   onRemove: (a: { assetId: string; symbol: string; currentPrice: number; currency: string; qty: number }) => void;
+  onSplit: (a: { id: string; symbol: string }) => void;
 }) {
   const [open, setOpen] = useState(true);
   const Icon = CLASS_ICONS[group.assetClass] ?? Layers;
@@ -943,7 +948,7 @@ function AssetGroupCard({
                   {group.assets.map((a) => (
                     <AssetRow key={a.assetId} a={a} currency={currency}
                       groupValue={group.totalValueBRL}
-                      onAdd={onAdd} onShowLots={onShowLots} onRemove={onRemove} />
+                      onAdd={onAdd} onShowLots={onShowLots} onRemove={onRemove} onSplit={onSplit} />
                   ))}
                 </TableBody>
               </Table>
@@ -967,12 +972,13 @@ function AssetGroupCard({
 }
 
 function AssetRow({
-  a, currency, groupValue, onAdd, onShowLots, onRemove,
+  a, currency, groupValue, onAdd, onShowLots, onRemove, onSplit,
 }: {
   a: GroupedAsset; currency: Currency; groupValue: number;
   onAdd: (preset?: TxPreset) => void;
   onShowLots: (a: { id: string; symbol: string }) => void;
   onRemove: (a: { assetId: string; symbol: string; currentPrice: number; currency: string; qty: number }) => void;
+  onSplit: (a: { id: string; symbol: string }) => void;
 }) {
   const pctInGroup = groupValue > 0 ? (a.balanceBRL / groupValue) * 100 : 0;
   return (
@@ -1037,6 +1043,11 @@ function AssetRow({
             <DropdownMenuItem onClick={() => onShowLots({ id: a.assetId, symbol: a.symbol })}>
               <ListOrdered className="mr-2 h-4 w-4" />
               Ver lançamentos detalhados
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => onSplit({ id: a.assetId, symbol: a.symbol })}>
+              <SplitSquareHorizontal className="mr-2 h-4 w-4" />
+              Desdobramento / Grupamento
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -1202,6 +1213,113 @@ function PriceMoversDialog({ open, onOpenChange }: { open: boolean; onOpenChange
         <p className="text-xs text-muted-foreground pt-2 border-t border-border">
           Comparação entre o preço de fechamento mais recente e o fechamento de referência do período — atualizado 1x ao dia.
         </p>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Desdobramento / Grupamento de Ações ────────────────────────────────────────
+
+function StockSplitDialog({ asset, onClose }: { asset: { id: string; symbol: string } | null; onClose: () => void }) {
+  const [fromQty, setFromQty] = useState("1");
+  const [toQty, setToQty] = useState("2");
+  const [effectiveDate, setEffectiveDate] = useState("");
+  const [applyToAll, setApplyToAll] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const applySplitFn = useServerFn(applyStockSplit);
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    if (asset) {
+      setFromQty("1");
+      setToQty("2");
+      setEffectiveDate("");
+      setApplyToAll(true);
+    }
+  }, [asset?.id]);
+
+  const from = parseFloat(fromQty.replace(",", ".")) || 0;
+  const to = parseFloat(toQty.replace(",", ".")) || 0;
+  const multiplier = from > 0 ? to / from : 0;
+  const isSplit = multiplier > 1;
+  const isReverse = multiplier > 0 && multiplier < 1;
+
+  const handleApply = async () => {
+    if (!asset) return;
+    if (from <= 0 || to <= 0) { toast.error("Informe as duas quantidades da proporção"); return; }
+    setLoading(true);
+    try {
+      const result = await applySplitFn({
+        data: {
+          assetId: asset.id,
+          fromQty: from,
+          toQty: to,
+          effectiveDate: applyToAll ? null : (effectiveDate || null),
+        },
+      });
+      toast.success(`${result.updated} lançamento(s) de ${asset.symbol} ajustado(s)!`);
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      onClose();
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao aplicar o desdobramento/grupamento");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!asset} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <SplitSquareHorizontal className="h-4 w-4 text-primary" />
+            Desdobramento / Grupamento — {asset?.symbol}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 pt-2">
+          <p className="text-sm text-muted-foreground">
+            Ajusta retroativamente todos os seus lançamentos desse ativo — a quantidade e o preço médio
+            mudam, mas o valor total investido continua o mesmo.
+          </p>
+
+          <div className="rounded-lg bg-muted/40 p-3">
+            <p className="text-xs text-muted-foreground mb-2">Proporção (cada X ações antigas viram Y novas)</p>
+            <div className="flex items-center gap-2">
+              <Input value={fromQty} onChange={(e) => setFromQty(e.target.value)} className="w-20 text-center" inputMode="decimal" />
+              <span className="text-sm text-muted-foreground shrink-0">ação(ões) antiga(s) →</span>
+              <Input value={toQty} onChange={(e) => setToQty(e.target.value)} className="w-20 text-center" inputMode="decimal" />
+              <span className="text-sm text-muted-foreground shrink-0">nova(s)</span>
+            </div>
+            {multiplier > 0 && (
+              <p className="mt-2 text-xs">
+                {isSplit && <span className="text-success">Desdobramento — quantidade × {multiplier.toLocaleString("pt-BR", { maximumFractionDigits: 4 })}, preço médio ÷ {multiplier.toLocaleString("pt-BR", { maximumFractionDigits: 4 })}</span>}
+                {isReverse && <span className="text-destructive">Grupamento (inplit) — quantidade × {multiplier.toLocaleString("pt-BR", { maximumFractionDigits: 4 })}, preço médio ÷ {multiplier.toLocaleString("pt-BR", { maximumFractionDigits: 4 })}</span>}
+                {multiplier === 1 && <span className="text-muted-foreground">Proporção 1:1 — não altera nada</span>}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" checked={applyToAll} onChange={(e) => setApplyToAll(e.target.checked)} className="rounded" />
+              Aplicar em todos os lançamentos desse ativo (mais comum)
+            </label>
+            {!applyToAll && (
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">Só lançamentos até a data (inclusive)</label>
+                <Input type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} />
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 pt-2">
+            <Button onClick={handleApply} disabled={loading || multiplier === 1 || multiplier === 0} className="flex-1">
+              {loading ? "Aplicando…" : "Aplicar"}
+            </Button>
+            <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );

@@ -66,6 +66,10 @@ export type GroupedAsset = {
   investedBRL: number;
   variation: number;
   yieldPct: number;
+  dy: number;   // Dividend Yield — proventos (12m) / preço atual, em %
+  yoc: number;  // Yield on Cost — proventos (12m) / preço médio de compra, em %
+  bookValue: number | null;    // VPA — Valor Patrimonial por Ação/Cota (Brapi, só B3)
+  priceToBook: number | null;  // P/VP (Brapi, só B3)
 };
 
 export type AssetGroup = {
@@ -380,12 +384,21 @@ export const getDashboard = createServerFn({ method: "GET" })
       supabase.from("user_roles").select("role").eq("user_id", userId),
       (supabase as any).from("brokers").select("id, name, color").eq("user_id", userId),
       supabase.from("portfolio_snapshots").select("snapshot_date, total_value, total_invested, pnl").eq("user_id", userId).order("snapshot_date", { ascending: true }),
-      (supabase as any).from("dividends").select("amount, currency, payment_date, ex_date").eq("user_id", userId).gte("payment_date", since12mStr),
+      (supabase as any).from("dividends").select("asset_id, amount, currency, payment_date, ex_date").eq("user_id", userId).gte("payment_date", since12mStr),
     ]);
     if (txRes.error) throw new Error(txRes.error.message);
 
     const txs = txRes.data ?? [];
-    const dividendRows = (dividendsRes.data ?? []) as Array<{ amount: number; currency: string; payment_date: string | null; ex_date: string }>;
+    const dividendRows = (dividendsRes.data ?? []) as Array<{ asset_id: string; amount: number; currency: string; payment_date: string | null; ex_date: string }>;
+
+    // Soma de proventos dos últimos 12 meses, por ativo (moeda nativa do ativo — DY/YoC
+    // são razões, então não precisam de conversão cambial, só numerador e denominador
+    // na mesma moeda, que já é o caso: dividendo e preço do mesmo ativo).
+    const dividendsByAsset = new Map<string, number>();
+    for (const d of dividendRows) {
+      if (!d.asset_id) continue;
+      dividendsByAsset.set(d.asset_id, (dividendsByAsset.get(d.asset_id) ?? 0) + Number(d.amount));
+    }
     const assets = assetsRes.data ?? [];
     const prices = pricesRes.data ?? [];
     const fxRows = fxRes.data ?? [];
@@ -520,6 +533,12 @@ export const getDashboard = createServerFn({ method: "GET" })
       const yieldPct = avgPrice > 0 ? ((currentPrice - avgPrice) / avgPrice) * 100 : 0;
       const variation = yieldPct; // placeholder until intraday day-prior data
 
+      // DY e YoC — proventos dos últimos 12 meses (moeda nativa do ativo) sobre
+      // preço atual (DY) ou preço médio de compra (YoC). Ambos em %.
+      const dividends12m = dividendsByAsset.get(assetId) ?? 0;
+      const dy = currentPrice > 0 ? (dividends12m / currentPrice) * 100 : 0;
+      const yoc = avgPrice > 0 ? (dividends12m / avgPrice) * 100 : 0;
+
       const ga: GroupedAsset = {
         assetId,
         symbol: asset.symbol,
@@ -534,6 +553,10 @@ export const getDashboard = createServerFn({ method: "GET" })
         investedBRL,
         variation,
         yieldPct,
+        dy,
+        yoc,
+        bookValue: (asset as any).book_value != null ? Number((asset as any).book_value) : null,
+        priceToBook: (asset as any).price_to_book != null ? Number((asset as any).price_to_book) : null,
       };
 
       const grp = groupsMap.get(klass) ?? {
@@ -3156,4 +3179,24 @@ export const applyStockSplit = createServerFn({ method: "POST" })
     }
 
     return { ok: true as const, updated, multiplier };
+  });
+
+export const adminSyncFundamentals = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { data: roleData } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", context.userId)
+      .eq("role", "admin")
+      .single();
+    if (!roleData) throw new Error("Acesso negado");
+
+    const { data, error } = await supabaseAdmin.functions.invoke("sync-fundamentals", {
+      method: "POST",
+    });
+    if (error) throw new Error(error.message ?? "Erro na Edge Function");
+    return data as { ok: boolean; summary?: Record<string, number>; error?: string };
   });

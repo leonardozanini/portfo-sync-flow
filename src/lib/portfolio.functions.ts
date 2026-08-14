@@ -384,20 +384,30 @@ export const getDashboard = createServerFn({ method: "GET" })
       supabase.from("user_roles").select("role").eq("user_id", userId),
       (supabase as any).from("brokers").select("id, name, color").eq("user_id", userId),
       supabase.from("portfolio_snapshots").select("snapshot_date, total_value, total_invested, pnl").eq("user_id", userId).order("snapshot_date", { ascending: true }),
-      (supabase as any).from("dividends").select("asset_id, amount, currency, payment_date, ex_date").eq("user_id", userId).gte("payment_date", since12mStr),
+      (supabase as any).from("dividends").select("asset_id, amount, amount_per_share, quantity_held, currency, payment_date, ex_date").eq("user_id", userId).gte("payment_date", since12mStr),
     ]);
     if (txRes.error) throw new Error(txRes.error.message);
 
     const txs = txRes.data ?? [];
-    const dividendRows = (dividendsRes.data ?? []) as Array<{ asset_id: string; amount: number; currency: string; payment_date: string | null; ex_date: string }>;
+    const dividendRows = (dividendsRes.data ?? []) as Array<{ asset_id: string; amount: number; amount_per_share: number | null; quantity_held: number | null; currency: string; payment_date: string | null; ex_date: string }>;
 
-    // Soma de proventos dos últimos 12 meses, por ativo (moeda nativa do ativo — DY/YoC
-    // são razões, então não precisam de conversão cambial, só numerador e denominador
-    // na mesma moeda, que já é o caso: dividendo e preço do mesmo ativo).
+    // Soma de proventos POR COTA/AÇÃO dos últimos 12 meses, por ativo.
+    // IMPORTANTE: usa amount_per_share (valor por cota), NÃO amount (valor total recebido).
+    // Bug anterior somava "amount" — como a quantidade possuída cresce com o tempo
+    // (compras adicionais), o total recebido cresce proporcionalmente à posição, e
+    // dividir isso pelo preço atual (que é "por cota") inflava o DY/YoC absurdamente
+    // para quem fez múltiplas compras ao longo do período. amount_per_share já vem
+    // normalizado por cota desde a origem (nota manual, PDF ou IA), então é isso que
+    // deve ser comparado com o preço — não o total em R$/US$ recebido.
     const dividendsByAsset = new Map<string, number>();
     for (const d of dividendRows) {
       if (!d.asset_id) continue;
-      dividendsByAsset.set(d.asset_id, (dividendsByAsset.get(d.asset_id) ?? 0) + Number(d.amount));
+      // Fallback: se amount_per_share não veio preenchido (dado legado), estima
+      // dividindo o total pela quantidade possuída naquele pagamento.
+      const perShare = d.amount_per_share != null && d.amount_per_share > 0
+        ? Number(d.amount_per_share)
+        : (d.quantity_held && d.quantity_held > 0 ? Number(d.amount) / Number(d.quantity_held) : 0);
+      dividendsByAsset.set(d.asset_id, (dividendsByAsset.get(d.asset_id) ?? 0) + perShare);
     }
     const assets = assetsRes.data ?? [];
     const prices = pricesRes.data ?? [];

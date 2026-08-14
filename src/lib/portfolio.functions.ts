@@ -3105,3 +3105,55 @@ export const getPriceMovers = createServerFn({ method: "GET" })
 
     return { gainers, losers };
   });
+
+// ── Desdobramento / Grupamento de Ações (Stock Split) ─────────────────────────
+// Ajusta retroativamente todos os lançamentos de compra/venda de um ativo,
+// preservando o valor total investido: quantidade × (novo/antigo), preço ÷ (novo/antigo).
+// Ex: desdobramento 2:1 (cada 1 ação vira 2) → multiplicador = 2.
+//     grupamento 1:5 (cada 5 ações viram 1) → multiplicador = 0.2.
+
+export const applyStockSplit = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({
+    assetId: z.string().uuid(),
+    fromQty: z.number().positive(),   // "de" quantas ações antigas
+    toQty: z.number().positive(),     // "para" quantas ações novas
+    effectiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const multiplier = data.toQty / data.fromQty;
+
+    let query = (supabase as any)
+      .from("transactions")
+      .select("id, quantity, unit_price, occurred_at, tx_type")
+      .eq("asset_id", data.assetId)
+      .eq("user_id", userId)
+      .in("tx_type", ["buy", "sell"]);
+
+    if (data.effectiveDate) {
+      query = query.lte("occurred_at", data.effectiveDate);
+    }
+
+    const { data: rows, error: fetchErr } = await query;
+    if (fetchErr) throw new Error(fetchErr.message);
+    if (!rows?.length) {
+      throw new Error("Nenhum lançamento de compra/venda encontrado para esse ativo (na data informada).");
+    }
+
+    // Atualiza um por um — mantém RLS e evita updates em lote sem controle
+    let updated = 0;
+    for (const row of rows) {
+      const { error: updErr } = await (supabase as any)
+        .from("transactions")
+        .update({
+          quantity: Number(row.quantity) * multiplier,
+          unit_price: Number(row.unit_price) / multiplier,
+        })
+        .eq("id", row.id)
+        .eq("user_id", userId);
+      if (!updErr) updated++;
+    }
+
+    return { ok: true as const, updated, multiplier };
+  });

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Users, Database, AlertTriangle, SlidersHorizontal, ShieldCheck, Star, Loader2, ArrowLeft, RefreshCw, Clock, XCircle, CheckCircle2, Shield, ChevronDown, ChevronUp } from "lucide-react";
-import { adminListUsers, adminSetUserRole, forceRefreshPrice, adminRunSecurityAudit, adminSyncTreasury } from "@/lib/portfolio.functions";
+import { adminListUsers, adminSetUserRole, forceRefreshPrice, adminRunSecurityAudit, adminSyncTreasury, adminSyncFundamentals } from "@/lib/portfolio.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -186,6 +186,8 @@ function PriceFailuresPanel({ onBack }: { onBack: () => void }) {
   const [savingManual, setSavingManual] = useState(false);
   const [syncingTreasury, setSyncingTreasury] = useState(false);
   const syncTreasuryFn = useServerFn(adminSyncTreasury);
+  const syncFundamentalsFn = useServerFn(adminSyncFundamentals);
+  const [syncingFundamentals, setSyncingFundamentals] = useState(false);
   const [batchFilter, setBatchFilter] = useState<"stale" | "failing" | "never" | "all">("stale");
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number; ok: number; fail: number } | null>(null);
@@ -335,6 +337,23 @@ function PriceFailuresPanel({ onBack }: { onBack: () => void }) {
     setTimeout(() => setBatchProgress(null), 4000);
   };
 
+  const handleSyncFundamentals = async () => {
+    setSyncingFundamentals(true);
+    try {
+      const result = await syncFundamentalsFn();
+      if (result.ok) {
+        const s = result.summary;
+        toast.success(`Fundamentos sincronizados — ${s?.ok ?? 0} ok, ${s?.sem_token ?? 0} sem token, ${s?.erros ?? 0} erros`);
+      } else {
+        toast.error("Falha na sincronização");
+      }
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao sincronizar fundamentos");
+    } finally {
+      setSyncingFundamentals(false);
+    }
+  };
+
   const handleSyncTreasury = async () => {
     setSyncingTreasury(true);
     try {
@@ -402,6 +421,32 @@ function PriceFailuresPanel({ onBack }: { onBack: () => void }) {
             className="shrink-0 border-primary/40 text-primary hover:bg-primary/10"
           >
             {syncingTreasury
+              ? <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Sincronizando…</>
+              : <><RefreshCw className="mr-2 h-3.5 w-3.5" /> Sincronizar agora</>
+            }
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Sincronização de Fundamentos (VPA / P/VP) */}
+      <Card className="border-primary/20">
+        <CardContent className="flex items-center justify-between gap-3 pt-4 pb-4">
+          <div>
+            <p className="text-sm font-semibold flex items-center gap-2">
+              📊 Fundamentos (VPA / P/VP)
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Busca Valor Patrimonial e P/VP via Brapi para ações e FIIs. Ações funcionam sem token; FIIs exigem BRAPI_TOKEN configurado.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleSyncFundamentals}
+            disabled={syncingFundamentals}
+            className="shrink-0 border-primary/40 text-primary hover:bg-primary/10"
+          >
+            {syncingFundamentals
               ? <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Sincronizando…</>
               : <><RefreshCw className="mr-2 h-3.5 w-3.5" /> Sincronizar agora</>
             }

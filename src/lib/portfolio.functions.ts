@@ -66,8 +66,9 @@ export type GroupedAsset = {
   investedBRL: number;
   variation: number;
   yieldPct: number;
-  dy: number;   // Dividend Yield — proventos (12m) / preço atual, em %
-  yoc: number;  // Yield on Cost — proventos (12m) / preço médio de compra, em %
+  dy: number;   // Dividend Yield — proventos (12m, anualizado se histórico < 11 meses) / preço atual, em %
+  yoc: number;  // Yield on Cost — mesma base do DY, sobre o preço médio de compra, em %
+  dyEstimated: boolean; // true = DY/YoC foram anualizados por falta de 12m de histórico completo
   bookValue: number | null;    // VPA — Valor Patrimonial por Ação/Cota (Brapi, só B3)
   priceToBook: number | null;  // P/VP (Brapi, só B3)
 };
@@ -400,6 +401,10 @@ export const getDashboard = createServerFn({ method: "GET" })
     // normalizado por cota desde a origem (nota manual, PDF ou IA), então é isso que
     // deve ser comparado com o preço — não o total em R$/US$ recebido.
     const dividendsByAsset = new Map<string, number>();
+    // Data do pagamento mais ANTIGO dentro da janela de 12m, por ativo — usada pra
+    // saber se já temos histórico de um ano completo, ou se é uma posição/ativo mais
+    // novo no Folio (compra recente, ou histórico ainda não todo importado).
+    const earliestPaymentByAsset = new Map<string, string>();
     for (const d of dividendRows) {
       if (!d.asset_id) continue;
       // Fallback: se amount_per_share não veio preenchido (dado legado), estima
@@ -408,6 +413,37 @@ export const getDashboard = createServerFn({ method: "GET" })
         ? Number(d.amount_per_share)
         : (d.quantity_held && d.quantity_held > 0 ? Number(d.amount) / Number(d.quantity_held) : 0);
       dividendsByAsset.set(d.asset_id, (dividendsByAsset.get(d.asset_id) ?? 0) + perShare);
+
+      if (d.payment_date) {
+        const prevEarliest = earliestPaymentByAsset.get(d.asset_id);
+        if (!prevEarliest || d.payment_date < prevEarliest) {
+          earliestPaymentByAsset.set(d.asset_id, d.payment_date);
+        }
+      }
+    }
+
+    // Quando o histórico disponível é MENOR que ~11 meses (compra recente, ou
+    // histórico ainda não todo importado), o DY/YoC "cru" dos últimos 12m SUBESTIMA
+    // muito o rendimento real (ex: 5 meses de proventos ÷ preço, tratado como se
+    // fosse 1 ano inteiro). Anualiza proporcionalmente (regra de 3 sobre os dias
+    // cobertos) quando há dados suficientes (≥ 45 dias) pra uma extrapolação
+    // minimamente confiável; caso contrário, mantém o valor bruto disponível.
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const dividendsAnnualized = new Map<string, { perShare: number; isEstimated: boolean }>();
+    for (const [assetId, perShareSum] of dividendsByAsset) {
+      const earliest = earliestPaymentByAsset.get(assetId);
+      if (!earliest) { dividendsAnnualized.set(assetId, { perShare: perShareSum, isEstimated: false }); continue; }
+
+      const daysCovered = Math.max(1, Math.round(
+        (new Date(todayStr).getTime() - new Date(earliest).getTime()) / (1000 * 60 * 60 * 24)
+      ));
+
+      if (daysCovered < 330 && daysCovered >= 45) {
+        const annualized = perShareSum * (365 / daysCovered);
+        dividendsAnnualized.set(assetId, { perShare: annualized, isEstimated: true });
+      } else {
+        dividendsAnnualized.set(assetId, { perShare: perShareSum, isEstimated: daysCovered < 330 });
+      }
     }
     const assets = assetsRes.data ?? [];
     const prices = pricesRes.data ?? [];
@@ -545,9 +581,12 @@ export const getDashboard = createServerFn({ method: "GET" })
 
       // DY e YoC — proventos dos últimos 12 meses (moeda nativa do ativo) sobre
       // preço atual (DY) ou preço médio de compra (YoC). Ambos em %.
-      const dividends12m = dividendsByAsset.get(assetId) ?? 0;
-      const dy = currentPrice > 0 ? (dividends12m / currentPrice) * 100 : 0;
-      const yoc = avgPrice > 0 ? (dividends12m / avgPrice) * 100 : 0;
+      // Quando o histórico é menor que ~11 meses, já vem anualizado (ver acima) —
+      // dyEstimated sinaliza isso pro front-end mostrar um indicador visual.
+      const divInfo = dividendsAnnualized.get(assetId) ?? { perShare: 0, isEstimated: false };
+      const dy = currentPrice > 0 ? (divInfo.perShare / currentPrice) * 100 : 0;
+      const yoc = avgPrice > 0 ? (divInfo.perShare / avgPrice) * 100 : 0;
+      const dyEstimated = divInfo.isEstimated;
 
       const ga: GroupedAsset = {
         assetId,
@@ -565,6 +604,7 @@ export const getDashboard = createServerFn({ method: "GET" })
         yieldPct,
         dy,
         yoc,
+        dyEstimated,
         bookValue: (asset as any).book_value != null ? Number((asset as any).book_value) : null,
         priceToBook: (asset as any).price_to_book != null ? Number((asset as any).price_to_book) : null,
       };

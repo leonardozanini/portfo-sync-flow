@@ -938,6 +938,9 @@ function AssetGroupCard({
                     <TableHead className="text-right">Preço Atual</TableHead>
                     <TableHead className="text-right">Variação</TableHead>
                     <TableHead className="text-right">Rentabilidade</TableHead>
+                    <TableHead className="text-right">DY (12m)</TableHead>
+                    <TableHead className="text-right">YoC</TableHead>
+                    <TableHead className="text-right">P/VP</TableHead>
                     <TableHead className="text-right">Saldo</TableHead>
                     <TableHead className="text-right">% Carteira</TableHead>
                     <TableHead className="text-center">Comprar?</TableHead>
@@ -1012,6 +1015,15 @@ function AssetRow({
         />
       </TableCell>
       <TableCell className="text-right"><Pill value={a.yieldPct} suffix="%" arrow /></TableCell>
+      <TableCell className="text-right tabular-nums text-muted-foreground">
+        {a.dy > 0 ? `${a.dy.toFixed(2)}%` : "—"}
+      </TableCell>
+      <TableCell className="text-right tabular-nums text-muted-foreground">
+        {a.yoc > 0 ? `${a.yoc.toFixed(2)}%` : "—"}
+      </TableCell>
+      <TableCell className="text-right tabular-nums text-muted-foreground">
+        {a.priceToBook != null ? a.priceToBook.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}
+      </TableCell>
       <TableCell className="text-right tabular-nums">{formatMoney(convert(a.balanceBRL, currency), currency)}</TableCell>
       <TableCell className="text-right tabular-nums">{pctInGroup.toFixed(2)}%</TableCell>
       <TableCell className="text-center">

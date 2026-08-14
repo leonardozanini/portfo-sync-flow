@@ -1016,10 +1016,18 @@ function AssetRow({
       </TableCell>
       <TableCell className="text-right"><Pill value={a.yieldPct} suffix="%" arrow /></TableCell>
       <TableCell className="text-right tabular-nums text-muted-foreground">
-        {a.dy > 0 ? `${a.dy.toFixed(2)}%` : "—"}
+        {a.dy > 0 ? (
+          <span title={a.dyEstimated ? "Anualizado — menos de 12 meses de histórico de proventos disponível" : undefined}>
+            {a.dyEstimated && <span className="text-primary">~</span>}{a.dy.toFixed(2)}%
+          </span>
+        ) : "—"}
       </TableCell>
       <TableCell className="text-right tabular-nums text-muted-foreground">
-        {a.yoc > 0 ? `${a.yoc.toFixed(2)}%` : "—"}
+        {a.yoc > 0 ? (
+          <span title={a.dyEstimated ? "Anualizado — menos de 12 meses de histórico de proventos disponível" : undefined}>
+            {a.dyEstimated && <span className="text-primary">~</span>}{a.yoc.toFixed(2)}%
+          </span>
+        ) : "—"}
       </TableCell>
       <TableCell className="text-right tabular-nums text-muted-foreground">
         {a.priceToBook != null ? a.priceToBook.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}

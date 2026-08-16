@@ -31,6 +31,7 @@ import {
 import { useDisplayCurrency } from "@/components/CurrencySwitcher";
 import { convert, formatMoney, type Currency } from "@/lib/currency";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import { NewTransactionDialog, type TxPreset } from "@/components/NewTransactionDialog";
 import { AssetLotsDialog } from "@/components/AssetLotsDialog";
 import { AssetLogo } from "@/components/AssetLogo";
@@ -255,6 +256,63 @@ const PIE_COLORS = [
 // ── Onboarding Modal ──────────────────────────────────────────────────────────
 
 const ONBOARDING_KEY = "folio_onboarding_done";
+
+// ── Colunas configuráveis por classe de ativo ──────────────────────────────────
+// Algumas colunas não fazem sentido pra certas classes (ex: DY/YoC/P-VP em cripto)
+// — cada classe tem seu próprio padrão, e o usuário pode ligar/desligar por conta
+// própria, salvo no navegador (localStorage), por classe.
+const OPTIONAL_COLUMNS = [
+  { key: "variation", label: "Variação" },
+  { key: "yieldPct", label: "Rentabilidade" },
+  { key: "dy", label: "DY (12m)" },
+  { key: "yoc", label: "YoC" },
+  { key: "priceToBook", label: "P/VP" },
+  { key: "comprar", label: "Comprar?" },
+] as const;
+type OptionalColumnKey = typeof OPTIONAL_COLUMNS[number]["key"];
+
+// Colunas que fazem sentido por padrão, por classe — dividendo/valor patrimonial
+// não se aplicam a cripto, e P/VP só existe pra ações/FIIs B3.
+const DEFAULT_COLUMNS_BY_CLASS: Record<string, Record<OptionalColumnKey, boolean>> = {
+  stock: { variation: true, yieldPct: true, dy: true, yoc: true, priceToBook: true, comprar: true },
+  reit: { variation: true, yieldPct: true, dy: true, yoc: true, priceToBook: true, comprar: true },
+  etf: { variation: true, yieldPct: true, dy: false, yoc: false, priceToBook: false, comprar: true },
+  stock_intl: { variation: true, yieldPct: true, dy: true, yoc: true, priceToBook: false, comprar: true },
+  reit_intl: { variation: true, yieldPct: true, dy: true, yoc: true, priceToBook: false, comprar: true },
+  etf_intl: { variation: true, yieldPct: true, dy: false, yoc: false, priceToBook: false, comprar: true },
+  crypto: { variation: true, yieldPct: true, dy: false, yoc: false, priceToBook: false, comprar: true },
+  fixed_income: { variation: false, yieldPct: true, dy: false, yoc: false, priceToBook: false, comprar: false },
+  fund: { variation: true, yieldPct: true, dy: false, yoc: false, priceToBook: false, comprar: true },
+  cash: { variation: false, yieldPct: false, dy: false, yoc: false, priceToBook: false, comprar: false },
+  other: { variation: true, yieldPct: true, dy: false, yoc: false, priceToBook: false, comprar: true },
+};
+
+function columnsStorageKey(assetClass: string) {
+  return `folio_columns_${assetClass}`;
+}
+
+function useColumnVisibility(assetClass: string) {
+  const defaults = DEFAULT_COLUMNS_BY_CLASS[assetClass] ?? DEFAULT_COLUMNS_BY_CLASS.other;
+  const [columns, setColumns] = useState<Record<OptionalColumnKey, boolean>>(() => {
+    if (typeof window === "undefined") return defaults;
+    try {
+      const saved = localStorage.getItem(columnsStorageKey(assetClass));
+      return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
+    } catch {
+      return defaults;
+    }
+  });
+
+  const toggle = (key: OptionalColumnKey) => {
+    setColumns(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem(columnsStorageKey(assetClass), JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  return { columns, toggle };
+}
 
 const STEPS = [
   {
@@ -899,6 +957,7 @@ function AssetGroupCard({
 }) {
   const [open, setOpen] = useState(true);
   const Icon = CLASS_ICONS[group.assetClass] ?? Layers;
+  const { columns, toggle } = useColumnVisibility(group.assetClass);
 
   return (
     <Card className="overflow-hidden">
@@ -936,21 +995,21 @@ function AssetGroupCard({
                     <TableHead className="text-right">Quant.</TableHead>
                     <TableHead className="text-right">Preço Médio</TableHead>
                     <TableHead className="text-right">Preço Atual</TableHead>
-                    <TableHead className="text-right">Variação</TableHead>
-                    <TableHead className="text-right">Rentabilidade</TableHead>
-                    <TableHead className="text-right">DY (12m)</TableHead>
-                    <TableHead className="text-right">YoC</TableHead>
-                    <TableHead className="text-right">P/VP</TableHead>
+                    {columns.variation && <TableHead className="text-right">Variação</TableHead>}
+                    {columns.yieldPct && <TableHead className="text-right">Rentabilidade</TableHead>}
+                    {columns.dy && <TableHead className="text-right">DY (12m)</TableHead>}
+                    {columns.yoc && <TableHead className="text-right">YoC</TableHead>}
+                    {columns.priceToBook && <TableHead className="text-right">P/VP</TableHead>}
                     <TableHead className="text-right">Saldo</TableHead>
                     <TableHead className="text-right">% Carteira</TableHead>
-                    <TableHead className="text-center">Comprar?</TableHead>
+                    {columns.comprar && <TableHead className="text-center">Comprar?</TableHead>}
                     <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {group.assets.map((a) => (
                     <AssetRow key={a.assetId} a={a} currency={currency}
-                      groupValue={group.totalValueBRL}
+                      groupValue={group.totalValueBRL} columns={columns}
                       onAdd={onAdd} onShowLots={onShowLots} onRemove={onRemove} onSplit={onSplit} />
                   ))}
                 </TableBody>
@@ -960,9 +1019,32 @@ function AssetGroupCard({
               <Button variant="outline" size="sm">
                 <BarChart3 className="mr-2 h-4 w-4" />Gráficos
               </Button>
-              <Button variant="outline" size="sm">
-                <Settings2 className="mr-2 h-4 w-4" />Editar colunas
-              </Button>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Settings2 className="mr-2 h-4 w-4" />Editar colunas
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-56 p-2">
+                  <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                    Colunas — {group.label}
+                  </p>
+                  <div className="space-y-0.5">
+                    {OPTIONAL_COLUMNS.map((col) => (
+                      <label
+                        key={col.key}
+                        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer hover:bg-muted/60"
+                      >
+                        <Checkbox
+                          checked={columns[col.key]}
+                          onCheckedChange={() => toggle(col.key)}
+                        />
+                        {col.label}
+                      </label>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
               <Button size="sm" onClick={() => onAdd()}>
                 <Plus className="mr-2 h-4 w-4" />Adicionar Lançamento
               </Button>
@@ -975,9 +1057,10 @@ function AssetGroupCard({
 }
 
 function AssetRow({
-  a, currency, groupValue, onAdd, onShowLots, onRemove, onSplit,
+  a, currency, groupValue, columns, onAdd, onShowLots, onRemove, onSplit,
 }: {
   a: GroupedAsset; currency: Currency; groupValue: number;
+  columns: Record<OptionalColumnKey, boolean>;
   onAdd: (preset?: TxPreset) => void;
   onShowLots: (a: { id: string; symbol: string }) => void;
   onRemove: (a: { assetId: string; symbol: string; currentPrice: number; currency: string; qty: number }) => void;
@@ -1006,45 +1089,57 @@ function AssetRow({
       <TableCell className="text-right tabular-nums">{a.qty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</TableCell>
       <TableCell className="text-right tabular-nums">{formatMoney(a.avgPrice, a.currency)}</TableCell>
       <TableCell className="text-right tabular-nums">{formatMoney(a.currentPrice, a.currency)}</TableCell>
-      <TableCell className="text-right">
-        <VariationPill
-          value={a.variation}
-          moneyAmount={(a.currentPrice - a.avgPrice) * a.qty}
-          assetCurrency={a.currency as Currency}
-          displayCurrency={currency}
-        />
-      </TableCell>
-      <TableCell className="text-right"><Pill value={a.yieldPct} suffix="%" arrow /></TableCell>
-      <TableCell className="text-right tabular-nums text-muted-foreground">
-        {a.dy > 0 ? (
-          <span title={a.dyEstimated ? "Anualizado — menos de 12 meses de histórico de proventos disponível" : undefined}>
-            {a.dyEstimated && <span className="text-primary">~</span>}{a.dy.toFixed(2)}%
-          </span>
-        ) : "—"}
-      </TableCell>
-      <TableCell className="text-right tabular-nums text-muted-foreground">
-        {a.yoc > 0 ? (
-          <span title={a.dyEstimated ? "Anualizado — menos de 12 meses de histórico de proventos disponível" : undefined}>
-            {a.dyEstimated && <span className="text-primary">~</span>}{a.yoc.toFixed(2)}%
-          </span>
-        ) : "—"}
-      </TableCell>
-      <TableCell className="text-right tabular-nums text-muted-foreground">
-        {a.priceToBook != null ? a.priceToBook.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}
-      </TableCell>
+      {columns.variation && (
+        <TableCell className="text-right">
+          <VariationPill
+            value={a.variation}
+            moneyAmount={(a.currentPrice - a.avgPrice) * a.qty}
+            assetCurrency={a.currency as Currency}
+            displayCurrency={currency}
+          />
+        </TableCell>
+      )}
+      {columns.yieldPct && (
+        <TableCell className="text-right"><Pill value={a.yieldPct} suffix="%" arrow /></TableCell>
+      )}
+      {columns.dy && (
+        <TableCell className="text-right tabular-nums text-muted-foreground">
+          {a.dy > 0 ? (
+            <span title={a.dyEstimated ? "Anualizado — menos de 12 meses de histórico de proventos disponível" : undefined}>
+              {a.dyEstimated && <span className="text-primary">~</span>}{a.dy.toFixed(2)}%
+            </span>
+          ) : "—"}
+        </TableCell>
+      )}
+      {columns.yoc && (
+        <TableCell className="text-right tabular-nums text-muted-foreground">
+          {a.yoc > 0 ? (
+            <span title={a.dyEstimated ? "Anualizado — menos de 12 meses de histórico de proventos disponível" : undefined}>
+              {a.dyEstimated && <span className="text-primary">~</span>}{a.yoc.toFixed(2)}%
+            </span>
+          ) : "—"}
+        </TableCell>
+      )}
+      {columns.priceToBook && (
+        <TableCell className="text-right tabular-nums text-muted-foreground">
+          {a.priceToBook != null ? a.priceToBook.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}
+        </TableCell>
+      )}
       <TableCell className="text-right tabular-nums">{formatMoney(convert(a.balanceBRL, currency), currency)}</TableCell>
       <TableCell className="text-right tabular-nums">{pctInGroup.toFixed(2)}%</TableCell>
-      <TableCell className="text-center">
-        {a.currentPrice <= a.avgPrice ? (
-          <Badge variant="outline" className="border-success/40 text-success">
-            <CheckCircle2 className="mr-1 h-3 w-3" />Sim
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="border-destructive/40 text-destructive">
-            <XCircle className="mr-1 h-3 w-3" />Não
-          </Badge>
-        )}
-      </TableCell>
+      {columns.comprar && (
+        <TableCell className="text-center">
+          {a.currentPrice <= a.avgPrice ? (
+            <Badge variant="outline" className="border-success/40 text-success">
+              <CheckCircle2 className="mr-1 h-3 w-3" />Sim
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="border-destructive/40 text-destructive">
+              <XCircle className="mr-1 h-3 w-3" />Não
+            </Badge>
+          )}
+        </TableCell>
+      )}
       <TableCell className="text-right">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

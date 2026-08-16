@@ -342,10 +342,14 @@ function PriceFailuresPanel({ onBack }: { onBack: () => void }) {
     try {
       const result = await syncFundamentalsFn();
       if (result.ok) {
-        const s = result.summary;
-        toast.success(`Fundamentos sincronizados — ${s?.ok ?? 0} ok, ${s?.sem_token ?? 0} sem token, ${s?.erros ?? 0} erros`);
+        // Agora roda em segundo plano (EdgeRuntime.waitUntil) — a resposta aqui é
+        // só a confirmação de início, não o resumo final. Os ~280 ativos levam
+        // alguns minutos pra processar; confira depois consultando a tabela assets.
+        toast.success(result.summary != null
+          ? `Sincronização concluída`
+          : "Sincronização iniciada em segundo plano — leva alguns minutos, não precisa esperar aqui.");
       } else {
-        toast.error("Falha na sincronização");
+        toast.error(result.error ?? "Falha na sincronização");
       }
     } catch (e: any) {
       toast.error(e.message ?? "Erro ao sincronizar fundamentos");

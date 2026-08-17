@@ -128,6 +128,13 @@ function fmtDate(iso: string) {
   return `${d}/${m}/${y}`;
 }
 
+const CHART_CLASS_LABEL: Record<string, string> = {
+  stock: "Ações BR", reit: "FIIs", etf: "ETFs",
+  stock_intl: "Stocks", reit_intl: "REITs", etf_intl: "ETFs Internacionais",
+  crypto: "Criptomoedas", fixed_income: "Renda Fixa", fund: "Fundos",
+  cash: "Caixa", other: "Outros",
+};
+
 function buildChartData(rows: DividendRow[], year: number, currency: string) {
   const map = new Map<number, Record<string, number>>();
   for (let m = 1; m <= 12; m++) map.set(m, {});
@@ -674,6 +681,7 @@ function ProventosPage() {
   const pdfRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<DividendRow | null>(null);
   const [year, setYear] = useState(new Date().getFullYear());
+  const [chartClassFilter, setChartClassFilter] = useState<string>("all");
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   const { data: dividends = [] } = useQuery({
@@ -691,9 +699,11 @@ function ProventosPage() {
   const uniqueAssets = new Set(rows.map(r => r.asset_id)).size;
 
   // Gráficos
-  const chartData = buildChartData(rows, year, currency);
-  const chartTypes = [...new Set(rows.map(r => r.dividend_type))];
-  const cumulativeData = buildCumulativeData(rows, currency);
+  const chartClasses = [...new Set(rows.map(r => r.asset_class).filter(Boolean) as string[])].sort();
+  const chartRows = chartClassFilter === "all" ? rows : rows.filter(r => r.asset_class === chartClassFilter);
+  const chartData = buildChartData(chartRows, year, currency);
+  const chartTypes = [...new Set(chartRows.map(r => r.dividend_type))];
+  const cumulativeData = buildCumulativeData(chartRows, currency);
 
   const years = [...new Set(rows.map(r => {
     const d = r.payment_date || r.ex_date;
@@ -801,12 +811,25 @@ function ProventosPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-base">Proventos por mês</CardTitle>
-          <Select value={String(year)} onValueChange={v => setYear(Number(v))}>
-            <SelectTrigger className="h-8 w-[100px] text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {years.map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            {chartClasses.length > 1 && (
+              <Select value={chartClassFilter} onValueChange={setChartClassFilter}>
+                <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue placeholder="Tipo de ativo" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os ativos</SelectItem>
+                  {chartClasses.map(c => (
+                    <SelectItem key={c} value={c}>{CHART_CLASS_LABEL[c] ?? c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Select value={String(year)} onValueChange={v => setYear(Number(v))}>
+              <SelectTrigger className="h-8 w-[100px] text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {years.map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
         </CardHeader>
         <CardContent>
           {chartData.every(d => d.total === 0) && years.filter(y => y !== year).length > 0 ? (

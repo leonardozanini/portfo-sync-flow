@@ -89,6 +89,7 @@ export type DividendRow = {
   user_id: string;
   asset_id: string;
   symbol?: string;
+  asset_class?: string;
   ex_date: string;
   payment_date?: string | null;
   amount: number;
@@ -2316,7 +2317,7 @@ export const listDividends = createServerFn({ method: "GET" })
       .from("dividends")
       .select(`
         *,
-        assets(symbol)
+        assets(symbol, asset_class)
       `)
       .eq("user_id", userId)
       .order("ex_date", { ascending: false });
@@ -2324,6 +2325,7 @@ export const listDividends = createServerFn({ method: "GET" })
     return (data ?? []).map((r: any) => ({
       ...r,
       symbol: r.assets?.symbol ?? null,
+      asset_class: r.assets?.asset_class ?? null,
     }));
   });
 

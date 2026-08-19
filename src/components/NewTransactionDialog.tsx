@@ -456,7 +456,13 @@ function TxForm({
               onValueChange={(v) => {
                 setSymbol(v);
                 const picked = heldCryptoAssets.find(a => a.symbol === v);
-                if (picked) setCurrency(picked.currency as CurrencyCode);
+                if (picked) {
+                  setCurrency(picked.currency as CurrencyCode);
+                  // Preenche automaticamente com a cotação atual — sem isso, o valor
+                  // fica zerado e a transferência não conta em nenhum gráfico que
+                  // dependa de qty × preço (ex: Alocação por Corretora).
+                  setPriceCents(Math.round(picked.currentPrice * 100));
+                }
               }}
             >
               <SelectTrigger><SelectValue placeholder={heldCryptoAssets.length ? "Selecione o ativo" : "Nenhuma cripto na carteira"} /></SelectTrigger>
@@ -591,16 +597,11 @@ function TxForm({
               </Field>
             </div>
 
-            <details className="col-span-2 -mt-1">
-              <summary className="cursor-pointer text-xs text-primary hover:underline">
-                Adicionar preço de referência (opcional)
-              </summary>
-              <div className="mt-2">
-                <Field label={<>Preço de referência <span className="float-right text-xs text-muted-foreground">só p/ registro, não afeta o cálculo</span></>}>
-                  <MoneyInput cents={priceCents} onChange={setPriceCents} currency={currency} />
-                </Field>
-              </div>
-            </details>
+            <div className="col-span-2">
+              <Field label={<>Preço de referência <span className="float-right text-xs text-muted-foreground">preenchido com a cotação atual — ajuste se quiser</span></>}>
+                <MoneyInput cents={priceCents} onChange={setPriceCents} currency={currency} />
+              </Field>
+            </div>
 
             <p className="col-span-2 text-xs text-muted-foreground">
               Não encontrou sua carteira própria na lista? Cadastre uma nova "corretora" com o nome dela (ex: "Ledger", "MetaMask") em Ajustes.

@@ -15,7 +15,11 @@ import {
 import { CurrencySwitcher } from "./CurrencySwitcher";
 import { useTheme } from "@/hooks/useTheme";
 import { TickerTape, usePortfolioTicker } from "./TickerTape";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { getFxRates } from "@/lib/portfolio.functions";
+import { setLiveFxRates } from "@/lib/currency";
 
 const nav = [
   { to: "/dashboard", label: "Visão geral", shortLabel: "Resumo", icon: LayoutDashboard },
@@ -152,6 +156,28 @@ export function AppShell({ children }: { children: ReactNode }) {
   const initials = (user?.email ?? "?").slice(0, 2).toUpperCase();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarHover, setSidebarHover] = useState(false);
+
+  // Carrega a cotação de câmbio real (tabela fx_rates, alimentada pelo cron
+  // sync-fx) uma vez por sessão, e alimenta o cache usado por convert() em
+  // todo o app — sem isso, convert() usaria uma taxa fixa desatualizada.
+  const getFxRatesFn = useServerFn(getFxRates);
+  const { data: fxData } = useQuery({
+    queryKey: ["fx-rates"],
+    queryFn: () => getFxRatesFn(),
+    staleTime: 60 * 60_000, // 1h — câmbio não precisa recarregar a cada navegação
+    refetchOnWindowFocus: false,
+  });
+  // Estado "bobo" só pra forçar o React a re-renderizar a árvore inteira depois
+  // que a cotação real chega — setLiveFxRates() sozinho não dispara re-render
+  // (é uma variável de módulo, não estado React), então sem isso os valores já
+  // renderizados na primeira passada ficariam presos na taxa de fallback.
+  const [, forceFxRerender] = useState(0);
+  useEffect(() => {
+    if (fxData?.rates) {
+      setLiveFxRates(fxData.rates as any);
+      forceFxRerender((n) => n + 1);
+    }
+  }, [fxData]);
 
   return (
     <div className="flex min-h-screen bg-background">

@@ -1071,7 +1071,7 @@ function AssetRow({
     <TableRow>
       <TableCell>
         <div className="flex items-center gap-2">
-          <AssetLogo symbol={a.symbol} assetClass={a.assetClass} size={28} />
+          <AssetLogo symbol={a.symbol} assetClass={a.assetClass} cmcId={a.cmcId} logoUrl={a.logoUrl} size={28} />
           <div className="flex flex-col leading-tight">
             <button
               type="button"

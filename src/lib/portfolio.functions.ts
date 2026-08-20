@@ -3256,3 +3256,33 @@ export const adminSyncFundamentals = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message ?? "Erro na Edge Function");
     return data as { ok: boolean; summary?: Record<string, number>; error?: string };
   });
+
+// ── Cotações de câmbio (para setLiveFxRates no front) ──────────────────────────
+// Lê a tabela fx_rates (alimentada pelo cron sync-fx) e devolve as taxas mais
+// recentes no formato { BRL: 1, USD: x, EUR: y, ... } — pronto pra alimentar
+// convert() via setLiveFxRates(), sem precisar mexer em cada componente que
+// já chama convert() pelo app inteiro.
+export const getFxRates = createServerFn({ method: "GET" }).handler(async () => {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  const { data, error } = await supabaseAdmin
+    .from("fx_rates")
+    .select("base, quote, rate, rate_date")
+    .eq("base", "BRL")
+    .order("rate_date", { ascending: false })
+    .limit(20); // pega os últimos registros; filtramos o mais recente por moeda abaixo
+
+  if (error) throw new Error(error.message);
+
+  const rates: Record<string, number> = { BRL: 1 };
+  const seen = new Set<string>();
+  for (const row of data ?? []) {
+    if (seen.has(row.quote)) continue; // já pegamos a linha mais recente dessa moeda
+    seen.add(row.quote);
+    rates[row.quote] = Number(row.rate);
+  }
+
+  const mostRecentDate = data?.[0]?.rate_date ?? null;
+
+  return { rates, asOfDate: mostRecentDate };
+});

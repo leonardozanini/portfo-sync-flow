@@ -71,6 +71,8 @@ export type GroupedAsset = {
   dyEstimated: boolean; // true = DY/YoC foram anualizados por falta de 12m de histórico completo
   bookValue: number | null;    // VPA — Valor Patrimonial por Ação/Cota (Brapi, só B3)
   priceToBook: number | null;  // P/VP (Brapi, só B3)
+  cmcId: number | null;    // ID da CoinMarketCap (cripto) — usado pro logo
+  logoUrl: string | null;  // Logo customizado (prioridade máxima no AssetLogo)
 };
 
 export type AssetGroup = {
@@ -608,6 +610,8 @@ export const getDashboard = createServerFn({ method: "GET" })
         dyEstimated,
         bookValue: (asset as any).book_value != null ? Number((asset as any).book_value) : null,
         priceToBook: (asset as any).price_to_book != null ? Number((asset as any).price_to_book) : null,
+        cmcId: (asset as any).cmc_id ?? null,
+        logoUrl: (asset as any).logo_url ?? null,
       };
 
       const grp = groupsMap.get(klass) ?? {

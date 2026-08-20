@@ -12,12 +12,21 @@ interface AwesomeRate {
 }
 
 async function fetchAwesomeRates(): Promise<Map<string, number>> {
-  const url = `https://economia.awesomeapi.com.br/json/last/${PAIRS.join(",")}`;
+  // A partir de mar/2025, a AwesomeAPI limita o acesso SEM chave a uma cota
+  // compartilhada globalmente entre todos os usuários anônimos — por isso
+  // passamos a estourar 429 (QuotaExceeded) mesmo fazendo só 1 chamada/dia.
+  // Com uma chave própria (gratuita, até 100 mil requisições/mês), o acesso
+  // vira exclusivo do projeto. Cadastro em awesomeapi.com.br.
+  const token = process.env.AWESOMEAPI_TOKEN;
+  const url = `https://economia.awesomeapi.com.br/json/last/${PAIRS.join(",")}${token ? `?token=${token}` : ""}`;
   const res = await fetch(url, {
     headers: { "Accept": "application/json" },
     signal: AbortSignal.timeout(10_000),
   });
-  if (!res.ok) throw new Error(`AwesomeAPI HTTP ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`AwesomeAPI HTTP ${res.status}${!token ? " (sem AWESOMEAPI_TOKEN configurado — cota compartilhada provavelmente esgotada)" : ""}: ${body.slice(0, 200)}`);
+  }
   const json = await res.json() as Record<string, AwesomeRate>;
 
   const rates = new Map<string, number>();

@@ -3,6 +3,12 @@ import { Building2 } from "lucide-react";
 
 // Busca a logo real do ativo em fontes públicas gratuitas, com fallback
 // automático para o avatar de iniciais caso a imagem não carregue.
+//
+// Ordem de prioridade:
+//   1. logoUrl customizado (ex: /logos/brla.png) — pra ativos de nicho sem
+//      cobertura nas fontes automáticas (ex: stablecoins pequenas)
+//   2. Fonte automática por classe (CMC/Brapi/TickerLogos/repositório público)
+//   3. Fallback: ícone genérico (FIIs) ou iniciais coloridas
 
 // TickerLogos (cdn.tickerlogos.com) funciona por DOMÍNIO, não por ticker —
 // mapeamos os tickers internacionais mais comuns do catálogo do Folio.
@@ -39,41 +45,60 @@ const TICKER_DOMAIN_MAP: Record<string, string> = {
   BA: "boeing.com",
 };
 
-function assetLogoUrl(symbol: string, assetClass: string): string | null {
+// Lista de URLs candidatas, em ordem de prioridade — o componente tenta cada
+// uma até uma carregar com sucesso, só então cai pro fallback de iniciais.
+function assetLogoUrls(
+  symbol: string,
+  assetClass: string,
+  cmcId?: number | string | null,
+  logoUrl?: string | null,
+): string[] {
   const sym = symbol.trim().toUpperCase();
+  const urls: string[] = [];
+
+  // Prioridade máxima: logo customizado cadastrado manualmente
+  if (logoUrl) urls.push(logoUrl);
+
   switch (assetClass) {
     case "stock":
     case "reit":
     case "etf":
-      // Ativos B3 — ícones oficiais servidos pela Brapi (SVG)
-      return `https://icons.brapi.dev/icons/${sym}.svg`;
+      urls.push(`https://icons.brapi.dev/icons/${sym}.svg`);
+      break;
     case "crypto":
-      // Repositório público de ícones de criptomoedas
-      return `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${sym.toLowerCase()}.png`;
+      if (cmcId) urls.push(`https://s2.coinmarketcap.com/static/img/coins/64x64/${cmcId}.png`);
+      urls.push(`https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${sym.toLowerCase()}.png`);
+      break;
     case "stock_intl":
     case "etf_intl":
     case "reit_intl": {
-      // TickerLogos (CDN gratuito, sem chave) — funciona por domínio
       const domain = TICKER_DOMAIN_MAP[sym];
-      return domain ? `https://cdn.tickerlogos.com/${domain}` : null;
+      if (domain) urls.push(`https://cdn.tickerlogos.com/${domain}`);
+      break;
     }
     default:
-      return null; // fixed_income, fund, cash, other → sem logo, usa iniciais
+      break;
   }
+
+  return urls;
 }
 
-export function AssetLogo({ symbol, assetClass, size = 28, className = "" }: {
-  symbol: string; assetClass: string; size?: number; className?: string;
+export function AssetLogo({ symbol, assetClass, cmcId, logoUrl, size = 28, className = "" }: {
+  symbol: string;
+  assetClass: string;
+  cmcId?: number | string | null;
+  logoUrl?: string | null;
+  size?: number;
+  className?: string;
 }) {
-  const [failed, setFailed] = useState(false);
-  const url = assetLogoUrl(symbol, assetClass);
+  const [attemptIndex, setAttemptIndex] = useState(0);
+  const urls = assetLogoUrls(symbol, assetClass, cmcId, logoUrl);
+  const currentUrl = urls[attemptIndex];
   const initials = symbol.slice(0, 2).toUpperCase();
 
-  // FIIs não têm identidade visual própria (são fundos, não empresas) — o Investidor10
-  // e outras plataformas usam um ícone genérico de prédio para todos. Fazemos o mesmo.
   const isReit = assetClass === "reit" || assetClass === "reit_intl";
 
-  if (!url || failed) {
+  if (!currentUrl) {
     if (isReit) {
       return (
         <span
@@ -100,12 +125,12 @@ export function AssetLogo({ symbol, assetClass, size = 28, className = "" }: {
       style={{ width: size, height: size }}
     >
       <img
-        src={url}
+        src={currentUrl}
         alt={symbol}
         width={size}
         height={size}
         className="object-contain w-full h-full"
-        onError={() => setFailed(true)}
+        onError={() => setAttemptIndex(i => i + 1)}
         loading="lazy"
       />
     </span>

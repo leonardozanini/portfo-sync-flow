@@ -415,24 +415,47 @@ function TransactionsPage() {
       {brokers.length > 0 && (txs as TxRow[]).some(t => t.brokerId) && (() => {
         const brokerValueMap = new Map<string, number>();
         let unassigned = 0;
+
+        const addTo = (brokerId: string | null | undefined, value: number) => {
+          if (brokerId) {
+            brokerValueMap.set(brokerId, (brokerValueMap.get(brokerId) ?? 0) + value);
+          } else {
+            unassigned += value;
+          }
+        };
+
         for (const t of visible as TxRow[]) {
           if (t.txType !== "buy" && t.txType !== "sell" && t.txType !== "transfer") continue;
           const total = t.quantity * t.unitPrice;
-          if (t.brokerId && t.brokerName) {
-            // Transferência conta pro destino (broker_id = onde o saldo passou a ficar)
-            brokerValueMap.set(t.brokerId, (brokerValueMap.get(t.brokerId) ?? 0) + total);
-          } else {
-            unassigned += total;
+
+          if (t.txType === "buy") {
+            // Compra: soma na corretora onde entrou
+            addTo(t.brokerId, total);
+          } else if (t.txType === "sell") {
+            // Venda: sai da corretora (reduz o saldo que estava lá)
+            addTo(t.brokerId, -total);
+          } else if (t.txType === "transfer") {
+            // Transferência: sai da origem, entra no destino — sem isso, o saldo
+            // ficava "duplicado" (contado na origem pra sempre, mesmo depois de
+            // já ter saído de lá) e nunca saía de onde realmente não está mais.
+            const fromBrokerId = (t.metadata as any)?.from_broker_id as string | undefined;
+            addTo(fromBrokerId, -total);
+            addTo(t.brokerId, total);
           }
         }
-        const total = Array.from(brokerValueMap.values()).reduce((a, b) => a + b, 0) + unassigned;
+        // Depois de mover saldo por transferência/venda, uma corretora pode zerar
+        // (ou, por alguma inconsistência de lançamento, ficar levemente negativa) —
+        // trava em 0 pra não quebrar o gráfico, e some da lista quem não tem mais nada.
+        const total = Array.from(brokerValueMap.values()).reduce((a, b) => a + Math.max(0, b), 0) + Math.max(0, unassigned);
         const brokerData = [
-          ...(brokers as any[]).filter(b => brokerValueMap.has(b.id)).map(b => ({
-            id: b.id, name: b.name, color: b.color,
-            value: brokerValueMap.get(b.id) ?? 0,
-            pct: total > 0 ? ((brokerValueMap.get(b.id) ?? 0) / total) * 100 : 0,
-          })),
-          ...(unassigned > 0 ? [{ id: "none", name: "Sem corretora", color: "#9ca3af", value: unassigned, pct: total > 0 ? (unassigned / total) * 100 : 0 }] : []),
+          ...(brokers as any[])
+            .filter(b => Math.max(0, brokerValueMap.get(b.id) ?? 0) > 0.01)
+            .map(b => ({
+              id: b.id, name: b.name, color: b.color,
+              value: Math.max(0, brokerValueMap.get(b.id) ?? 0),
+              pct: total > 0 ? (Math.max(0, brokerValueMap.get(b.id) ?? 0) / total) * 100 : 0,
+            })),
+          ...(unassigned > 0.01 ? [{ id: "none", name: "Sem corretora", color: "#9ca3af", value: unassigned, pct: total > 0 ? (unassigned / total) * 100 : 0 }] : []),
         ].sort((a, b) => b.value - a.value);
 
         if (brokerData.length === 0) return null;

@@ -438,9 +438,17 @@ function TransactionsPage() {
             // Transferência: sai da origem, entra no destino — sem isso, o saldo
             // ficava "duplicado" (contado na origem pra sempre, mesmo depois de
             // já ter saído de lá) e nunca saía de onde realmente não está mais.
+            //
+            // IMPORTANTE: a origem perde o valor BRUTO (taxa de rede incluída —
+            // é o que realmente saiu de lá), mas só o valor LÍQUIDO (bruto - taxa)
+            // efetivamente chega no destino. Sem essa distinção, o destino ficava
+            // superestimado pelo tamanho da taxa de cada transferência.
             const fromBrokerId = (t.metadata as any)?.from_broker_id as string | undefined;
+            const feeQty = Number((t.metadata as any)?.fee_quantity ?? 0);
+            const netQty = Math.max(t.quantity - feeQty, 0);
+            const netTotal = netQty * t.unitPrice;
             addTo(fromBrokerId, -total);
-            addTo(t.brokerId, total);
+            addTo(t.brokerId, netTotal);
           }
         }
         // Depois de mover saldo por transferência/venda, uma corretora pode zerar

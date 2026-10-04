@@ -28,10 +28,6 @@
       "schedule": "0 22 * * 1-5"
     },
     {
-      "path": "/api/cron/check-crypto-liquidity",
-      "schedule": "30 22 * * *"
-    },
-    {
       "path": "/api/cron/sync-fundamentals",
       "schedule": "0 8 * * 1"
     }

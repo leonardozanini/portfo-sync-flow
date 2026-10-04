@@ -321,8 +321,22 @@ async function fetchPriceFromUrl(_url: string): Promise<number | null> {
   return null; // disabled — scraping unreliable
 }
 
+// CoinGecko (gratuita, sem chave) — usada quando o ativo tem um coingecko_id
+// cadastrado, pra evitar colisão de ticker (ex: "SKY" = Sky vs Skycoin no Yahoo).
+async function fetchCoinGeckoPrice(coingeckoId: string, currency: CurrencyCode): Promise<number | null> {
+  try {
+    const vs = currency.toLowerCase();
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(coingeckoId)}&vs_currencies=${vs}`;
+    const res = await fetch(url, { headers: { "Accept": "application/json" } });
+    if (!res.ok) return null;
+    const json = await res.json() as any;
+    const p = json?.[coingeckoId]?.[vs];
+    return typeof p === "number" && p > 0 ? p : null;
+  } catch { return null; }
+}
+
 async function fetchPriceFor(
-  a: { symbol: string; asset_class: string; currency: string; quote_url?: string | null },
+  a: { symbol: string; asset_class: string; currency: string; quote_url?: string | null; coingecko_id?: string | null },
   _neverFetched: boolean,
 ): Promise<{ price: number | null; source: string }> {
   const klass = a.asset_class as AssetClass;
@@ -337,8 +351,13 @@ async function fetchPriceFor(
     return { price: null, source: "none" };
   }
 
-  // Crypto: Yahoo works reliably for pairs like BTC-EUR
+  // Crypto: se o ativo tem coingecko_id cadastrado, usa ele primeiro — o ticker
+  // sozinho (via Yahoo) pode colidir com outra moeda de mesmo símbolo.
   if (klass === "crypto") {
+    if (a.coingecko_id) {
+      const pCg = await fetchCoinGeckoPrice(a.coingecko_id, currency);
+      if (pCg != null) return { price: pCg, source: "coingecko" };
+    }
     const p = await fetchYahooCryptoPrice(yahoo);
     if (p != null) return { price: p, source: "yahoo" };
     const p2 = await fetchStooqPrice(stooq);
@@ -482,7 +501,7 @@ export const getDashboard = createServerFn({ method: "GET" })
       await Promise.all(toRefresh.map(async (a) => {
         const neverFetched = !latestFetchedAt.get(a.id);
         const { price, source } = await fetchPriceFor(
-          { symbol: a.symbol, asset_class: a.asset_class, currency: a.currency, quote_url: (a as { quote_url?: string | null }).quote_url },
+          { symbol: a.symbol, asset_class: a.asset_class, currency: a.currency, quote_url: (a as { quote_url?: string | null }).quote_url, coingecko_id: (a as { coingecko_id?: string | null }).coingecko_id },
           neverFetched,
         );
         if (price == null) {
@@ -1116,7 +1135,7 @@ export const forceRefreshPrice = createServerFn({ method: "POST" })
 
     const { data: asset, error } = await supabase
       .from("assets")
-      .select("id, symbol, asset_class, currency, quote_url")
+      .select("id, symbol, asset_class, currency, quote_url, coingecko_id")
       .eq("id", assetId)
       .single();
     if (error || !asset) throw new Error("Asset not found");
@@ -1814,7 +1833,7 @@ export async function refreshAllPricesInternal(): Promise<{
   if (heldIds.length === 0) return { updated: 0, failed: 0, skippedClosed: 0 };
 
   const { data: assets } = await supabaseAdmin
-    .from("assets").select("id, symbol, asset_class, currency, quote_url, market")
+    .from("assets").select("id, symbol, asset_class, currency, quote_url, market, coingecko_id")
     .in("id", heldIds)
     .eq("status", "approved");
 
@@ -1834,7 +1853,7 @@ export async function refreshAllPricesInternal(): Promise<{
       return;
     }
     const { price, source } = await fetchPriceFor(
-      { symbol: a.symbol, asset_class: a.asset_class, currency: a.currency, quote_url: a.quote_url },
+      { symbol: a.symbol, asset_class: a.asset_class, currency: a.currency, quote_url: a.quote_url, coingecko_id: (a as { coingecko_id?: string | null }).coingecko_id },
       neverFetched,
     );
     if (price == null) {

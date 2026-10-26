@@ -71,3 +71,50 @@ export function formatMoney(amount: number, currency: Currency): string {
     maximumFractionDigits: currency === "JPY" ? 0 : 2,
   }).format(amount);
 }
+
+const SUBSCRIPT_DIGITS = ["₀", "₁", "₂", "₃", "₄", "₅", "₆", "₇", "₈", "₉"];
+
+/**
+ * Formata preços cripto muito pequenos em notação compacta, por exemplo:
+ * $0.0₄1196 representa $0.00001196. Valores maiores mantêm a formatação usual.
+ */
+export function formatCryptoPrice(amount: number, currency: Currency): string {
+  const regularFormat = formatMoney(amount, currency);
+  const abs = Math.abs(amount);
+  if (!Number.isFinite(amount) || abs === 0 || abs >= 0.01) return regularFormat;
+
+  let exponent = Math.floor(Math.log10(abs));
+  let significant = abs / 10 ** exponent;
+  let zeroCount = -exponent - 1;
+
+  significant = Number(significant.toPrecision(4));
+  if (significant >= 10) {
+    significant /= 10;
+    zeroCount -= 1;
+  }
+
+  const digits = significant.toFixed(3).replace(".", "");
+  const count = String(Math.max(0, zeroCount))
+    .split("")
+    .map((digit) => SUBSCRIPT_DIGITS[Number(digit)])
+    .join("");
+
+  const locale = currency === "BRL" ? "pt-BR"
+    : currency === "USD" ? "en-US"
+    : currency === "EUR" ? "de-DE"
+    : currency === "GBP" ? "en-GB"
+    : "ja-JP";
+  const currencyParts = new Intl.NumberFormat(locale, { style: "currency", currency }).formatToParts(amount);
+  const numericIndexes = currencyParts
+    .map((part, index) => (part.type === "integer" || part.type === "fraction" ? index : -1))
+    .filter((index) => index >= 0);
+  const firstNumeric = numericIndexes[0];
+  const lastNumeric = numericIndexes[numericIndexes.length - 1];
+  const prefix = currencyParts.slice(0, firstNumeric).map((part) => part.value).join("");
+  const suffix = currencyParts.slice(lastNumeric + 1).map((part) => part.value).join("");
+  const decimal = new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+    .formatToParts(1.1)
+    .find((part) => part.type === "decimal")?.value ?? ".";
+
+  return `${prefix}0${decimal}0${count}${digits}${suffix}`;
+}

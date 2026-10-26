@@ -3,12 +3,14 @@ import { TrendingUp, TrendingDown } from "lucide-react";
 import { getDashboard } from "@/lib/portfolio.functions";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
+import { formatCryptoPrice, type Currency } from "@/lib/currency";
 
 interface TickerItem {
   symbol: string;
   price: string;
   change: number; // percentual
   currency: string;
+  assetClass?: string;
 }
 
 // ── Busca índices e câmbio via Stooq ────────────────────────────────────────
@@ -62,8 +64,7 @@ function TickerItem({ item }: { item: TickerItem }) {
         {item.symbol}
       </span>
       <span className="text-sm text-background/70 dark:text-muted-foreground tabular-nums">
-        {item.currency === "BRL" ? "R$" : item.currency === "EUR" ? "€" : "$"}{" "}
-        {item.price}
+        {item.assetClass === "crypto" ? item.price : <>{item.currency === "BRL" ? "R$" : item.currency === "EUR" ? "€" : "$"}{" "}{item.price}</>}
       </span>
       <span className={`inline-flex items-center gap-0.5 text-sm font-medium tabular-nums ${
         pos ? "text-emerald-500" : "text-red-500"
@@ -144,12 +145,15 @@ export function usePortfolioTicker(): TickerItem[] {
       if (!top) return null;
       return {
         symbol: top.symbol,
-        price: top.currentPrice.toLocaleString("pt-BR", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        }),
+        price: top.assetClass === "crypto"
+          ? formatCryptoPrice(top.currentPrice, top.currency as Currency)
+          : top.currentPrice.toLocaleString("pt-BR", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }),
         change: top.variation,
         currency: top.currency,
+        assetClass: top.assetClass,
       };
     })
     .filter(Boolean) as TickerItem[];

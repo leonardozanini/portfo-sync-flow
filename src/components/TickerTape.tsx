@@ -10,7 +10,7 @@ interface TickerItem {
   price: string;
   change: number; // percentual
   currency: string;
-  assetClass: string;
+  assetClass?: string;
 }
 
 // ── Busca índices e câmbio via Stooq ────────────────────────────────────────

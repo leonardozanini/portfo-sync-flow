@@ -786,10 +786,9 @@ function TxForm({
 // ── RateInput ────────────────────────────────────────────────────────────────
 // Dígito a dígito, igual MoneyInput. 702 centésimos = 7,02%
 function RateInput({ cents, onChange }: { cents: number; onChange: (v: number) => void }) {
-  const scale = 10 ** decimals;
-  const display = (cents / scale).toLocaleString("pt-BR", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
+  const display = (cents / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   });
 
   const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -831,9 +830,10 @@ function MoneyInput({ cents, onChange, currency, decimals = 2 }: {
   };
   const symbol = currencySymbol[currency] ?? currency;
 
-  const display = (cents / 100).toLocaleString("pt-BR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+  const scale = 10 ** decimals;
+  const display = (cents / scale).toLocaleString("pt-BR", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
   });
 
   const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {

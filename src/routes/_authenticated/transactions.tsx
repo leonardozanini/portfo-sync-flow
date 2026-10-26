@@ -30,7 +30,7 @@ import {
   listTransactions, updateTransaction, deleteTransaction,
   type AssetClass, type CurrencyCode, type TxType,
 } from "@/lib/portfolio.functions";
-import { convert, formatMoney, type Currency } from "@/lib/currency";
+import { convert, formatCryptoPrice, formatMoney, type Currency } from "@/lib/currency";
 import { useDisplayCurrency } from "@/components/CurrencySwitcher";
 import { listBrokers } from "@/lib/portfolio.functions";
 import {
@@ -774,7 +774,7 @@ function TransactionsPage() {
                         }>{TX_LABEL[t.txType]}</Badge>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {formatMoney(t.unitPrice, t.currency as Currency)}
+                        {t.assetClass === "crypto" ? formatCryptoPrice(t.unitPrice, t.currency as Currency) : formatMoney(t.unitPrice, t.currency as Currency)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{t.quantity}</TableCell>
                       <TableCell className="text-right tabular-nums">

@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Loader2, TrendingUp, TrendingDown, Plus } from "lucide-react";
 import { getAssetLots } from "@/lib/portfolio.functions";
-import { formatMoney, type Currency } from "@/lib/currency";
+import { formatCryptoPrice, formatMoney, type Currency } from "@/lib/currency";
 import { NewTransactionDialog } from "@/components/NewTransactionDialog";
 
 export function AssetLotsDialog({
@@ -143,7 +143,7 @@ function Lots({ data }: { data: any }) {
                     {lot.quantity.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {formatMoney(lot.unitPrice, lot.currency as Currency)}
+                    {assetClass === "crypto" ? formatCryptoPrice(lot.unitPrice, lot.currency as Currency) : formatMoney(lot.unitPrice, lot.currency as Currency)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatMoney(lot.costBasis, lot.currency as Currency)}
@@ -171,7 +171,7 @@ function Lots({ data }: { data: any }) {
 
       <p className="text-xs text-muted-foreground">
         Cotação atual: <span className="font-medium text-foreground">
-          {formatMoney(data.asset.currentPrice, cur)}
+          {assetClass === "crypto" ? formatCryptoPrice(data.asset.currentPrice, cur) : formatMoney(data.asset.currentPrice, cur)}
         </span> · L/P calculado por lote de compra vs. cotação atual.
       </p>
     </div>

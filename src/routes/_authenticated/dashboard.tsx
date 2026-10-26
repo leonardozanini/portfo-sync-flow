@@ -29,7 +29,7 @@ import {
   PieChart, Pie, Cell,
 } from "recharts";
 import { useDisplayCurrency } from "@/components/CurrencySwitcher";
-import { convert, formatMoney, type Currency } from "@/lib/currency";
+import { convert, formatCryptoPrice, formatMoney, type Currency } from "@/lib/currency";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { NewTransactionDialog, type TxPreset } from "@/components/NewTransactionDialog";
@@ -1087,8 +1087,8 @@ function AssetRow({
         </div>
       </TableCell>
       <TableCell className="text-right tabular-nums">{a.qty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</TableCell>
-      <TableCell className="text-right tabular-nums">{formatMoney(a.avgPrice, a.currency)}</TableCell>
-      <TableCell className="text-right tabular-nums">{formatMoney(a.currentPrice, a.currency)}</TableCell>
+      <TableCell className="text-right tabular-nums">{a.assetClass === "crypto" ? formatCryptoPrice(a.avgPrice, a.currency) : formatMoney(a.avgPrice, a.currency)}</TableCell>
+      <TableCell className="text-right tabular-nums">{a.assetClass === "crypto" ? formatCryptoPrice(a.currentPrice, a.currency) : formatMoney(a.currentPrice, a.currency)}</TableCell>
       {columns.variation && (
         <TableCell className="text-right">
           <VariationPill

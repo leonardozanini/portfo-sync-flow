@@ -12,6 +12,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { formatCryptoPrice, type Currency } from "@/lib/currency";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -267,7 +268,9 @@ function CatalogRowItem({ a, onChanged }: { a: CatalogRow; onChanged: () => void
       </TableCell>
       <TableCell className="text-right tabular-nums">
         {a.lastPrice != null
-          ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: a.currency }).format(a.lastPrice)
+          ? a.assetClass === "crypto"
+            ? formatCryptoPrice(a.lastPrice, a.currency as Currency)
+            : new Intl.NumberFormat("pt-BR", { style: "currency", currency: a.currency }).format(a.lastPrice)
           : <span className="text-muted-foreground">—</span>}
       </TableCell>
       <TableCell className="text-xs">

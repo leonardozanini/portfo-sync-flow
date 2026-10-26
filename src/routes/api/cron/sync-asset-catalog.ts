@@ -18,6 +18,7 @@ type AssetRow = {
   country: string;
   status: "approved";
   data_source: string;
+  quote_url?: string;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -159,6 +160,20 @@ async function fetchCoinGeckoAssets(): Promise<AssetRow[]> {
   }
 }
 
+// Ativos fora do top 100 do CoinGecko que precisam de uma fonte por contrato.
+const CURATED_CRYPTO_ASSETS: AssetRow[] = [
+  {
+    symbol: "SLASH",
+    name: "SLASH",
+    asset_class: "crypto",
+    currency: "USD",
+    country: "GLOBAL",
+    status: "approved",
+    data_source: "dexscreener",
+    quote_url: "https://api.dexscreener.com/tokens/v1/solana/4G6xvNVsY2NwHjDNR3GNg55ca3osQMiEq1Punzfmpump",
+  },
+];
+
 // ── Upsert no Supabase ────────────────────────────────────────────────────────
 
 async function upsertAssets(
@@ -248,6 +263,7 @@ export default async function handler(req: Request): Promise<Response> {
       ...nasdaqAssets,
       ...xetraAssets,
       ...cryptoAssets,
+      ...CURATED_CRYPTO_ASSETS,
     ];
 
     console.log(`[sync-catalog] Ativos coletados:
@@ -259,6 +275,24 @@ export default async function handler(req: Request): Promise<Response> {
       Total:             ${allAssets.length}`);
 
     const inserted = await upsertAssets(supabaseAdmin, allAssets);
+
+    // Refresh this curated entry even when the symbol/currency already existed.
+    const curated = CURATED_CRYPTO_ASSETS[0];
+    const { error: curatedError } = await supabaseAdmin
+      .from("assets")
+      .update({
+        name: curated.name,
+        quote_url: curated.quote_url,
+        data_source: curated.data_source,
+        status: curated.status,
+      })
+      .eq("symbol", curated.symbol)
+      .eq("currency", curated.currency)
+      .eq("asset_class", curated.asset_class);
+    if (curatedError) {
+      console.error("[sync-catalog] SLASH metadata update error:", curatedError.message);
+    }
+
     const elapsed = Date.now() - startedAt;
 
     console.log(`[sync-catalog] Concluído em ${elapsed}ms — ${inserted} ativos processados`);

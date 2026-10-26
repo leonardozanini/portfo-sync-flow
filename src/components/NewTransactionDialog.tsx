@@ -355,7 +355,9 @@ function TxForm({
     ? (dashData?.groups.flatMap(g => g.assets).filter(a => a.assetClass === "crypto" && a.qty > 0) ?? [])
     : [];
 
-  const price = priceCents / 100;
+  const priceDecimals = assetClass === "crypto" || txType === "transfer" ? 8 : 2;
+  const priceScale = 10 ** priceDecimals;
+  const price = priceCents / priceScale;
   const fees = feesCents / 100;
   const qtyNum = parseFloat(qty) || 0;
   // Renda fixa: total = valor aplicado (price), sem qty
@@ -461,7 +463,7 @@ function TxForm({
                   // Preenche automaticamente com a cotação atual — sem isso, o valor
                   // fica zerado e a transferência não conta em nenhum gráfico que
                   // dependa de qty × preço (ex: Alocação por Corretora).
-                  setPriceCents(Math.round(picked.currentPrice * 100));
+                  setPriceCents(Math.round(picked.currentPrice * priceScale));
                 }
               }}
             >
@@ -599,7 +601,7 @@ function TxForm({
 
             <div className="col-span-2">
               <Field label={<>Preço de referência <span className="float-right text-xs text-muted-foreground">preenchido com a cotação atual — ajuste se quiser</span></>}>
-                <MoneyInput cents={priceCents} onChange={setPriceCents} currency={currency} />
+                <MoneyInput cents={priceCents} onChange={setPriceCents} currency={currency} decimals={priceDecimals} />
               </Field>
             </div>
 
@@ -622,7 +624,7 @@ function TxForm({
               />
             </Field>
             <Field label={<>Preço <span className="font-normal text-muted-foreground">em {currency}</span></>}>
-              <MoneyInput cents={priceCents} onChange={setPriceCents} currency={currency} />
+              <MoneyInput cents={priceCents} onChange={setPriceCents} currency={currency} decimals={priceDecimals} />
             </Field>
           </>
         )}
@@ -646,7 +648,7 @@ function TxForm({
 
             {/* PU na compra */}
             <Field label={<>PU na compra <span className="font-normal text-muted-foreground">em {currency}</span></>}>
-              <MoneyInput cents={priceCents} onChange={setPriceCents} currency={currency} />
+              <MoneyInput cents={priceCents} onChange={setPriceCents} currency={currency} decimals={priceDecimals} />
             </Field>
 
             {/* Tipo de produto */}
@@ -784,9 +786,10 @@ function TxForm({
 // ── RateInput ────────────────────────────────────────────────────────────────
 // Dígito a dígito, igual MoneyInput. 702 centésimos = 7,02%
 function RateInput({ cents, onChange }: { cents: number; onChange: (v: number) => void }) {
-  const display = (cents / 100).toLocaleString("pt-BR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+  const scale = 10 ** decimals;
+  const display = (cents / scale).toLocaleString("pt-BR", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
   });
 
   const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -817,10 +820,11 @@ function RateInput({ cents, onChange }: { cents: number; onChange: (v: number) =
 }
 
 // ── MoneyInput ───────────────────────────────────────────────────────────────
-function MoneyInput({ cents, onChange, currency }: {
+function MoneyInput({ cents, onChange, currency, decimals = 2 }: {
   cents: number;
   onChange: (cents: number) => void;
   currency: string;
+  decimals?: number;
 }) {
   const currencySymbol: Record<string, string> = {
     BRL: "R$", USD: "US$", EUR: "€", GBP: "£", JPY: "¥",
@@ -839,7 +843,7 @@ function MoneyInput({ cents, onChange, currency }: {
     } else if (/^\d$/.test(e.key)) {
       e.preventDefault();
       const next = cents * 10 + parseInt(e.key);
-      if (next <= 9_999_999_99) onChange(next);
+      if (next <= 9_999_999.99 * scale) onChange(next);
     }
   };
 

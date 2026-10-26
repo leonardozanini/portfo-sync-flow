@@ -317,8 +317,49 @@ async function fetchYahooPrice(ySymbol: string): Promise<number | null> {
   return fetchYahooCryptoPrice(ySymbol);
 }
 
-async function fetchPriceFromUrl(_url: string): Promise<number | null> {
-  return null; // disabled — scraping unreliable
+async function fetchDexScreenerPrice(quoteUrl: string, currency: CurrencyCode): Promise<number | null> {
+  if (currency !== "USD") return null;
+
+  // Accept only the token endpoint from Dexscreener and extract a Solana mint.
+  let tokenAddress: string;
+  try {
+    const url = new URL(quoteUrl);
+    if (url.origin !== "https://api.dexscreener.com") return null;
+    const match = url.pathname.match(/^\/tokens\/v1\/solana\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
+    if (!match) return null;
+    tokenAddress = match[1];
+  } catch {
+    return null;
+  }
+
+  try {
+    const res = await fetch(quoteUrl, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    const payload = await res.json() as Array<{
+      chainId?: string;
+      baseToken?: { address?: string };
+      priceUsd?: string;
+      liquidity?: { usd?: number };
+    }> | {
+      pairs?: Array<{
+        chainId?: string;
+        baseToken?: { address?: string };
+        priceUsd?: string;
+        liquidity?: { usd?: number };
+      }>;
+    };
+    const pairs = Array.isArray(payload) ? payload : payload.pairs ?? [];
+    const pair = pairs
+      .filter((item) => item.chainId === "solana" && item.baseToken?.address === tokenAddress)
+      .sort((left, right) => (right.liquidity?.usd ?? 0) - (left.liquidity?.usd ?? 0))[0];
+    const price = Number(pair?.priceUsd);
+    return Number.isFinite(price) && price > 0 ? price : null;
+  } catch {
+    return null;
+  }
 }
 
 // CoinGecko (gratuita, sem chave) — usada quando o ativo tem um coingecko_id
@@ -351,9 +392,12 @@ async function fetchPriceFor(
     return { price: null, source: "none" };
   }
 
-  // Crypto: se o ativo tem coingecko_id cadastrado, usa ele primeiro — o ticker
-  // sozinho (via Yahoo) pode colidir com outra moeda de mesmo símbolo.
+  // Crypto: contratos com quote_url usam a fonte vinculada ao endereço antes dos fallbacks.
   if (klass === "crypto") {
+    if (a.quote_url) {
+      const pDex = await fetchDexScreenerPrice(a.quote_url, currency);
+      if (pDex != null) return { price: pDex, source: "dexscreener" };
+    }
     if (a.coingecko_id) {
       const pCg = await fetchCoinGeckoPrice(a.coingecko_id, currency);
       if (pCg != null) return { price: pCg, source: "coingecko" };

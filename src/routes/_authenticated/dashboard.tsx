@@ -23,6 +23,7 @@ import {
   ChevronDown, ChevronUp, BarChart3, Settings2, ArrowUpRight, ArrowDownRight,
   CheckCircle2, XCircle, MoreHorizontal, GripVertical, Landmark, Building2, Bitcoin,
   Layers, ListOrdered, Trash2, Info, SplitSquareHorizontal,
+  Pencil,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
@@ -35,9 +36,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { NewTransactionDialog, type TxPreset } from "@/components/NewTransactionDialog";
 import { AssetLotsDialog } from "@/components/AssetLotsDialog";
 import { AssetLogo } from "@/components/AssetLogo";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { getPriceMovers, applyStockSplit } from "@/lib/portfolio.functions";
-import { getDashboard, getDividendSyncQueue, syncAssetDividends, removeAssetFromPortfolio, type AssetClass, type AssetGroup, type GroupedAsset } from "@/lib/portfolio.functions";
+import { getDashboard, getDividendSyncQueue, syncAssetDividends, removeAssetFromPortfolio, updateCryptoAveragePrice, type AssetClass, type AssetGroup, type GroupedAsset } from "@/lib/portfolio.functions";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel,
@@ -455,6 +457,7 @@ function Dashboard() {
   const [lotsAsset, setLotsAsset] = useState<{ id: string; symbol: string } | null>(null);
   const [moversOpen, setMoversOpen] = useState(false);
   const [splitAsset, setSplitAsset] = useState<{ id: string; symbol: string } | null>(null);
+  const [averagePriceAsset, setAveragePriceAsset] = useState<{ id: string; symbol: string; avgPrice: number; currency: string } | null>(null);
   const { data } = useSuspenseQuery(dashboardQueryOptions);
   const qc = useQueryClient();
 
@@ -491,6 +494,8 @@ function Dashboard() {
       .channel("dashboard-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "transactions" },
         () => qc.invalidateQueries({ queryKey: ["dashboard"] }))
+      .on("postgres_changes", { event: "*", schema: "public", table: "crypto_average_price_adjustments" },
+        () => qc.invalidateQueries({ queryKey: ["dashboard"] }))
       .on("postgres_changes", { event: "*", schema: "public", table: "asset_prices" },
         () => qc.invalidateQueries({ queryKey: ["dashboard"] }))
       .subscribe();
@@ -526,6 +531,7 @@ function Dashboard() {
         <NewTransactionDialog open={open} onOpenChange={setOpen} preset={preset} />
         <PriceMoversDialog open={moversOpen} onOpenChange={setMoversOpen} />
         <StockSplitDialog asset={splitAsset} onClose={() => setSplitAsset(null)} />
+        <CryptoAveragePriceDialog asset={averagePriceAsset} onClose={() => setAveragePriceAsset(null)} />
         <AssetLotsDialog
           open={!!lotsAsset}
           onOpenChange={(v) => !v && setLotsAsset(null)}
@@ -746,7 +752,7 @@ function Dashboard() {
             {data.groups.map((g) => (
               <AssetGroupCard key={g.assetClass} group={g} currency={currency}
                 onAdd={(p) => openNew(p)} onShowLots={openLots} onRemove={setRemoveAsset}
-                onSplit={setSplitAsset} />
+                onSplit={setSplitAsset} onEditAveragePrice={setAveragePriceAsset} />
             ))}
           </div>
         )}
@@ -946,7 +952,7 @@ function RemoveAssetDialog({
 }
 
 function AssetGroupCard({
-  group, currency, onAdd, onShowLots, onRemove, onSplit,
+  group, currency, onAdd, onShowLots, onRemove, onSplit, onEditAveragePrice,
 }: {
   group: AssetGroup;
   currency: Currency;
@@ -954,6 +960,7 @@ function AssetGroupCard({
   onShowLots: (a: { id: string; symbol: string }) => void;
   onRemove: (a: { assetId: string; symbol: string; currentPrice: number; currency: string; qty: number }) => void;
   onSplit: (a: { id: string; symbol: string }) => void;
+  onEditAveragePrice: (a: { id: string; symbol: string; avgPrice: number; currency: string }) => void;
 }) {
   const [open, setOpen] = useState(true);
   const Icon = CLASS_ICONS[group.assetClass] ?? Layers;
@@ -1010,7 +1017,8 @@ function AssetGroupCard({
                   {group.assets.map((a) => (
                     <AssetRow key={a.assetId} a={a} currency={currency}
                       groupValue={group.totalValueBRL} columns={columns}
-                      onAdd={onAdd} onShowLots={onShowLots} onRemove={onRemove} onSplit={onSplit} />
+                      onAdd={onAdd} onShowLots={onShowLots} onRemove={onRemove} onSplit={onSplit}
+                      onEditAveragePrice={onEditAveragePrice} />
                   ))}
                 </TableBody>
               </Table>
@@ -1056,8 +1064,69 @@ function AssetGroupCard({
   );
 }
 
+function CryptoAveragePriceDialog({
+  asset, onClose,
+}: {
+  asset: { id: string; symbol: string; avgPrice: number; currency: string } | null;
+  onClose: () => void;
+}) {
+  const [averagePrice, setAveragePrice] = useState(String(asset?.avgPrice ?? ""));
+  const qc = useQueryClient();
+  const updateFn = useServerFn(updateCryptoAveragePrice);
+  const mutation = useMutation({
+    mutationFn: updateFn,
+    onSuccess: () => {
+      toast.success("Preço médio atualizado");
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      if (asset) qc.invalidateQueries({ queryKey: ["asset-lots", asset.id] });
+      onClose();
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  useEffect(() => {
+    setAveragePrice(String(asset?.avgPrice ?? ""));
+  }, [asset?.id, asset?.avgPrice]);
+
+  const parsedPrice = Number(averagePrice.replace(",", "."));
+
+  return (
+    <Dialog open={!!asset} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Editar preço médio — {asset?.symbol}</DialogTitle>
+          <DialogDescription>
+            Ajuste o custo médio da posição atual. Os lançamentos originais permanecem no histórico; compras e vendas futuras serão calculadas a partir deste ajuste.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5 py-2">
+          <Label htmlFor="crypto-average-price">Preço médio ({asset?.currency})</Label>
+          <Input
+            id="crypto-average-price"
+            type="number"
+            step="any"
+            min="0"
+            value={averagePrice}
+            onChange={(event) => setAveragePrice(event.target.value)}
+            autoFocus
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>Cancelar</Button>
+          <Button
+            onClick={() => asset && mutation.mutate({ data: { assetId: asset.id, averagePrice: parsedPrice } })}
+            disabled={!asset || !Number.isFinite(parsedPrice) || parsedPrice <= 0 || mutation.isPending}
+          >
+            {mutation.isPending ? "Salvando…" : "Salvar preço médio"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function AssetRow({
-  a, currency, groupValue, columns, onAdd, onShowLots, onRemove, onSplit,
+  a, currency, groupValue, columns, onAdd, onShowLots, onRemove, onSplit, onEditAveragePrice,
 }: {
   a: GroupedAsset; currency: Currency; groupValue: number;
   columns: Record<OptionalColumnKey, boolean>;
@@ -1065,6 +1134,7 @@ function AssetRow({
   onShowLots: (a: { id: string; symbol: string }) => void;
   onRemove: (a: { assetId: string; symbol: string; currentPrice: number; currency: string; qty: number }) => void;
   onSplit: (a: { id: string; symbol: string }) => void;
+  onEditAveragePrice: (a: { id: string; symbol: string; avgPrice: number; currency: string }) => void;
 }) {
   const pctInGroup = groupValue > 0 ? (a.balanceBRL / groupValue) * 100 : 0;
   return (
@@ -1087,7 +1157,12 @@ function AssetRow({
         </div>
       </TableCell>
       <TableCell className="text-right tabular-nums">{a.qty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</TableCell>
-      <TableCell className="text-right tabular-nums">{a.assetClass === "crypto" ? formatCryptoPrice(a.avgPrice, a.currency) : formatMoney(a.avgPrice, a.currency)}</TableCell>
+      <TableCell className="text-right tabular-nums" title={a.averagePriceAdjusted ? "Preço médio ajustado manualmente; o histórico de lançamentos permanece inalterado." : undefined}>
+        <span className="inline-flex items-center justify-end gap-1">
+          {a.assetClass === "crypto" ? formatCryptoPrice(a.avgPrice, a.currency) : formatMoney(a.avgPrice, a.currency)}
+          {a.averagePriceAdjusted && <Pencil className="h-3 w-3 text-muted-foreground" aria-label="Preço médio ajustado" />}
+        </span>
+      </TableCell>
       <TableCell className="text-right tabular-nums">{a.assetClass === "crypto" ? formatCryptoPrice(a.currentPrice, a.currency) : formatMoney(a.currentPrice, a.currency)}</TableCell>
       {columns.variation && (
         <TableCell className="text-right">
@@ -1154,6 +1229,14 @@ function AssetRow({
               <Plus className="mr-2 h-4 w-4" />
               Adicionar lançamento de {a.symbol}
             </DropdownMenuItem>
+            {a.assetClass === "crypto" && (
+              <DropdownMenuItem onClick={() => onEditAveragePrice({
+                id: a.assetId, symbol: a.symbol, avgPrice: a.avgPrice, currency: a.currency,
+              })}>
+                <Pencil className="mr-2 h-4 w-4" />
+                Editar preço médio
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => onShowLots({ id: a.assetId, symbol: a.symbol })}>
               <ListOrdered className="mr-2 h-4 w-4" />
@@ -1439,3 +1522,4 @@ function StockSplitDialog({ asset, onClose }: { asset: { id: string; symbol: str
     </Dialog>
   );
 }
+

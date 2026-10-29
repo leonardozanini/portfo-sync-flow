@@ -115,6 +115,36 @@ export type Database = {
         }
         Relationships: []
       }
+      external_links: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          slot: number
+          url: string
+          user_id: string
+          username: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          slot: number
+          url: string
+          user_id: string
+          username?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          slot?: number
+          url?: string
+          user_id?: string
+          username?: string | null
+        }
+        Relationships: []
+      }
       portfolio_snapshots: {
         Row: {
           base_currency: Database["public"]["Enums"]["currency_code"]
@@ -454,3 +484,4 @@ export const Constants = {
     },
   },
 } as const
+

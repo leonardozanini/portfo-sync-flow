@@ -52,6 +52,17 @@ export function defaultMarketFor(currency: CurrencyCode, klass: AssetClass): Mar
   return "OTHER";
 }
 
+// Transactions store a calendar date, while average-price adjustments have a timestamp.
+// Use the transaction's creation time only to order entries from the same calendar day.
+function positionEventTimestamp(occurredAt: string, createdAt?: string | null): number {
+  const occurred = new Date(occurredAt);
+  if (!createdAt || Number.isNaN(occurred.getTime())) return occurred.getTime();
+  const created = new Date(createdAt);
+  if (Number.isNaN(created.getTime())) return occurred.getTime();
+  occurred.setUTCHours(created.getUTCHours(), created.getUTCMinutes(), created.getUTCSeconds(), created.getUTCMilliseconds());
+  return occurred.getTime();
+}
+
 export type GroupedAsset = {
   assetId: string;
   symbol: string;
@@ -61,6 +72,7 @@ export type GroupedAsset = {
   country: string;
   qty: number;
   avgPrice: number;
+  averagePriceAdjusted: boolean;
   currentPrice: number;
   balanceBRL: number;
   investedBRL: number;
@@ -443,7 +455,7 @@ export const getDashboard = createServerFn({ method: "GET" })
     since12m.setMonth(since12m.getMonth() - 12);
     const since12mStr = since12m.toISOString().slice(0, 10);
 
-    const [txRes, assetsRes, pricesRes, fxRes, rolesRes, brokersRes, snapshotsRes, dividendsRes] = await Promise.all([
+    const [txRes, assetsRes, pricesRes, fxRes, rolesRes, brokersRes, snapshotsRes, dividendsRes, adjustmentsRes] = await Promise.all([
       supabase.from("transactions").select("*").eq("user_id", userId).order("occurred_at", { ascending: true }),
       supabase.from("assets").select("*"),
       supabase.from("asset_prices").select("asset_id, close_price, price_date, fetched_at").order("fetched_at", { ascending: false }),
@@ -452,10 +464,17 @@ export const getDashboard = createServerFn({ method: "GET" })
       (supabase as any).from("brokers").select("id, name, color").eq("user_id", userId),
       supabase.from("portfolio_snapshots").select("snapshot_date, total_value, total_invested, pnl").eq("user_id", userId).order("snapshot_date", { ascending: true }),
       (supabase as any).from("dividends").select("asset_id, amount, amount_per_share, quantity_held, currency, payment_date, ex_date").eq("user_id", userId).gte("payment_date", since12mStr),
+      (supabase as any).from("crypto_average_price_adjustments")
+        .select("asset_id, average_price, currency, adjusted_at, created_at")
+        .eq("user_id", userId).order("adjusted_at", { ascending: true }).order("created_at", { ascending: true }),
     ]);
     if (txRes.error) throw new Error(txRes.error.message);
+    if (adjustmentsRes.error && !["42P01", "PGRST205"].includes(adjustmentsRes.error.code ?? "")) {
+      throw new Error(adjustmentsRes.error.message);
+    }
 
     const txs = txRes.data ?? [];
+    const costBasisAdjustments = adjustmentsRes.error ? [] : adjustmentsRes.data ?? [];
     const dividendRows = (dividendsRes.data ?? []) as Array<{ asset_id: string; amount: number; amount_per_share: number | null; quantity_held: number | null; currency: string; payment_date: string | null; ex_date: string }>;
 
     // Soma de proventos POR COTA/AÇÃO dos últimos 12 meses, por ativo.
@@ -587,8 +606,22 @@ export const getDashboard = createServerFn({ method: "GET" })
       return amount * (FALLBACK_TO_BRL[cur] ?? 1);
     };
 
-    // Aggregate per asset
-    type Agg = { qty: number; invested: number; lastPrice: number; currency: CurrencyCode };
+    // Replay each asset's ledger in time order, applying a manual cost-basis
+    // adjustment as a new basis for the then-current quantity.
+    type Agg = { qty: number; invested: number; lastPrice: number; currency: CurrencyCode; averagePriceAdjusted: boolean };
+    type PositionEvent = { at: number; order: number; tx?: (typeof txs)[number]; adjustment?: (typeof costBasisAdjustments)[number] };
+    const eventsByAsset = new Map<string, PositionEvent[]>();
+    let eventOrder = 0;
+    for (const t of txs) {
+      const events = eventsByAsset.get(t.asset_id) ?? [];
+      events.push({ at: positionEventTimestamp(t.occurred_at, t.created_at), order: eventOrder++, tx: t });
+      eventsByAsset.set(t.asset_id, events);
+    }
+    for (const adjustment of costBasisAdjustments) {
+      const events = eventsByAsset.get(adjustment.asset_id) ?? [];
+      events.push({ at: new Date(adjustment.adjusted_at).getTime(), order: eventOrder++, adjustment });
+      eventsByAsset.set(adjustment.asset_id, events);
+    }
     const perAsset = new Map<string, Agg>();
 
     // Proventos dos últimos 12 meses — soma da tabela dividends (já filtrada por payment_date na query)
@@ -596,35 +629,42 @@ export const getDashboard = createServerFn({ method: "GET" })
       return sum + toBRL(Number(d.amount), d.currency as CurrencyCode);
     }, 0);
 
-    for (const t of txs) {
-      const cur = t.currency as CurrencyCode;
-      const qty = Number(t.quantity);
-      const price = Number(t.unit_price);
-      const fees = Number(t.fees ?? 0);
+    for (const [assetId, events] of eventsByAsset) {
+      events.sort((a, b) => a.at - b.at || a.order - b.order);
+      let agg: Agg = { qty: 0, invested: 0, lastPrice: 0, currency: "USD", averagePriceAdjusted: false };
+      for (const event of events) {
+        if (event.adjustment) {
+          if (agg.qty > 0) {
+            agg.invested = Number(event.adjustment.average_price) * agg.qty;
+            agg.currency = event.adjustment.currency as CurrencyCode;
+            agg.averagePriceAdjusted = true;
+          }
+          continue;
+        }
+        const t = event.tx!;
+        const cur = t.currency as CurrencyCode;
+        const qty = Number(t.quantity);
+        const price = Number(t.unit_price);
+        const fees = Number(t.fees ?? 0);
 
-      if (t.tx_type === "dividend") continue; // legado — proventos agora vêm da tabela dividends
-      if (t.tx_type === "deposit" || t.tx_type === "withdraw") continue;
+        if (t.tx_type === "dividend") continue; // legado — proventos agora vêm da tabela dividends
+        if (t.tx_type === "deposit" || t.tx_type === "withdraw") continue;
 
-      const agg = perAsset.get(t.asset_id) ?? { qty: 0, invested: 0, lastPrice: price, currency: cur };
-      if (t.tx_type === "buy") {
-        agg.qty += qty;
-        agg.invested += qty * price + fees;
-      } else if (t.tx_type === "sell") {
-        const avg = agg.qty > 0 ? agg.invested / agg.qty : price;
-        agg.qty -= qty;
-        agg.invested -= qty * avg;
-      } else if (t.tx_type === "transfer") {
-        // Transferência interna (entre corretora e carteira própria, por ex.) — não é
-        // compra nem venda, só muda "onde está guardado". A quantidade total só diminui
-        // pela taxa de rede paga (fee_quantity, em unidades do próprio ativo); o capital
-        // investido continua o mesmo, o que naturalmente eleva um pouco o preço médio
-        // do saldo restante — reflexo correto do custo da transferência no patrimônio.
-        const feeQty = Number((t.metadata as any)?.fee_quantity ?? 0);
-        agg.qty -= feeQty;
+        if (t.tx_type === "buy") {
+          agg.qty += qty;
+          agg.invested += qty * price + fees;
+        } else if (t.tx_type === "sell") {
+          const avg = agg.qty > 0 ? agg.invested / agg.qty : price;
+          agg.invested -= qty * avg;
+          agg.qty -= qty;
+        } else if (t.tx_type === "transfer") {
+          const feeQty = Number((t.metadata as any)?.fee_quantity ?? 0);
+          agg.qty -= feeQty;
+        }
+        agg.lastPrice = price;
+        agg.currency = cur;
       }
-      agg.lastPrice = price;
-      agg.currency = cur;
-      perAsset.set(t.asset_id, agg);
+      perAsset.set(assetId, agg);
     }
 
     // Build grouped assets
@@ -663,6 +703,7 @@ export const getDashboard = createServerFn({ method: "GET" })
         country: (asset as any).country ?? "US",
         qty: agg.qty,
         avgPrice,
+        averagePriceAdjusted: agg.averagePriceAdjusted,
         currentPrice,
         balanceBRL,
         investedBRL,
@@ -1002,6 +1043,49 @@ export const listTransactions = createServerFn({ method: "GET" })
   });
 
 // ---------- updateTransaction ----------
+const cryptoAveragePriceSchema = z.object({
+  assetId: z.string().uuid(),
+  averagePrice: z.number().finite().positive().max(1e18),
+});
+
+export const updateCryptoAveragePrice = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => cryptoAveragePriceSchema.parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const [assetRes, txRes] = await Promise.all([
+      supabase.from("assets").select("id, asset_class, currency").eq("id", data.assetId).single(),
+      supabase.from("transactions").select("tx_type, quantity, metadata")
+        .eq("user_id", userId).eq("asset_id", data.assetId),
+    ]);
+    if (assetRes.error) throw new Error(assetRes.error.message);
+    if (assetRes.data.asset_class !== "crypto") {
+      throw new Error("O ajuste de preço médio está disponível apenas para criptoativos.");
+    }
+    if (txRes.error) throw new Error(txRes.error.message);
+
+    let quantity = 0;
+    for (const tx of txRes.data ?? []) {
+      if (tx.tx_type === "buy") quantity += Number(tx.quantity);
+      else if (tx.tx_type === "sell") quantity -= Number(tx.quantity);
+      else if (tx.tx_type === "transfer") {
+        quantity -= Number((tx.metadata as any)?.fee_quantity ?? 0);
+      }
+    }
+    if (quantity <= 0.0000001) {
+      throw new Error("Não há saldo positivo registrado para este criptoativo.");
+    }
+
+    const { error } = await (supabase as any).from("crypto_average_price_adjustments").insert({
+      user_id: userId,
+      asset_id: data.assetId,
+      average_price: data.averagePrice,
+      currency: assetRes.data.currency,
+    });
+    if (error) throw new Error(error.message);
+    return { ok: true as const };
+  });
+
 const updateTxSchema = z.object({
   id: z.string().uuid(),
   occurredAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -1073,7 +1157,8 @@ export type AssetLotsResult = {
     currentPrice: number;
   };
   lots: AssetLot[];
-  totals: { qty: number; invested: number; currentValue: number; pnl: number; pnlPct: number };
+  averagePriceAdjusted: boolean;
+  totals: { qty: number; avgPrice: number; invested: number; currentValue: number; pnl: number; pnlPct: number };
 };
 
 export const getAssetLots = createServerFn({ method: "GET" })
@@ -1083,20 +1168,29 @@ export const getAssetLots = createServerFn({ method: "GET" })
   )
   .handler(async ({ data, context }): Promise<AssetLotsResult> => {
     const { supabase, userId } = context;
-    const [txRes, assetRes, priceRes] = await Promise.all([
+    const [txRes, assetRes, priceRes, adjustmentsRes] = await Promise.all([
       supabase.from("transactions").select("*")
         .eq("user_id", userId).eq("asset_id", data.assetId)
-        .order("occurred_at", { ascending: false }),
+        .order("occurred_at", { ascending: true }),
       supabase.from("assets").select("*").eq("id", data.assetId).single(),
       supabase.from("asset_prices").select("close_price, fetched_at")
         .eq("asset_id", data.assetId)
         .order("fetched_at", { ascending: false }).limit(1),
+      (supabase as any).from("crypto_average_price_adjustments")
+        .select("average_price, currency, adjusted_at, created_at")
+        .eq("user_id", userId).eq("asset_id", data.assetId)
+        .order("adjusted_at", { ascending: true }).order("created_at", { ascending: true }),
     ]);
     if (txRes.error) throw new Error(txRes.error.message);
     if (assetRes.error) throw new Error(assetRes.error.message);
+    if (adjustmentsRes.error && !["42P01", "PGRST205"].includes(adjustmentsRes.error.code ?? "")) {
+      throw new Error(adjustmentsRes.error.message);
+    }
 
     const asset = assetRes.data;
-    const txs = txRes.data ?? [];
+    const chronologicalTxs = txRes.data ?? [];
+    const txs = [...chronologicalTxs].reverse();
+    const adjustmentRows = adjustmentsRes.error ? [] : adjustmentsRes.data ?? [];
     const currentPrice = priceRes.data?.[0]?.close_price
       ? Number(priceRes.data[0].close_price)
       : Number(txs.find((t) => t.tx_type === "buy")?.unit_price ?? 0);
@@ -1124,16 +1218,35 @@ export const getAssetLots = createServerFn({ method: "GET" })
       };
     });
 
-    // Totals (apenas compras abertas — simplificado: soma todas as compras menos vendas em qty)
-    let qty = 0, invested = 0;
-    for (const t of txs) {
+    // Totals are replayed chronologically so manual basis adjustments remain consistent.
+    const positionEvents = [
+      ...chronologicalTxs.map((tx, index) => ({
+        at: positionEventTimestamp(tx.occurred_at, tx.created_at), order: index, tx,
+        adjustment: undefined as (typeof adjustmentRows)[number] | undefined,
+      })),
+      ...adjustmentRows.map((adjustment, index) => ({
+        at: new Date(adjustment.adjusted_at).getTime(), order: chronologicalTxs.length + index,
+        tx: undefined as (typeof chronologicalTxs)[number] | undefined, adjustment,
+      })),
+    ].sort((a, b) => a.at - b.at || a.order - b.order);
+    let qty = 0, invested = 0, averagePriceAdjusted = false;
+    for (const event of positionEvents) {
+      if (event.adjustment) {
+        if (qty > 0) {
+          invested = Number(event.adjustment.average_price) * qty;
+          averagePriceAdjusted = true;
+        }
+        continue;
+      }
+      const t = event.tx!;
       const q = Number(t.quantity);
       const p = Number(t.unit_price);
       const f = Number(t.fees ?? 0);
       if (t.tx_type === "buy") { qty += q; invested += q * p + f; }
       else if (t.tx_type === "sell") {
         const avg = qty > 0 ? invested / qty : p;
-        qty -= q; invested -= q * avg;
+        invested -= q * avg;
+        qty -= q;
       } else if (t.tx_type === "transfer") {
         const feeQty = Number((t.metadata as any)?.fee_quantity ?? 0);
         qty -= feeQty; // só a taxa de rede reduz o saldo; capital investido não muda
@@ -1153,7 +1266,8 @@ export const getAssetLots = createServerFn({ method: "GET" })
         currentPrice,
       },
       lots,
-      totals: { qty, invested, currentValue, pnl, pnlPct },
+      averagePriceAdjusted,
+      totals: { qty, avgPrice: qty > 0 ? invested / qty : 0, invested, currentValue, pnl, pnlPct },
     };
   });
 
@@ -3239,3 +3353,4 @@ export const getFxRates = createServerFn({ method: "GET" }).handler(async () => 
 
   return { rates, asOfDate: mostRecentDate };
 });
+

@@ -20,6 +20,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { getFxRates } from "@/lib/portfolio.functions";
 import { setLiveFxRates } from "@/lib/currency";
+import { ExternalLinksSidebar } from "./ExternalLinksSidebar";
 
 const nav = [
   { to: "/dashboard", label: "Visão geral", shortLabel: "Resumo", icon: LayoutDashboard },
@@ -98,6 +99,7 @@ function SidebarContent({ isAdmin, isPremium, onNavigate, safeTop = false, compa
             </Link>
           </>
         )}
+        <ExternalLinksSidebar compact={compact} expanded={expanded} onNavigate={onNavigate} />
       </nav>
 
       {!isPremium && (
@@ -273,3 +275,4 @@ export function AppShell({ children }: { children: ReactNode }) {
     </div>
   );
 }
+

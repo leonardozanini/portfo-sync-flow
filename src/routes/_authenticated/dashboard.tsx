@@ -117,7 +117,7 @@ function DashboardSkeleton() {
       </div>
 
       {/* KPIs */}
-      <div className="grid gap-4 md:grid-cols-3 xl:gap-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 xl:gap-5">
         {Array.from({ length: 3 }).map((_, i) => (
           <div key={i} className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm space-y-4">
             <div className="flex items-center gap-3">
@@ -548,7 +548,7 @@ function Dashboard() {
       </div>
 
       {/* KPIs */}
-      <div className="grid gap-4 md:grid-cols-3 xl:gap-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 xl:gap-5">
         <KpiCard
           icon={Coins}
           title="Lucro total"
@@ -824,7 +824,7 @@ function KpiCard({
           {rightSlot}
         </div>
 
-        <div className={`mt-5 text-3xl font-bold tracking-tight tabular-nums ${toneCls}`}>{value}</div>
+        <div className={`mt-5 text-2xl font-bold tracking-tight tabular-nums sm:text-3xl ${toneCls}`}>{value}</div>
 
         {typeof delta === "number" && delta !== 0 && (
           <div className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${

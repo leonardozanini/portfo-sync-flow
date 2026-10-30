@@ -91,13 +91,20 @@ export function AssetLotsDialog({
 
 function Lots({ data }: { data: any }) {
   const cur = data.asset.currency as Currency;
+  const assetClass = data.asset.assetClass;
   const t = data.totals;
 
   return (
     <div className="space-y-4">
       {/* Totais */}
-      <div className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-muted/30 p-3 md:grid-cols-5">
+      {data.averagePriceAdjusted && (
+        <p className="text-xs text-muted-foreground">
+          O preço médio foi ajustado manualmente. Os preços unitários mostrados abaixo preservam os valores originais dos lançamentos.
+        </p>
+      )}
+      <div className={`grid grid-cols-2 gap-3 rounded-lg border border-border bg-muted/30 p-3 ${assetClass === "crypto" ? "md:grid-cols-6" : "md:grid-cols-5"}`}>
         <Stat label="Quantidade" value={t.qty.toLocaleString("pt-BR", { maximumFractionDigits: 8 })} />
+        {assetClass === "crypto" && <Stat label="Preço médio" value={formatCryptoPrice(t.avgPrice, cur)} />}
         <Stat label="Investido" value={formatMoney(t.invested, cur)} />
         <Stat label="Valor atual" value={formatMoney(t.currentValue, cur)} />
         <Stat label="Lucro/Prejuízo" value={formatMoney(t.pnl, cur)}
@@ -187,3 +194,4 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: "su
     </div>
   );
 }
+

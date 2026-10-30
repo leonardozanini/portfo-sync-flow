@@ -574,8 +574,8 @@ function Dashboard() {
         <KpiCard
           icon={LineIcon}
           title="Rentabilidade"
-          value={`${t.yieldPct >= 0 ? "+" : ""}${t.yieldPct.toFixed(2)}%`
-          accent="violet"}
+          value={`${t.yieldPct >= 0 ? "+" : ""}${t.yieldPct.toFixed(2)}%`}
+          accent="violet"
           valueTone={t.yieldPct >= 0 ? "success" : "destructive"}
           twoCols={[
             {

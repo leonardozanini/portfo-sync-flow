@@ -149,6 +149,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const initials = (user?.email ?? "?").slice(0, 2).toUpperCase();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [sidebarHover, setSidebarHover] = useState(false);
 
   // Carrega a cotação de câmbio real (tabela fx_rates, alimentada pelo cron
   // sync-fx) uma vez por sessão, e alimenta o cache usado por convert() em
@@ -174,15 +175,19 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-background">
-      {/* Coluna reservada para a sidebar permanente */}
-      <div className="hidden w-[274px] shrink-0 md:block" />
+      {/* Espaço reservado para a sidebar recolhida; ela expande sobre o conteúdo no hover */}
+      <div className="hidden w-[68px] shrink-0 md:block" />
 
-      {/* Desktop sidebar */}
+      {/* Sidebar desktop retrátil */}
       <aside
         aria-label="Navegação principal"
-        className="hidden md:flex md:flex-col fixed top-0 left-0 bottom-0 z-30 w-[274px] shadow-xl"
+        onMouseEnter={() => setSidebarHover(true)}
+        onMouseLeave={() => setSidebarHover(false)}
+        className={`hidden md:flex md:flex-col fixed top-0 left-0 bottom-0 z-30 transition-[width] duration-200 ease-out shadow-2xl ${
+          sidebarHover ? "w-[220px]" : "w-[68px]"
+        }`}
       >
-        <SidebarContent isAdmin={isAdmin} isPremium={isPremium} compact={false} />
+        <SidebarContent isAdmin={isAdmin} isPremium={isPremium} compact expanded={sidebarHover} />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">

@@ -177,6 +177,29 @@ function DashboardSkeleton() {
         </div>
       </div>
 
+      {/* Maiores posições */}
+      <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <Shimmer className="h-5 w-40" />
+          <Shimmer className="h-4 w-20" />
+        </div>
+        <div className="divide-y divide-border/70">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 py-3">
+              <Shimmer className="h-9 w-9 rounded-xl" />
+              <div className="flex-1 space-y-2">
+                <Shimmer className="h-3.5 w-24" />
+                <Shimmer className="h-2 w-full rounded-full" />
+              </div>
+              <div className="space-y-2 text-right">
+                <Shimmer className="h-3.5 w-20" />
+                <Shimmer className="h-3 w-12 ml-auto" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Meus Ativos */}
       <div className="space-y-3">
         <div className="flex items-center gap-2">
@@ -506,6 +529,10 @@ function Dashboard() {
   const pnl = total - invested;
   const dividends = convert(t.dividends12m, currency);
   const totalAssets = data.groups.reduce((a, g) => a + g.assets.length, 0);
+  const topPositions = data.groups
+    .flatMap((group) => group.assets)
+    .sort((a, b) => b.balanceBRL - a.balanceBRL)
+    .slice(0, 3);
 
   return (
     <div className="space-y-6">
@@ -738,6 +765,57 @@ function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Maiores posições */}
+      <Card className="overflow-hidden rounded-2xl border-border/70 bg-card shadow-sm">
+        <CardHeader className="flex flex-row items-center justify-between gap-3 pb-2">
+          <div>
+            <CardTitle className="text-base">Maiores posições</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">Os ativos com maior peso na carteira</p>
+          </div>
+          <Badge variant="secondary" className="shrink-0">{topPositions.length} ativos</Badge>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {topPositions.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">Adicione ativos para ver suas maiores posições.</div>
+          ) : (
+            <div className="divide-y divide-border/70">
+              {topPositions.map((asset, index) => {
+                const pct = t.patrimonio > 0 ? (asset.balanceBRL / t.patrimonio) * 100 : 0;
+                return (
+                  <button
+                    key={asset.assetId}
+                    type="button"
+                    onClick={() => openLots({ id: asset.assetId, symbol: asset.symbol })}
+                    className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-lg px-2 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    aria-label={`Ver lançamentos de ${asset.symbol}, ${formatMoney(convert(asset.balanceBRL, currency), currency)}, ${pct.toFixed(1)}% da carteira`}
+                  >
+                    <div className="relative">
+                      <AssetLogo symbol={asset.symbol} assetClass={asset.assetClass} cmcId={asset.cmcId} logoUrl={asset.logoUrl} size={36} />
+                      <span className="absolute -bottom-1 -right-1 grid h-4 w-4 place-items-center rounded-full border border-card bg-muted text-[9px] font-semibold text-muted-foreground">
+                        {index + 1}
+                      </span>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-baseline gap-2">
+                        <span className="truncate text-sm font-semibold">{asset.symbol}</span>
+                        <span className="truncate text-xs text-muted-foreground">{asset.name ?? asset.symbol}</span>
+                      </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                        <div className="h-full rounded-full bg-primary/70" style={{ width: `${Math.max(0, Math.min(pct, 100))}%` }} />
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="whitespace-nowrap text-sm font-semibold tabular-nums">{formatMoney(convert(asset.balanceBRL, currency), currency)}</div>
+                      <div className="mt-1 text-xs tabular-nums text-muted-foreground">{pct.toFixed(1)}% da carteira</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Meus Ativos */}
       <section className="space-y-3">

@@ -58,7 +58,7 @@ function SidebarContent({ isAdmin, isPremium, onNavigate, safeTop = false, compa
     }`;
 
   return (
-    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border py-5 gap-1.5 overflow-hidden"
+    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border py-5 gap-1.5 overflow-y-auto"
       style={safeTop ? { paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)" } : undefined}>
       {/* Logo: gradiente azul → roxo */}
       <div className={`flex items-center gap-2.5 mb-5 shrink-0 ${compact ? (expanded ? "px-3" : "justify-center") : "px-3"}`}>
@@ -156,7 +156,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const initials = (user?.email ?? "?").slice(0, 2).toUpperCase();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [sidebarHover, setSidebarHover] = useState(false);
 
   // Carrega a cotação de câmbio real (tabela fx_rates, alimentada pelo cron
   // sync-fx) uma vez por sessão, e alimenta o cache usado por convert() em
@@ -182,18 +181,15 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-background">
-      {/* Spacer fixo — reserva sempre 68px no fluxo do layout, mesmo com o hover */}
-      <div className="hidden w-[68px] shrink-0 md:block" />
+      {/* Coluna reservada para a sidebar permanente */}
+      <div className="hidden w-[274px] shrink-0 md:block" />
 
-      {/* Desktop sidebar — fixa, expande sobrepondo o conteúdo ao passar o mouse */}
+      {/* Desktop sidebar */}
       <aside
-        onMouseEnter={() => setSidebarHover(true)}
-        onMouseLeave={() => setSidebarHover(false)}
-        className={`hidden md:flex md:flex-col fixed top-0 left-0 bottom-0 z-30 transition-[width] duration-200 ease-out shadow-2xl ${
-          sidebarHover ? "w-[220px]" : "w-[68px]"
-        }`}
+        aria-label="Navegação principal"
+        className="hidden md:flex md:flex-col fixed top-0 left-0 bottom-0 z-30 w-[274px] shadow-xl"
       >
-        <SidebarContent isAdmin={isAdmin} isPremium={isPremium} compact expanded={sidebarHover} />
+        <SidebarContent isAdmin={isAdmin} isPremium={isPremium} compact={false} />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">

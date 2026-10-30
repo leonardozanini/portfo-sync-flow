@@ -106,21 +106,26 @@ function Shimmer({ className }: { className?: string }) {
 function DashboardSkeleton() {
   return (
     <div className="space-y-6">
-      {/* Botão topo */}
-      <div className="flex items-center justify-end">
-        <Shimmer className="h-10 w-48 rounded-xl" />
+      {/* Destaque do patrimônio */}
+      <div className="flex flex-col gap-5 rounded-2xl border border-border/70 bg-card p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between md:p-6">
+        <div className="space-y-2">
+          <Shimmer className="h-3 w-24" />
+          <Shimmer className="h-4 w-32" />
+          <Shimmer className="h-10 w-48" />
+        </div>
+        <Shimmer className="h-11 w-48 rounded-xl" />
       </div>
 
       {/* KPIs */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-xl border border-border bg-card p-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <Shimmer className="h-7 w-7 rounded-md" />
-              <Shimmer className="h-4 w-28" />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 xl:gap-5">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm space-y-4">
+            <div className="flex items-center gap-3">
+              <Shimmer className="h-10 w-10 rounded-xl" />
+              <Shimmer className="h-4 w-32" />
             </div>
-            <Shimmer className="h-8 w-36" />
-            <div className="grid grid-cols-2 gap-3 pt-1">
+            <Shimmer className="h-9 w-40" />
+            <div className="grid grid-cols-2 gap-3 border-t border-border/70 pt-4">
               <div className="space-y-1.5">
                 <Shimmer className="h-3 w-20" />
                 <Shimmer className="h-4 w-24" />
@@ -513,14 +518,17 @@ function Dashboard() {
         onAddFirst={() => { setShowOnboarding(false); openNew(); }}
       />
 
-      <div className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1">Patrimônio total</p>
-          <p className="text-4xl font-bold tracking-tight tabular-nums text-foreground">
-            {formatMoney(total, currency)}
-          </p>
+      <div className="flex flex-col gap-5 rounded-2xl border border-border/70 bg-card p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between md:p-6">
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Visão geral</p>
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">Patrimônio total</p>
+            <p className="mt-1 text-4xl font-bold tracking-tight tabular-nums text-foreground sm:text-5xl">
+              {formatMoney(total, currency)}
+            </p>
+          </div>
         </div>
-        <Button onClick={() => openNew()} size="lg" className="rounded-xl folio-gradient text-white border-0 hover:opacity-90">
+        <Button onClick={() => openNew()} size="lg" className="h-11 rounded-xl folio-gradient px-5 text-white shadow-sm border-0 hover:opacity-90">
           <Plus className="mr-2 h-4 w-4" />Adicionar Lançamento
         </Button>
         <NewTransactionDialog open={open} onOpenChange={setOpen} preset={preset} />
@@ -540,7 +548,7 @@ function Dashboard() {
       </div>
 
       {/* KPIs */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 xl:gap-5">
         <KpiCard
           icon={Coins}
           title="Lucro total"
@@ -786,47 +794,64 @@ function KpiCard({
   onClick?: () => void;
 }) {
   const toneCls = valueTone === "success" ? "text-success" : valueTone === "destructive" ? "text-destructive" : "text-foreground";
+  const iconToneCls = valueTone === "success"
+    ? "bg-success/10 text-success"
+    : valueTone === "destructive"
+      ? "bg-destructive/10 text-destructive"
+      : "bg-primary/10 text-primary";
+
   return (
     <Card
       onClick={onClick}
-      className={onClick ? "cursor-pointer transition-colors hover:bg-muted/30" : undefined}
+      onKeyDown={(event) => {
+        if (!onClick || (event.key !== "Enter" && event.key !== " ")) return;
+        event.preventDefault();
+        onClick();
+      }}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-label={onClick ? `${title}. Clique para ver mais detalhes da carteira.` : undefined}
+      className={`group overflow-hidden rounded-2xl border-border/70 bg-card shadow-sm ${onClick ? "cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" : ""}`}
     >
-      <CardContent className="pt-5">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/10 text-primary">
-              <Icon className="h-4 w-4" />
+      <CardContent className="p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${iconToneCls}`}>
+              <Icon className="h-[18px] w-[18px]" />
             </span>
-            {title}
+            <p className="min-w-0 text-sm font-semibold leading-snug text-muted-foreground">{title}</p>
           </div>
           {rightSlot}
         </div>
-        <div className={`mt-3 text-2xl font-bold tabular-nums ${toneCls}`}>{value}</div>
+
+        <div className={`mt-5 text-2xl font-bold tracking-tight tabular-nums sm:text-3xl ${toneCls}`}>{value}</div>
+
         {typeof delta === "number" && delta !== 0 && (
-          <div className={`mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium ${
+          <div className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${
             delta >= 0 ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
           }`}>
             {delta >= 0 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
             {delta.toFixed(2)}%
           </div>
         )}
+
         {twoCols ? (
-          <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
-            {twoCols.map((c) => (
-              <div key={c.label}>
-                <div className="text-muted-foreground">{c.label}</div>
-                <div className={`tabular-nums font-medium ${
-                  c.tone === "success" ? "text-success" : c.tone === "destructive" ? "text-destructive" : ""
-                }`}>{c.value}</div>
+          <div className="mt-5 grid grid-cols-2 divide-x divide-border/70 border-t border-border/70 pt-4">
+            {twoCols.map((item) => (
+              <div key={item.label} className="min-w-0 px-3 first:pl-0 last:pr-0">
+                <p className="min-h-8 text-[11px] leading-4 text-muted-foreground">{item.label}</p>
+                <p className={`mt-1 truncate text-sm font-semibold tabular-nums ${
+                  item.tone === "success" ? "text-success" : item.tone === "destructive" ? "text-destructive" : "text-foreground"
+                }`}>{item.value}</p>
               </div>
             ))}
           </div>
         ) : subValue !== undefined ? (
-          <div className="mt-3 text-xs">
-            {subLabel && <div className="text-muted-foreground">{subLabel}</div>}
-            <div className={`tabular-nums font-medium ${
-              subValueTone === "success" ? "text-success" : subValueTone === "destructive" ? "text-destructive" : ""
-            }`}>{subValue}</div>
+          <div className="mt-5 border-t border-border/70 pt-4">
+            {subLabel && <p className="text-xs text-muted-foreground">{subLabel}</p>}
+            <p className={`mt-1 text-sm font-semibold tabular-nums ${
+              subValueTone === "success" ? "text-success" : subValueTone === "destructive" ? "text-destructive" : "text-foreground"
+            }`}>{subValue}</p>
           </div>
         ) : null}
       </CardContent>

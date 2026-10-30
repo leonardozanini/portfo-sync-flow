@@ -1373,7 +1373,23 @@ function AssetRow({
         </TableCell>
       )}
       <TableCell className="text-right">
-        <DropdownMenu>
+        <div className="flex items-center justify-end gap-1">
+          {a.assetClass === "crypto" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 px-2 text-xs"
+              aria-label={`Editar preço médio de ${a.symbol}`}
+              onClick={() => onEditAveragePrice({
+                id: a.assetId, symbol: a.symbol, avgPrice: a.avgPrice, currency: a.currency,
+              })}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              <span className="hidden xl:inline">Editar PM</span>
+              <span className="xl:hidden">PM</span>
+            </Button>
+          )}
+          <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-7 w-7">
               <MoreHorizontal className="h-4 w-4" />
@@ -1422,7 +1438,8 @@ function AssetRow({
               Remover {a.symbol} da carteira
             </DropdownMenuItem>
           </DropdownMenuContent>
-        </DropdownMenu>
+          </DropdownMenu>
+        </div>
       </TableCell>
     </TableRow>
   );

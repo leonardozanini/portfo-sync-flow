@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { CurrencySwitcher } from "./CurrencySwitcher";
 import { useTheme } from "@/hooks/useTheme";
-import { TickerTape, usePortfolioTicker } from "./TickerTape";
 import { type ReactNode, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -145,12 +144,6 @@ function ThemeToggle() {
 }
 
 
-// ── TickerTapeWrapper — carrega os dados da carteira e passa pro ticker ──────
-function TickerTapeWrapper() {
-  const portfolioItems = usePortfolioTicker();
-  return <TickerTape portfolioItems={portfolioItems} />;
-}
-
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, isAdmin, isPremium, signOut } = useAuth();
   const router = useRouter();
@@ -247,9 +240,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             </DropdownMenu>
           </div>
         </header>
-
-        {/* Ticker tape */}
-        <TickerTapeWrapper />
 
         <main className="min-w-0 flex-1 overflow-x-hidden p-4 md:p-8"
           style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>

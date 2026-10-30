@@ -1,5 +1,5 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { queryOptions, useSuspenseQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -529,10 +529,12 @@ function Dashboard() {
   const pnl = total - invested;
   const dividends = convert(t.dividends12m, currency);
   const totalAssets = data.groups.reduce((a, g) => a + g.assets.length, 0);
-  const topPositions = data.groups
-    .flatMap((group) => group.assets)
-    .sort((a, b) => b.balanceBRL - a.balanceBRL)
-    .slice(0, 3);
+  const topPositions = useMemo(
+    () => data.groups.flatMap((group) => group.assets)
+      .sort((a, b) => b.balanceBRL - a.balanceBRL)
+      .slice(0, 3),
+    [data.groups],
+  );
 
   return (
     <div className="space-y-6">

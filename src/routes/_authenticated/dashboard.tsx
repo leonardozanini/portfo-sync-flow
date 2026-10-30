@@ -119,21 +119,19 @@ function DashboardSkeleton() {
       {/* KPIs */}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 xl:gap-5">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm space-y-4">
+          <div key={i} className="overflow-hidden rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
+            <Shimmer className="mb-4 h-1 w-full rounded-full" />
             <div className="flex items-center gap-3">
-              <Shimmer className="h-10 w-10 rounded-xl" />
-              <Shimmer className="h-4 w-32" />
+              <Shimmer className="h-11 w-11 rounded-xl" />
+              <div className="space-y-1.5">
+                <Shimmer className="h-4 w-32" />
+                <Shimmer className="h-3 w-24" />
+              </div>
             </div>
-            <Shimmer className="h-9 w-40" />
-            <div className="grid grid-cols-2 gap-3 border-t border-border/70 pt-4">
-              <div className="space-y-1.5">
-                <Shimmer className="h-3 w-20" />
-                <Shimmer className="h-4 w-24" />
-              </div>
-              <div className="space-y-1.5">
-                <Shimmer className="h-3 w-20" />
-                <Shimmer className="h-4 w-24" />
-              </div>
+            <Shimmer className="mt-6 h-9 w-40" />
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <Shimmer className="h-16 rounded-xl" />
+              <Shimmer className="h-16 rounded-xl" />
             </div>
           </div>
         ))}
@@ -569,13 +567,15 @@ function Dashboard() {
           icon={PiggyBank}
           title="Proventos Recebidos (12M)"
           value={formatMoney(dividends, currency)}
+          accent="green"
           subLabel="Total"
           subValue={formatMoney(dividends, currency)}
         />
         <KpiCard
           icon={LineIcon}
           title="Rentabilidade"
-          value={`${t.yieldPct >= 0 ? "+" : ""}${t.yieldPct.toFixed(2)}%`}
+          value={`${t.yieldPct >= 0 ? "+" : ""}${t.yieldPct.toFixed(2)}%`
+          accent="violet"}
           valueTone={t.yieldPct >= 0 ? "success" : "destructive"}
           twoCols={[
             {

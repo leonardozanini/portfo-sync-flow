@@ -779,7 +779,7 @@ function EmptyChart({ label }: { label: string }) {
 }
 
 function KpiCard({
-  icon: Icon, title, value, valueTone, delta, subLabel, subValue, subValueTone, twoCols, rightSlot, onClick,
+  icon: Icon, title, value, valueTone, delta, subLabel, subValue, subValueTone, twoCols, rightSlot, onClick, accent,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
@@ -792,13 +792,37 @@ function KpiCard({
   twoCols?: { label: string; value: string; tone?: "success" | "destructive" }[];
   rightSlot?: React.ReactNode;
   onClick?: () => void;
+  accent?: "blue" | "green" | "violet";
 }) {
   const toneCls = valueTone === "success" ? "text-success" : valueTone === "destructive" ? "text-destructive" : "text-foreground";
-  const iconToneCls = valueTone === "success"
-    ? "bg-success/10 text-success"
-    : valueTone === "destructive"
-      ? "bg-destructive/10 text-destructive"
-      : "bg-primary/10 text-primary";
+  const resolvedAccent = accent ?? (valueTone === "success" ? "green" : valueTone === "destructive" ? "rose" : "blue");
+  const accents = {
+    blue: {
+      bar: "bg-blue-500",
+      icon: "bg-blue-500/10 text-blue-500",
+      glow: "bg-blue-500/10",
+      surface: "bg-blue-500/[0.045]",
+    },
+    green: {
+      bar: "bg-emerald-500",
+      icon: "bg-emerald-500/10 text-emerald-500",
+      glow: "bg-emerald-500/10",
+      surface: "bg-emerald-500/[0.045]",
+    },
+    violet: {
+      bar: "bg-violet-500",
+      icon: "bg-violet-500/10 text-violet-500",
+      glow: "bg-violet-500/10",
+      surface: "bg-violet-500/[0.045]",
+    },
+    rose: {
+      bar: "bg-rose-500",
+      icon: "bg-rose-500/10 text-rose-500",
+      glow: "bg-rose-500/10",
+      surface: "bg-rose-500/[0.045]",
+    },
+  } as const;
+  const colors = accents[resolvedAccent];
 
   return (
     <Card
@@ -811,23 +835,29 @@ function KpiCard({
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
       aria-label={onClick ? `${title}. Clique para ver mais detalhes da carteira.` : undefined}
-      className={`group overflow-hidden rounded-2xl border-border/70 bg-card shadow-sm ${onClick ? "cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" : ""}`}
+      className={`group relative h-full overflow-hidden rounded-2xl border-border/70 bg-card shadow-sm ${onClick ? "cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" : ""}`}
     >
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between gap-3">
+      <div className={`absolute inset-x-0 top-0 h-1 ${colors.bar}`} />
+      <div className={`pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full blur-2xl ${colors.glow}`} />
+
+      <CardContent className="relative flex h-full flex-col p-5">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
-            <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${iconToneCls}`}>
-              <Icon className="h-[18px] w-[18px]" />
+            <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${colors.icon}`}>
+              <Icon className="h-5 w-5" />
             </span>
-            <p className="min-w-0 text-sm font-semibold leading-snug text-muted-foreground">{title}</p>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-foreground">{title}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Visão consolidada</p>
+            </div>
           </div>
           {rightSlot}
         </div>
 
-        <div className={`mt-5 text-2xl font-bold tracking-tight tabular-nums sm:text-3xl ${toneCls}`}>{value}</div>
+        <div className={`mt-6 break-words text-[clamp(1.65rem,2.4vw,2.25rem)] font-bold leading-none tracking-tight tabular-nums ${toneCls}`}>{value}</div>
 
         {typeof delta === "number" && delta !== 0 && (
-          <div className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${
+          <div className={`mt-3 inline-flex w-fit items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
             delta >= 0 ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
           }`}>
             {delta >= 0 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
@@ -836,9 +866,9 @@ function KpiCard({
         )}
 
         {twoCols ? (
-          <div className="mt-5 grid grid-cols-2 divide-x divide-border/70 border-t border-border/70 pt-4">
+          <div className={`mt-auto grid grid-cols-2 gap-2 pt-5`}>
             {twoCols.map((item) => (
-              <div key={item.label} className="min-w-0 px-3 first:pl-0 last:pr-0">
+              <div key={item.label} className={`min-w-0 rounded-xl px-3 py-2.5 ${colors.surface}`}>
                 <p className="min-h-8 text-[11px] leading-4 text-muted-foreground">{item.label}</p>
                 <p className={`mt-1 truncate text-sm font-semibold tabular-nums ${
                   item.tone === "success" ? "text-success" : item.tone === "destructive" ? "text-destructive" : "text-foreground"
@@ -847,13 +877,15 @@ function KpiCard({
             ))}
           </div>
         ) : subValue !== undefined ? (
-          <div className="mt-5 border-t border-border/70 pt-4">
-            {subLabel && <p className="text-xs text-muted-foreground">{subLabel}</p>}
-            <p className={`mt-1 text-sm font-semibold tabular-nums ${
-              subValueTone === "success" ? "text-success" : subValueTone === "destructive" ? "text-destructive" : "text-foreground"
-            }`}>{subValue}</p>
+          <div className={`mt-auto pt-5`}>
+            <div className={`rounded-xl px-3 py-2.5 ${colors.surface}`}>
+              {subLabel && <p className="text-[11px] text-muted-foreground">{subLabel}</p>}
+              <p className={`mt-1 text-sm font-semibold tabular-nums ${
+                subValueTone === "success" ? "text-success" : subValueTone === "destructive" ? "text-destructive" : "text-foreground"
+              }`}>{subValue}</p>
+            </div>
           </div>
-        ) : null}
+        ) : <div className="mt-auto pt-5" />}
       </CardContent>
     </Card>
   );

@@ -117,6 +117,20 @@ function DashboardSkeleton() {
         <Shimmer className="h-11 w-48 rounded-xl" />
       </div>
 
+      {/* Alocação por classe */}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-3 overflow-hidden rounded-2xl border border-border/70 bg-card p-4 shadow-sm">
+            <Shimmer className="h-11 w-11 rounded-xl" />
+            <div className="space-y-2">
+              <Shimmer className="h-3 w-20" />
+              <Shimmer className="h-5 w-28" />
+              <Shimmer className="h-3 w-24" />
+            </div>
+          </div>
+        ))}
+      </div>
+
       {/* KPIs */}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 xl:gap-5">
         {Array.from({ length: 3 }).map((_, i) => (
@@ -539,6 +553,24 @@ function Dashboard() {
       .slice(0, 3),
     [data.groups],
   );
+  const allocationKpis = useMemo(() => {
+    const definitions = [
+      { title: "Ações", classes: ["stock", "stock_intl"] as AssetClass[], icon: Landmark, tone: "blue" },
+      { title: "FIIs", classes: ["reit", "reit_intl"] as AssetClass[], icon: Building2, tone: "violet" },
+      { title: "Renda Fixa", classes: ["fixed_income"] as AssetClass[], icon: PiggyBank, tone: "green" },
+      { title: "Outros", classes: ["etf", "etf_intl", "crypto", "fund", "cash", "other"] as AssetClass[], icon: Layers, tone: "amber" },
+    ];
+    return definitions.map((definition) => {
+      const valueBRL = data.groups
+        .filter((group) => definition.classes.includes(group.assetClass))
+        .reduce((sum, group) => sum + group.totalValueBRL, 0);
+      return {
+        ...definition,
+        valueBRL,
+        pct: t.patrimonio > 0 ? (valueBRL / t.patrimonio) * 100 : 0,
+      };
+    });
+  }, [data.groups, t.patrimonio]);
 
   return (
     <div className="space-y-6">
@@ -578,6 +610,33 @@ function Dashboard() {
           onOpenChange={(v) => !v && setRemoveAsset(null)}
         />
       </div>
+
+      {/* Alocação por classe */}
+      <section aria-label="Alocação do patrimônio por classe de ativo" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {allocationKpis.map((item) => {
+          const presentation = {
+            blue: { bar: "bg-blue-500", iconTone: "bg-blue-500/10 text-blue-600" },
+            violet: { bar: "bg-violet-500", iconTone: "bg-violet-500/10 text-violet-600" },
+            green: { bar: "bg-emerald-500", iconTone: "bg-emerald-500/10 text-emerald-600" },
+            amber: { bar: "bg-amber-500", iconTone: "bg-amber-500/10 text-amber-600" },
+          }[item.tone];
+          return (
+            <Card key={item.title} className="relative overflow-hidden rounded-2xl border-border/70 bg-card shadow-sm">
+              <div className={`absolute inset-x-0 top-0 h-1 ${presentation.bar}`} />
+              <CardContent className="flex items-center gap-3 p-4">
+                <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${presentation.iconTone}`}>
+                  <item.icon className="h-5 w-5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-sm text-muted-foreground">{item.title}</p>
+                  <p className="mt-0.5 truncate text-lg font-semibold tabular-nums">{formatMoney(convert(item.valueBRL, currency), currency)}</p>
+                  <p className="text-xs text-muted-foreground">{item.pct.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% do patrimônio</p>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </section>
 
       {/* KPIs */}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 xl:gap-5">

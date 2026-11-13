@@ -22,7 +22,7 @@ import {
   Plus, TrendingUp, TrendingDown, Wallet, PiggyBank, Coins, LineChart as LineIcon,
   ChevronDown, ChevronUp, BarChart3, Settings2, ArrowUpRight, ArrowDownRight,
   CheckCircle2, XCircle, MoreHorizontal, GripVertical, Landmark, Building2, Bitcoin,
-  Layers, ListOrdered, Trash2, Info, SplitSquareHorizontal, Pencil,
+  Layers, ListOrdered, Trash2, Info, CircleAlert, SplitSquareHorizontal, Pencil,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
@@ -495,6 +495,7 @@ function Dashboard() {
   const [preset, setPreset] = useState<TxPreset | undefined>(undefined);
   const [lotsAsset, setLotsAsset] = useState<{ id: string; symbol: string } | null>(null);
   const [moversOpen, setMoversOpen] = useState(false);
+  const [otherAllocationOpen, setOtherAllocationOpen] = useState(false);
   const [splitAsset, setSplitAsset] = useState<{ id: string; symbol: string } | null>(null);
   const [averagePriceAsset, setAveragePriceAsset] = useState<{ id: string; symbol: string; avgPrice: number; currency: string } | null>(null);
   const { data } = useSuspenseQuery(dashboardQueryOptions);
@@ -571,6 +572,23 @@ function Dashboard() {
       };
     });
   }, [data.groups, t.patrimonio]);
+  const otherAllocationDetails = useMemo(() => {
+    const definitions: { label: string; assetClass: AssetClass }[] = [
+      { label: "ETFs", assetClass: "etf" },
+      { label: "ETFs internacionais", assetClass: "etf_intl" },
+      { label: "Criptomoedas", assetClass: "crypto" },
+      { label: "Fundos", assetClass: "fund" },
+      { label: "Caixa", assetClass: "cash" },
+      { label: "Outros ativos", assetClass: "other" },
+    ];
+    return definitions.map((definition) => ({
+      ...definition,
+      valueBRL: data.groups
+        .filter((group) => group.assetClass === definition.assetClass)
+        .reduce((sum, group) => sum + group.totalValueBRL, 0),
+    }));
+  }, [data.groups]);
+  const otherAllocationTotalBRL = otherAllocationDetails.reduce((sum, item) => sum + item.valueBRL, 0);
 
   return (
     <div className="space-y-6">
@@ -598,6 +616,34 @@ function Dashboard() {
         <PriceMoversDialog open={moversOpen} onOpenChange={setMoversOpen} />
         <StockSplitDialog asset={splitAsset} onClose={() => setSplitAsset(null)} />
         <CryptoAveragePriceDialog asset={averagePriceAsset} onClose={() => setAveragePriceAsset(null)} />
+        <Dialog open={otherAllocationOpen} onOpenChange={setOtherAllocationOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Composição de Outros</DialogTitle>
+              <DialogDescription>
+                “Outros” reúne classes que não aparecem nos cards próprios: ETFs, cripto, fundos, caixa e outros ativos.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1">
+              {otherAllocationDetails.map((item) => {
+                const share = otherAllocationTotalBRL > 0 ? (item.valueBRL / otherAllocationTotalBRL) * 100 : 0;
+                return (
+                  <div key={item.assetClass} className="flex items-center justify-between gap-4 rounded-lg px-3 py-2 hover:bg-muted/40">
+                    <span className="text-sm">{item.label}</span>
+                    <span className="text-right">
+                      <span className="block text-sm font-medium tabular-nums">{formatMoney(convert(item.valueBRL, currency), currency)}</span>
+                      <span className="text-xs text-muted-foreground">{share.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% de Outros</span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-between border-t pt-3 text-sm font-semibold">
+              <span>Total de Outros</span>
+              <span className="tabular-nums">{formatMoney(convert(otherAllocationTotalBRL, currency), currency)}</span>
+            </div>
+          </DialogContent>
+        </Dialog>
         <AssetLotsDialog
           open={!!lotsAsset}
           onOpenChange={(v) => !v && setLotsAsset(null)}
@@ -628,7 +674,22 @@ function Dashboard() {
                   <item.icon className="h-5 w-5" />
                 </span>
                 <div className="min-w-0">
-                  <p className="truncate text-sm text-muted-foreground">{item.title}</p>
+                  <div className="flex items-center justify-between gap-1">
+                    <p className="truncate text-sm text-muted-foreground">{item.title}</p>
+                    {item.title === "Outros" && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                        aria-label="Ver o que está incluído em Outros"
+                        title="Ver composição de Outros"
+                        onClick={() => setOtherAllocationOpen(true)}
+                      >
+                        <CircleAlert className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
                   <p className="mt-0.5 truncate text-lg font-semibold tabular-nums">{formatMoney(convert(item.valueBRL, currency), currency)}</p>
                   <p className="text-xs text-muted-foreground">{item.pct.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% do patrimônio</p>
                 </div>

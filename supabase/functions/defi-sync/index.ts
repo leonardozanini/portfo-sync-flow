@@ -56,8 +56,6 @@ function selector(signature: string) {
     slot0: "0x3850c7bd",
     decimals: "0x313ce567",
     symbol: "0x95d89b41",
-    getPool: "0x1698ee82",
-    slot0: "0x3850c7bd",
   };
   return selectors[signature];
 }
@@ -131,9 +129,13 @@ async function transfersForWallet(apiKey: string, address: string, fromTimestamp
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload?.message ?? `Alchemy Transfers API ${response.status}`);
+    if (payload?.error?.partialErrors?.length) {
+      throw new Error("A Alchemy não retornou todos os dados ERC-721 da Robinhood; a sincronização foi interrompida para evitar um saldo incompleto.");
+    }
     transfers.push(...(payload.transfers ?? []));
     pageKey = payload.pageKey;
     if (!pageKey) break;
+    if (page === 24) throw new Error("A carteira excedeu o limite de 2.500 transferências ERC-721 por sincronização; nenhuma posição foi alterada.");
   }
   return transfers.filter((transfer) => transfer.contractAddress?.toLowerCase() === POSITION_MANAGER);
 }
@@ -180,16 +182,27 @@ Deno.serve(async (request) => {
       .select("id,user_id,address,tracking_started_at,last_synced_at")
       .eq("id", walletId).eq("user_id", auth.user.id).single();
     if (walletError || !wallet) return Response.json({ error: "Carteira não encontrada." }, { status: 404, headers: cors() });
+    if (wallet.last_synced_at && Date.now() - new Date(wallet.last_synced_at).getTime() < 60 * 60 * 1000) {
+      return Response.json({ skipped: true, lastSyncedAt: wallet.last_synced_at }, { headers: cors() });
+    }
 
     const chainId = Number(BigInt(await rpc(alchemyKey, "eth_chainId", [])));
     if (chainId !== CHAIN_ID) throw new Error(`RPC retornou chainId inesperado: ${chainId}`);
     const allTransfers = await transfersForWallet(alchemyKey, wallet.address, wallet.last_synced_at ?? undefined);
     const owners = new Map<string, string>();
+    let priorSnapshots: Array<Record<string, unknown>> = [];
     if (wallet.last_synced_at) {
-      const { data: priorSnapshots, error: priorError } = await admin.from("defi_position_snapshots")
-        .select("position_ref").eq("wallet_id", wallet.id).eq("chain_id", CHAIN_ID)
-        .eq("protocol_version", "v3").eq("is_open", true).limit(2000);
+      const { data, error: priorError } = await admin.from("defi_position_snapshots")
+        .select("position_ref,pool_address,token0_address,token0_symbol,token1_address,token1_symbol,amount0,amount1,liquidity_usd,unclaimed_fees_usd,source_block,source_data")
+        .eq("wallet_id", wallet.id).eq("chain_id", CHAIN_ID)
+        .eq("protocol_version", "v3").eq("is_open", true).order("observed_at", { ascending: false }).limit(2000);
       if (priorError) throw priorError;
+      const uniquePrior = new Map<string, Record<string, unknown>>();
+      for (const row of data ?? []) {
+        const id = String(row.position_ref);
+        if (!uniquePrior.has(id)) uniquePrior.set(id, row);
+      }
+      priorSnapshots = [...uniquePrior.values()];
       for (const row of priorSnapshots ?? []) owners.set(String(row.position_ref), wallet.address.toLowerCase());
     }
     for (const transfer of [...allTransfers].reverse()) {
@@ -264,6 +277,20 @@ Deno.serve(async (request) => {
     }
 
     const now = new Date().toISOString();
+    const activeIds = new Set(snapshots.map((snapshot) => String(snapshot.position_ref)));
+    const closedSnapshots = priorSnapshots.filter((row) => !activeIds.has(String(row.position_ref))).map((row) => ({
+      ...row,
+      id: undefined,
+      user_id: wallet.user_id,
+      wallet_id: wallet.id,
+      chain_id: CHAIN_ID,
+      protocol: "uniswap",
+      protocol_version: "v3",
+      is_open: false,
+      is_baseline: false,
+      observed_at: now,
+    }));
+    snapshots.push(...closedSnapshots as typeof snapshots);
     if (snapshots.length) {
       const { error: snapshotError } = await admin.from("defi_position_snapshots").insert(snapshots);
       if (snapshotError) throw snapshotError;
@@ -276,7 +303,8 @@ Deno.serve(async (request) => {
         if (!knownIds.has(tokenId)) return [];
         const from = transfer.from.toLowerCase();
         const to = transfer.to.toLowerCase();
-        const eventType = from === ZERO ? "opened" : to === ZERO ? "closed" : null;
+        const eventType = from === ZERO || to === wallet.address.toLowerCase() ? "opened"
+          : to === ZERO || from === wallet.address.toLowerCase() ? "closed" : null;
         if (!eventType) return [];
         const logIndex = Number(transfer.uniqueId?.match(/log:(\d+)/)?.[1] ?? 0);
         return [{

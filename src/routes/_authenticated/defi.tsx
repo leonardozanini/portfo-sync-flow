@@ -35,13 +35,16 @@ type TrackedWallet = {
 
 type TrackedPosition = {
   id: string;
+  protocol_version: "v2" | "v3" | "v4";
   position_ref: string;
   token0_symbol: string | null;
   token1_symbol: string | null;
   amount0: number | string | null;
   amount1: number | string | null;
   liquidity_usd: number | string | null;
+  unclaimed_fees_usd: number | string | null;
   observed_at: string;
+  is_open: boolean;
 };
 
 function findRabbyProvider(): Promise<Eip1193Provider | null> {
@@ -89,9 +92,9 @@ function DefiPage() {
       .eq("user_id", user.id)
       .order("tracking_started_at", { ascending: true }),
       (supabase as any).from("defi_position_snapshots")
-        .select("id,position_ref,token0_symbol,token1_symbol,amount0,amount1,liquidity_usd,observed_at")
-        .eq("user_id", user.id).eq("chain_id", 4663).eq("protocol_version", "v3")
-        .eq("is_open", true).order("observed_at", { ascending: false }).limit(500),
+        .select("id,protocol_version,position_ref,token0_symbol,token1_symbol,amount0,amount1,liquidity_usd,unclaimed_fees_usd,observed_at,is_open")
+        .eq("user_id", user.id).eq("chain_id", 4663).in("protocol_version", ["v3", "v4"])
+        .order("observed_at", { ascending: false }).limit(500),
     ]);
     if (walletResult.error || positionResult.error) {
       toast.error("Não foi possível carregar as carteiras DeFi.");
@@ -99,9 +102,10 @@ function DefiPage() {
       setWallets((walletResult.data ?? []) as TrackedWallet[]);
       const latest = new Map<string, TrackedPosition>();
       for (const row of (positionResult.data ?? []) as TrackedPosition[]) {
-        if (!latest.has(row.position_ref)) latest.set(row.position_ref, row);
+        const key = `${row.protocol_version}:${row.position_ref}`;
+        if (!latest.has(key)) latest.set(key, row);
       }
-      setPositions([...latest.values()]);
+      setPositions([...latest.values()].filter((position) => position.is_open));
     }
     setLoading(false);
   }, [user?.id]);
@@ -111,15 +115,22 @@ function DefiPage() {
   const syncWallets = useCallback(async (force = false) => {
     if (!wallets.length || syncLock.current) return;
     const hour = 60 * 60 * 1000;
-    const due = wallets.filter((wallet) => force || !wallet.last_synced_at ||
+    const due = wallets.filter((wallet) => !wallet.last_synced_at ||
       Date.now() - new Date(wallet.last_synced_at).getTime() >= hour);
-    if (!due.length) return;
+    if (!due.length) {
+      if (force) toast.info("A próxima atualização estará disponível após o intervalo de uma hora.");
+      return;
+    }
     syncLock.current = true;
     setSyncing(true);
     try {
       for (const wallet of due) {
-        const { error } = await supabase.functions.invoke("defi-sync", { body: { walletId: wallet.id } });
+        const { data, error } = await supabase.functions.invoke("defi-sync", { body: { walletId: wallet.id } });
         if (error) throw error;
+        if (data?.skipped) {
+          toast.info("Esta carteira já foi atualizada na última hora.");
+          continue;
+        }
       }
       await loadWallets();
       toast.success("Posições DeFi atualizadas.");
@@ -192,7 +203,7 @@ function DefiPage() {
               <CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5 text-primary" /> Carteiras monitoradas</CardTitle>
               <CardDescription className="mt-1">Atualização automática a cada hora enquanto esta tela estiver aberta.</CardDescription>
             </div>
-            <Button variant="outline" size="sm" onClick={() => void syncWallets(true)} disabled={syncing || !wallets.length}>
+            <Button variant="outline" size="sm" onClick={() => void syncWallets(true)} disabled={syncing || !wallets.length || wallets.every((wallet) => wallet.last_synced_at && Date.now() - new Date(wallet.last_synced_at).getTime() < 60 * 60 * 1000)}>
               {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
               Atualizar agora
             </Button>
@@ -228,14 +239,14 @@ function DefiPage() {
       <Card>
         <CardHeader>
           <CardTitle>Posições abertas na Robinhood</CardTitle>
-          <CardDescription>Estimativa das posições Uniswap v3 encontradas na carteira. Valores são atualizados por hora enquanto esta tela estiver aberta.</CardDescription>
+          <CardDescription>Estimativa das posições Uniswap v3 e v4 encontradas na carteira. Valores são atualizados por hora enquanto esta tela estiver aberta.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {positions.length ? positions.map((position) => (
-            <div key={position.position_ref} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+            <div key={`${position.protocol_version}:${position.position_ref}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
               <div>
                 <p className="font-medium">{position.token0_symbol ?? "Token"} / {position.token1_symbol ?? "Token"}</p>
-                <p className="mt-1 text-xs text-muted-foreground">Posição #{position.position_ref} · {Number(position.amount0 ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 6 })} {position.token0_symbol ?? ""} · {Number(position.amount1 ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 6 })} {position.token1_symbol ?? ""}</p>
+                <p className="mt-1 text-xs text-muted-foreground">Uniswap {position.protocol_version} · posição #{position.position_ref} · {Number(position.amount0 ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 6 })} {position.token0_symbol ?? ""} · {Number(position.amount1 ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 6 })} {position.token1_symbol ?? ""}</p>
               </div>
               <p className="font-semibold">
                 {position.liquidity_usd == null ? "Cotação indisponível" : Number(position.liquidity_usd).toLocaleString("pt-BR", { style: "currency", currency: "USD" })}
@@ -244,7 +255,7 @@ function DefiPage() {
           )) : (
             <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">As posições detectadas aparecerão aqui após conectar a Rabby e fazer a primeira leitura.</p>
           )}
-          <p className="text-xs text-muted-foreground">Taxas ainda não coletadas não estão incluídas na estimativa.</p>
+          <p className="text-xs text-muted-foreground">Na V4, as taxas não coletadas são estimadas pelo fee growth. Na V3, ainda não estão incluídas.</p>
         </CardContent>
       </Card>
 
@@ -261,8 +272,8 @@ function DefiPage() {
           <div className="flex gap-3 rounded-lg bg-muted/50 p-4 text-sm">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             <div className="space-y-2 text-muted-foreground">
-              <p>Na primeira versão, o rastreador consulta posições NFT de Uniswap v3 na Robinhood Chain e estima o valor dos tokens quando há cotação disponível.</p>
-              <p>As taxas ainda não coletadas e posições Uniswap v2/v4 não entram nesta etapa. O histórico anterior à conexão serve somente para identificar posições que continuam abertas; não é importado como atividade.</p>
+              <p>O rastreador consulta posições NFT de Uniswap v3 e v4 na Robinhood Chain e estima o valor dos tokens quando há cotação disponível.</p>
+              <p>O histórico anterior à conexão serve somente para identificar posições que continuam abertas; não é importado como atividade. Posições Uniswap v2 ficam para uma etapa futura.</p>
             </div>
           </div>
         </CardContent>

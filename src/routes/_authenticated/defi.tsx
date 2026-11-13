@@ -42,7 +42,6 @@ type TrackedPosition = {
   amount1: number | string | null;
   liquidity_usd: number | string | null;
   observed_at: string;
-  is_open: boolean;
 };
 
 function findRabbyProvider(): Promise<Eip1193Provider | null> {
@@ -90,9 +89,9 @@ function DefiPage() {
       .eq("user_id", user.id)
       .order("tracking_started_at", { ascending: true }),
       (supabase as any).from("defi_position_snapshots")
-        .select("id,position_ref,token0_symbol,token1_symbol,amount0,amount1,liquidity_usd,observed_at,is_open")
+        .select("id,position_ref,token0_symbol,token1_symbol,amount0,amount1,liquidity_usd,observed_at")
         .eq("user_id", user.id).eq("chain_id", 4663).eq("protocol_version", "v3")
-        .order("observed_at", { ascending: false }).limit(500),
+        .eq("is_open", true).order("observed_at", { ascending: false }).limit(500),
     ]);
     if (walletResult.error || positionResult.error) {
       toast.error("Não foi possível carregar as carteiras DeFi.");
@@ -102,7 +101,7 @@ function DefiPage() {
       for (const row of (positionResult.data ?? []) as TrackedPosition[]) {
         if (!latest.has(row.position_ref)) latest.set(row.position_ref, row);
       }
-      setPositions([...latest.values()].filter((position) => position.is_open));
+      setPositions([...latest.values()]);
     }
     setLoading(false);
   }, [user?.id]);
@@ -112,22 +111,15 @@ function DefiPage() {
   const syncWallets = useCallback(async (force = false) => {
     if (!wallets.length || syncLock.current) return;
     const hour = 60 * 60 * 1000;
-    const due = wallets.filter((wallet) => !wallet.last_synced_at ||
+    const due = wallets.filter((wallet) => force || !wallet.last_synced_at ||
       Date.now() - new Date(wallet.last_synced_at).getTime() >= hour);
-    if (!due.length) {
-      if (force) toast.info("A próxima atualização estará disponível após o intervalo de uma hora.");
-      return;
-    }
+    if (!due.length) return;
     syncLock.current = true;
     setSyncing(true);
     try {
       for (const wallet of due) {
-        const { data, error } = await supabase.functions.invoke("defi-sync", { body: { walletId: wallet.id } });
+        const { error } = await supabase.functions.invoke("defi-sync", { body: { walletId: wallet.id } });
         if (error) throw error;
-        if (data?.skipped) {
-          toast.info("Esta carteira já foi atualizada na última hora.");
-          continue;
-        }
       }
       await loadWallets();
       toast.success("Posições DeFi atualizadas.");
@@ -200,7 +192,7 @@ function DefiPage() {
               <CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5 text-primary" /> Carteiras monitoradas</CardTitle>
               <CardDescription className="mt-1">Atualização automática a cada hora enquanto esta tela estiver aberta.</CardDescription>
             </div>
-            <Button variant="outline" size="sm" onClick={() => void syncWallets(true)} disabled={syncing || !wallets.length || wallets.every((wallet) => wallet.last_synced_at && Date.now() - new Date(wallet.last_synced_at).getTime() < 60 * 60 * 1000)}>
+            <Button variant="outline" size="sm" onClick={() => void syncWallets(true)} disabled={syncing || !wallets.length}>
               {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
               Atualizar agora
             </Button>

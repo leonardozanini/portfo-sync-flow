@@ -230,7 +230,6 @@ Deno.serve(async (request) => {
       const tickLower = asInt24(word(position, 5));
       const tickUpper = asInt24(word(position, 6));
       const liquidity = BigInt(`0x${word(position, 7)}`);
-      if (liquidity === 0n) continue;
       const poolData = `${encodeUint(BigInt(token0))}${encodeUint(BigInt(token1))}${encodeUint(fee)}`;
       const pool = asAddress(await call(alchemyKey, FACTORY, `${selector("getPool")}${poolData}`));
       if (pool === ZERO) continue;

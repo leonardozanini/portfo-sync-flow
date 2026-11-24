@@ -23,6 +23,7 @@ const V4_STATE_ABI = parseAbi([
 const TRANSFERS_URL = "https://api.g.alchemy.com/data/v1";
 const RPC_URL = "https://robinhood-mainnet.g.alchemy.com/v2";
 const ZERO = "0x0000000000000000000000000000000000000000";
+const ROBINHOOD_USDG = "0x5fc5360d0400a0fd4f2af552add042d716f1d168";
 const Q96 = 2 ** 96;
 const RPC_MIN_INTERVAL_MS = 500;
 let rpcQueue: Promise<void> = Promise.resolve();
@@ -163,6 +164,8 @@ async function getUsdPrice(address: string) {
       }
       return null;
     }
+    // Canonical USDG is Paxos Global Dollar; use its $1 reference peg if price APIs omit Robinhood Chain.
+    if (address.toLowerCase() === ROBINHOOD_USDG) return 1;
     const response = await fetch(`https://api.dexscreener.com/token-pairs/v1/robinhood/${address}`, {
       headers: { accept: "application/json" },
       signal: AbortSignal.timeout(10_000),
@@ -341,6 +344,13 @@ Deno.serve(async (request) => {
 
     const sourceBlock = Number(BigInt(await rpc(alchemyKey, "eth_blockNumber", [])));
     const chunk = positions.slice(cursor, cursor + MAX_POSITIONS_PER_RUN);
+    const chunkTokenIds = [...new Set(chunk.map(({ tokenId }) => tokenId))];
+    const { data: seenSnapshots, error: seenError } = chunkTokenIds.length
+      ? await admin.from("defi_position_snapshots").select("position_ref,protocol_version")
+        .eq("wallet_id", wallet.id).eq("chain_id", CHAIN_ID).in("position_ref", chunkTokenIds)
+      : { data: [], error: null };
+    if (seenError) throw seenError;
+    const existingPositionKeys = new Set((seenSnapshots ?? []).map((row) => `${row.protocol_version}:${row.position_ref}`));
     const snapshots: Array<Record<string, unknown>> = [];
     for (const { version, tokenId } of chunk) {
       const id = BigInt(tokenId);
@@ -412,6 +422,8 @@ Deno.serve(async (request) => {
       const principalValue = value0 == null || value1 == null ? null : value0 + value1;
       const positionValue = principalValue == null || (version === "v4" && feeValue == null) ? null : principalValue + (feeValue ?? 0);
       const isOpen = liquidity > 0n || feeAmount0 > 0n || feeAmount1 > 0n;
+      const positionKey = `${version}:${tokenId}`;
+      const isBaseline = !existingPositionKeys.has(positionKey);
       snapshots.push({
         user_id: wallet.user_id,
         wallet_id: wallet.id,
@@ -429,14 +441,16 @@ Deno.serve(async (request) => {
         liquidity_usd: positionValue,
         unclaimed_fees_usd: version === "v4" ? feeValue : null,
         is_open: isOpen,
-        is_baseline: wallet.last_synced_at == null,
+        is_baseline: isBaseline,
         source_block: sourceBlock,
         source_data: {
           tickLower, tickUpper, feeTier: Number(fee), liquidity: liquidity.toString(), poolId,
           sqrtPriceX96: sqrtPriceX96.toString(), price0Usd: price0, price1Usd: price1,
           valuationComplete: positionValue != null,
           feeValuation: version === "v4" ? "included_from_fee_growth" : "not_included",
-          unclaimedFees0: fees0, unclaimedFees1: fees1,
+          positionAmount0: amount0, positionAmount1: amount1,
+           exitAmount0: amount0 + fees0, exitAmount1: amount1 + fees1,
+           unclaimedFees0: fees0, unclaimedFees1: fees1,
         },
       });
       if (isOpen) openPositions++;

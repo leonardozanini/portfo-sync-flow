@@ -33,10 +33,20 @@ type TrackedWallet = {
   last_synced_at: string | null;
 };
 
-type TrackedPosition = {
+type PositionSourceData = {
+  price0Usd?: number | null;
+  price1Usd?: number | null;
+  unclaimedFees0?: number | null;
+  unclaimedFees1?: number | null;
+  feeValuation?: string;
+};
+type PositionSnapshot = {
   id: string;
+  wallet_id: string;
   protocol_version: "v2" | "v3" | "v4";
   position_ref: string;
+  token0_address: string | null;
+  token1_address: string | null;
   token0_symbol: string | null;
   token1_symbol: string | null;
   amount0: number | string | null;
@@ -45,7 +55,57 @@ type TrackedPosition = {
   unclaimed_fees_usd: number | string | null;
   observed_at: string;
   is_open: boolean;
+  is_baseline: boolean;
+  source_data: PositionSourceData | null;
 };
+type TrackedPosition = PositionSnapshot & { baseline: PositionSnapshot | null };
+
+const ROBINHOOD_USDG_ADDRESS = "0x5fc5360d0400a0fd4f2af552add042d716f1d168";
+
+function getExitAmounts(position: PositionSnapshot) {
+  const feesIncluded = position.protocol_version === "v4" && position.source_data?.feeValuation === "included_from_fee_growth";
+  const fees0 = feesIncluded ? Number(position.source_data?.unclaimedFees0 ?? 0) : 0;
+  const fees1 = feesIncluded ? Number(position.source_data?.unclaimedFees1 ?? 0) : 0;
+  return {
+    amount0: Number(position.amount0 ?? 0) + fees0,
+    amount1: Number(position.amount1 ?? 0) + fees1,
+  };
+}
+
+function getTokenUsdPrice(position: PositionSnapshot, index: 0 | 1) {
+  const saved = Number(position.source_data?.[`price${index}Usd`]);
+  if (Number.isFinite(saved) && saved > 0) return saved;
+  const tokenAddress = index === 0 ? position.token0_address : position.token1_address;
+  if (tokenAddress?.toLowerCase() === ROBINHOOD_USDG_ADDRESS) return 1;
+  return null;
+}
+
+function getExitValueUsd(position: PositionSnapshot) {
+  const price0 = getTokenUsdPrice(position, 0);
+  const price1 = getTokenUsdPrice(position, 1);
+  if (price0 == null || price1 == null) return null;
+  const amounts = getExitAmounts(position);
+  return amounts.amount0 * price0 + amounts.amount1 * price1;
+}
+
+function formatUsd(value: number | null) {
+  return value == null || !Number.isFinite(value)
+    ? "Indisponível"
+    : value.toLocaleString("pt-BR", { style: "currency", currency: "USD" });
+}
+
+function formatTokenAmount(value: number, symbol: string | null) {
+  return `${value.toLocaleString("pt-BR", { maximumFractionDigits: 8 })} ${symbol ?? "token"}`;
+}
+
+function formatTokenDelta(value: number, symbol: string | null) {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${formatTokenAmount(value, symbol)}`;
+}
+
+function getPositionKey(position: PositionSnapshot) {
+  return `${position.wallet_id}:${position.protocol_version}:${position.position_ref}`;
+}
 
 function findRabbyProvider(): Promise<Eip1193Provider | null> {
   if (typeof window === "undefined") return Promise.resolve(null);
@@ -87,26 +147,39 @@ function DefiPage() {
 
   const loadWallets = useCallback(async () => {
     if (!user) return;
-    const [walletResult, positionResult] = await Promise.all([
+    const snapshotFields = "id,wallet_id,protocol_version,position_ref,token0_address,token0_symbol,token1_address,token1_symbol,amount0,amount1,liquidity_usd,unclaimed_fees_usd,observed_at,is_open,is_baseline,source_data";
+    const [walletResult, positionResult, baselineResult] = await Promise.all([
       (supabase as any).from("defi_wallets")
       .select("id,address,tracking_started_at,last_synced_at")
       .eq("user_id", user.id)
       .order("tracking_started_at", { ascending: true }),
       (supabase as any).from("defi_position_snapshots")
-        .select("id,protocol_version,position_ref,token0_symbol,token1_symbol,amount0,amount1,liquidity_usd,unclaimed_fees_usd,observed_at,is_open")
-        .eq("user_id", user.id).eq("chain_id", 4663).in("protocol_version", ["v3", "v4"])
-        .order("observed_at", { ascending: false }).limit(500),
+        .select(snapshotFields)
+        .eq("user_id", user.id).eq("chain_id", 4663).in("protocol_version", ["v3", "v4"]).eq("is_open", true)
+        .order("observed_at", { ascending: false }).limit(2000),
+      (supabase as any).from("defi_position_snapshots")
+        .select(snapshotFields)
+        .eq("user_id", user.id).eq("chain_id", 4663).in("protocol_version", ["v3", "v4"]).eq("is_baseline", true)
+        .order("observed_at", { ascending: true }).limit(2000),
     ]);
-    if (walletResult.error || positionResult.error) {
+    if (walletResult.error || positionResult.error || baselineResult.error) {
       toast.error("Não foi possível carregar as carteiras DeFi.");
     } else {
       setWallets((walletResult.data ?? []) as TrackedWallet[]);
-      const latest = new Map<string, TrackedPosition>();
-      for (const row of (positionResult.data ?? []) as TrackedPosition[]) {
-        const key = `${row.protocol_version}:${row.position_ref}`;
+      const latest = new Map<string, PositionSnapshot>();
+      for (const row of (positionResult.data ?? []) as PositionSnapshot[]) {
+        const key = getPositionKey(row);
         if (!latest.has(key)) latest.set(key, row);
       }
-      setPositions([...latest.values()].filter((position) => position.is_open));
+      const baselines = new Map<string, PositionSnapshot>();
+      for (const row of (baselineResult.data ?? []) as PositionSnapshot[]) {
+        const key = getPositionKey(row);
+        if (!baselines.has(key)) baselines.set(key, row);
+      }
+      setPositions([...latest.values()].filter((position) => position.is_open).map((position) => ({
+        ...position,
+        baseline: baselines.get(getPositionKey(position)) ?? null,
+      })));
     }
     setLoading(false);
   }, [user?.id]);
@@ -277,23 +350,50 @@ function DefiPage() {
       <Card>
         <CardHeader>
           <CardTitle>Posições abertas na Robinhood</CardTitle>
-          <CardDescription>Estimativa das posições Uniswap v3 e v4 encontradas na carteira. Valores são atualizados por hora enquanto esta tela estiver aberta.</CardDescription>
+          <CardDescription>Estimativa do que seria recebido ao retirar a liquidez agora, incluindo taxas V4 acumuladas e comparando com a primeira leitura.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {positions.length ? positions.map((position) => (
-            <div key={`${position.protocol_version}:${position.position_ref}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
-              <div>
-                <p className="font-medium">{position.token0_symbol ?? "Token"} / {position.token1_symbol ?? "Token"}</p>
-                <p className="mt-1 text-xs text-muted-foreground">Uniswap {position.protocol_version} · posição #{position.position_ref} · {Number(position.amount0 ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 6 })} {position.token0_symbol ?? ""} · {Number(position.amount1 ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 6 })} {position.token1_symbol ?? ""}</p>
-              </div>
-              <p className="font-semibold">
-                {position.liquidity_usd == null ? "Cotação indisponível" : Number(position.liquidity_usd).toLocaleString("pt-BR", { style: "currency", currency: "USD" })}
-              </p>
-            </div>
+            (() => {
+              const exitAmounts = getExitAmounts(position);
+              const exitValue = getExitValueUsd(position);
+              const baseline = position.baseline;
+              const baselineValue = baseline ? getExitValueUsd(baseline) : null;
+              const pnl = exitValue != null && baselineValue != null ? exitValue - baselineValue : null;
+              const pnlPercent = pnl != null && baselineValue != null && baselineValue > 0 ? (pnl / baselineValue) * 100 : null;
+              const baselineAmounts = baseline ? getExitAmounts(baseline) : null;
+              return (
+                <div key={getPositionKey(position)} className="rounded-lg border p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium">{position.token0_symbol ?? "Token"} / {position.token1_symbol ?? "Token"}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Uniswap {position.protocol_version} · posição #{position.position_ref}</p>
+                    </div>
+                    <p className="font-semibold">{formatUsd(exitValue)}</p>
+                  </div>
+                  <div className="mt-3 space-y-1 text-sm">
+                    <p><span className="text-muted-foreground">Receberia ao retirar agora: </span>{formatTokenAmount(exitAmounts.amount0, position.token0_symbol)} + {formatTokenAmount(exitAmounts.amount1, position.token1_symbol)}</p>
+                    <p><span className="text-muted-foreground">Lucro/prejuízo estimado desde o saldo inicial: </span>
+                      <span className={pnl == null ? "text-muted-foreground" : pnl >= 0 ? "font-semibold text-emerald-600" : "font-semibold text-destructive"}>
+                        {pnl == null ? "Aguardando custo base ou cotação" : `${pnl > 0 ? "+" : ""}${formatUsd(pnl)}${pnlPercent == null ? "" : ` (${pnlPercent > 0 ? "+" : ""}${pnlPercent.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%)`}`}
+                      </span>
+                    </p>
+                    {baselineAmounts && (
+                      <p className="text-xs text-muted-foreground">
+                        Variação em tokens desde a primeira leitura: {formatTokenDelta(exitAmounts.amount0 - baselineAmounts.amount0, position.token0_symbol)} · {formatTokenDelta(exitAmounts.amount1 - baselineAmounts.amount1, position.token1_symbol)}
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      {position.protocol_version === "v4" ? "Taxas não coletadas estimadas e incluídas." : "Taxas da V3 ainda não incluídas."} Estimativa sem custo de gás.
+                    </p>
+                  </div>
+                </div>
+              );
+            })()
           )) : (
             <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">As posições detectadas aparecerão aqui após conectar a Rabby e fazer a primeira leitura.</p>
           )}
-          <p className="text-xs text-muted-foreground">Na V4, as taxas não coletadas são estimadas pelo fee growth. Na V3, ainda não estão incluídas.</p>
+          <p className="text-xs text-muted-foreground">O lucro/prejuízo compara o valor estimado de retirada com o primeiro retrato da posição. Novos aportes ou retiradas de liquidez após essa leitura ainda podem alterar o resultado. USDG é estimado pela paridade de referência de US$ 1; valores não incluem gás nem possível diferença de preço na execução.</p>
         </CardContent>
       </Card>
 

@@ -22,6 +22,9 @@ const TRANSFERS_URL = "https://api.g.alchemy.com/data/v1";
 const RPC_URL = "https://robinhood-mainnet.g.alchemy.com/v2";
 const ZERO = "0x0000000000000000000000000000000000000000";
 const Q96 = 2 ** 96;
+const RPC_MIN_INTERVAL_MS = 500;
+let rpcQueue: Promise<void> = Promise.resolve();
+let lastRpcAt = 0;
 
 type Transfer = {
   hash: string;
@@ -74,15 +77,47 @@ function selector(signature: string) {
 }
 
 async function rpc(apiKey: string, method: string, params: unknown[]) {
-  const response = await fetch(`${RPC_URL}/${apiKey}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-    signal: AbortSignal.timeout(15_000),
-  });
-  const result = await response.json();
-  if (!response.ok || result.error) throw new Error(result.error?.message ?? `RPC ${response.status}`);
-  return result.result as string;
+  let release!: () => void;
+  const previous = rpcQueue;
+  rpcQueue = new Promise<void>((resolve) => { release = resolve; });
+  await previous;
+  try {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const waitMs = Math.max(0, RPC_MIN_INTERVAL_MS - (Date.now() - lastRpcAt));
+      if (waitMs) await new Promise((resolve) => setTimeout(resolve, waitMs));
+      lastRpcAt = Date.now();
+      try {
+        const response = await fetch(`${RPC_URL}/${apiKey}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        const result = await response.json();
+        if (!response.ok || result.error) {
+          const message = result.error?.message ?? `RPC ${response.status}`;
+          const rateLimited = response.status === 429 || /compute units per second|throughput|rate.?limit|too many requests/i.test(message);
+          if (rateLimited && attempt < 4) {
+            await new Promise((resolve) => setTimeout(resolve, 1_000 * (2 ** attempt)));
+            continue;
+          }
+          throw new Error(message);
+        }
+        return result.result as string;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const rateLimited = /compute units per second|throughput|rate.?limit|too many requests/i.test(message);
+        if (rateLimited && attempt < 4) {
+          await new Promise((resolve) => setTimeout(resolve, 1_000 * (2 ** attempt)));
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error("Alchemy RPC permaneceu limitado após novas tentativas.");
+  } finally {
+    release();
+  }
 }
 
 async function call(apiKey: string, to: string, data: string) {
@@ -91,10 +126,8 @@ async function call(apiKey: string, to: string, data: string) {
 
 async function tokenMetadata(apiKey: string, address: string) {
   if (address.toLowerCase() === ZERO) return { decimals: 18, symbol: "ETH" };
-  const [decimalsHex, symbolHex] = await Promise.all([
-    call(apiKey, address, selector("decimals")),
-    call(apiKey, address, selector("symbol")),
-  ]);
+  const decimalsHex = await call(apiKey, address, selector("decimals"));
+  const symbolHex = await call(apiKey, address, selector("symbol"));
   const decimals = Number(BigInt(decimalsHex));
   let symbol = "TOKEN";
   try {
@@ -142,6 +175,7 @@ async function transfersForWallet(apiKey: string, address: string, fromTimestamp
         direction: "both",
         networks: [NETWORK],
         category: ["erc721"],
+        contractAddresses: [POSITION_MANAGER, V4_POSITION_MANAGER],
         order: "desc",
         maxCount: 100,
         ...(fromTimestamp ? { fromTimestamp } : {}),
@@ -156,6 +190,7 @@ async function transfersForWallet(apiKey: string, address: string, fromTimestamp
     }
     transfers.push(...(payload.transfers ?? []));
     pageKey = payload.pageKey;
+    console.log("defi-sync transfer page", page + 1, "matching transfers", transfers.length);
     if (!pageKey) break;
     if (page === 24) throw new Error("A carteira excedeu o limite de 2.500 transferências ERC-721 por sincronização; nenhuma posição foi alterada.");
   }
@@ -210,6 +245,7 @@ Deno.serve(async (request) => {
   const { data: auth, error: authError } = await admin.auth.getUser(accessToken);
   if (authError || !auth.user) return Response.json({ error: "Sessão inválida." }, { status: 401, headers: cors() });
 
+  let claimedWalletId: string | null = null;
   try {
     const { walletId } = await request.json();
     if (typeof walletId !== "string") return Response.json({ error: "Carteira inválida." }, { status: 400, headers: cors() });
@@ -220,6 +256,13 @@ Deno.serve(async (request) => {
     if (wallet.last_synced_at && Date.now() - new Date(wallet.last_synced_at).getTime() < 60 * 60 * 1000) {
       return Response.json({ skipped: true, lastSyncedAt: wallet.last_synced_at }, { headers: cors() });
     }
+    const { data: claimed, error: claimError } = await admin.rpc("claim_defi_wallet_sync", {
+      p_wallet_id: wallet.id,
+      p_user_id: auth.user.id,
+    });
+    if (claimError) throw claimError;
+    if (!claimed) return Response.json({ skipped: true, reason: "sync_in_progress" }, { headers: cors() });
+    claimedWalletId = wallet.id;
 
     const chainId = Number(BigInt(await rpc(alchemyKey, "eth_chainId", [])));
     if (chainId !== CHAIN_ID) throw new Error(`RPC retornou chainId inesperado: ${chainId}`);
@@ -417,7 +460,14 @@ Deno.serve(async (request) => {
       updatedAt: now,
     }, { headers: cors() });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Falha ao sincronizar." }, { status: 502, headers: cors() });
+    const errorMessage = error instanceof Error ? error.message : "Falha ao sincronizar.";
+    const safeErrorMessage = alchemyKey ? errorMessage.split(alchemyKey).join("[redacted]") : errorMessage;
+    console.error("defi-sync error", safeErrorMessage);
+    return Response.json({ error: errorMessage }, { status: 502, headers: cors() });
+  } finally {
+    if (claimedWalletId) {
+      await admin.from("defi_wallets").update({ sync_lock_until: null }).eq("id", claimedWalletId);
+    }
   }
 });
 

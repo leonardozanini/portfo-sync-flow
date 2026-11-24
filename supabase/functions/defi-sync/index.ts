@@ -9,6 +9,8 @@ const FACTORY = "0x1f7d7550b1b028f7571e69a784071f0205fd2efa";
 const V4_POSITION_MANAGER = "0x58daec3116aae6d93017baaea7749052e8a04fa7";
 const V4_STATE_VIEW = "0xf3334192d15450cdd385c8b70e03f9a6bd9e673b";
 const VERSIONS = new Map([[POSITION_MANAGER, "v3"], [V4_POSITION_MANAGER, "v4"]]);
+const BLOCKSCOUT_URL = "https://api.blockscout.com/4663/api/v2";
+const MAX_POSITIONS_PER_RUN = 10;
 const V4_POSITION_ABI = parseAbi([
   "function getPoolAndPositionInfo(uint256 tokenId) view returns ((address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks) poolKey,uint256 info)",
   "function getPositionLiquidity(uint256 tokenId) view returns (uint128 liquidity)",
@@ -26,6 +28,7 @@ const RPC_MIN_INTERVAL_MS = 500;
 let rpcQueue: Promise<void> = Promise.resolve();
 let lastRpcAt = 0;
 const tokenMetadataCache = new Map<string, { decimals: number; symbol: string }>();
+const tokenPriceCache = new Map<string, Promise<number | null>>();
 
 type Transfer = {
   hash: string;
@@ -147,6 +150,10 @@ async function tokenMetadata(apiKey: string, address: string) {
 }
 
 async function getUsdPrice(address: string) {
+  const cacheKey = address.toLowerCase();
+  const cached = tokenPriceCache.get(cacheKey);
+  if (cached) return cached;
+  const pricePromise = (async (): Promise<number | null> => {
   try {
     if (address.toLowerCase() === ZERO) {
       const ethResponse = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd", { signal: AbortSignal.timeout(10_000) });
@@ -167,6 +174,9 @@ async function getUsdPrice(address: string) {
     const price = Number(pair?.priceUsd);
     return Number.isFinite(price) && price > 0 ? price : null;
   } catch { return null; }
+  })();
+  tokenPriceCache.set(cacheKey, pricePromise);
+  return pricePromise;
 }
 
 async function transfersForWallet(apiKey: string, address: string, fromTimestamp?: string) {
@@ -201,6 +211,42 @@ async function transfersForWallet(apiKey: string, address: string, fromTimestamp
     if (page === 24) throw new Error("A carteira excedeu o limite de 2.500 transferências ERC-721 por sincronização; nenhuma posição foi alterada.");
   }
   return transfers.filter((transfer) => VERSIONS.has(transfer.contractAddress?.toLowerCase() ?? ""));
+}
+
+async function currentPositionNfts(address: string) {
+  const apiKey = Deno.env.get("BLOCKSCOUT_API_KEY");
+  if (!apiKey) throw new Error("A chave BLOCKSCOUT_API_KEY não está configurada no Supabase.");
+
+  const endpoint = new URL(`${BLOCKSCOUT_URL}/addresses/${address}/nft`);
+  endpoint.searchParams.set("type", "ERC-721");
+  const positions = new Map<string, { version: string; tokenId: string }>();
+
+  for (let page = 0; page < 50; page++) {
+    const response = await fetch(endpoint, {
+      headers: { authorization: `Bearer ${apiKey}`, accept: "application/json" },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`Blockscout falhou ao listar NFTs da carteira (HTTP ${response.status}).`);
+    }
+    const payload = await response.json();
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    for (const item of items) {
+      const contract = String(item.token?.address ?? item.token?.address_hash ?? item.token_contract_address_hash ?? "").toLowerCase();
+      const version = VERSIONS.get(contract);
+      const tokenId = item.id ?? item.token_id;
+      if (version && tokenId != null) positions.set(`${version}:${BigInt(tokenId)}`, { version, tokenId: BigInt(tokenId).toString() });
+    }
+
+    const cursor = payload.next_page_params;
+    if (!cursor) return [...positions.values()];
+    if (page === 49) throw new Error("A carteira excedeu 2.500 NFTs de posição; nenhuma leitura foi finalizada.");
+    endpoint.search = "";
+    endpoint.searchParams.set("type", "ERC-721");
+    for (const [key, value] of Object.entries(cursor)) endpoint.searchParams.set(key, String(value));
+  }
+  return [...positions.values()];
 }
 
 function decodeV4Tick(packedInfo: bigint, offset: number) {
@@ -256,10 +302,10 @@ Deno.serve(async (request) => {
     const { walletId } = await request.json();
     if (typeof walletId !== "string") return Response.json({ error: "Carteira inválida." }, { status: 400, headers: cors() });
     const { data: wallet, error: walletError } = await admin.from("defi_wallets")
-      .select("id,user_id,address,tracking_started_at,last_synced_at")
+      .select("id,user_id,address,tracking_started_at,last_synced_at,sync_started_at,sync_positions,sync_cursor,sync_failed_count,sync_open_count")
       .eq("id", walletId).eq("user_id", auth.user.id).single();
     if (walletError || !wallet) return Response.json({ error: "Carteira não encontrada." }, { status: 404, headers: cors() });
-    if (wallet.last_synced_at && Date.now() - new Date(wallet.last_synced_at).getTime() < 60 * 60 * 1000) {
+    if (!wallet.sync_started_at && wallet.last_synced_at && Date.now() - new Date(wallet.last_synced_at).getTime() < 60 * 60 * 1000) {
       return Response.json({ skipped: true, lastSyncedAt: wallet.last_synced_at }, { headers: cors() });
     }
     const { data: claimed, error: claimError } = await admin.rpc("claim_defi_wallet_sync", {
@@ -272,46 +318,37 @@ Deno.serve(async (request) => {
 
     const chainId = Number(BigInt(await rpc(alchemyKey, "eth_chainId", [])));
     if (chainId !== CHAIN_ID) throw new Error(`RPC retornou chainId inesperado: ${chainId}`);
-    const allTransfers = await transfersForWallet(alchemyKey, wallet.address, wallet.last_synced_at ?? undefined);
-    const owners = new Map<string, string>();
-    let priorSnapshots: Array<Record<string, unknown>> = [];
-    if (wallet.last_synced_at) {
-      const { data, error: priorError } = await admin.from("defi_position_snapshots")
-        .select("position_ref,protocol_version,pool_address,token0_address,token0_symbol,token1_address,token1_symbol,amount0,amount1,liquidity_usd,unclaimed_fees_usd,source_block,source_data")
-        .eq("wallet_id", wallet.id).eq("chain_id", CHAIN_ID)
-        .in("protocol_version", ["v3", "v4"]).eq("is_open", true).order("observed_at", { ascending: false }).limit(2000);
-      if (priorError) throw priorError;
-      const uniquePrior = new Map<string, Record<string, unknown>>();
-      for (const row of data ?? []) {
-        const id = `${row.protocol_version}:${row.position_ref}`;
-        if (!uniquePrior.has(id)) uniquePrior.set(id, row);
-      }
-      priorSnapshots = [...uniquePrior.values()];
-      for (const row of priorSnapshots) owners.set(`${row.protocol_version}:${row.position_ref}`, wallet.address.toLowerCase());
-    }
-    for (const transfer of [...allTransfers].reverse()) {
-      const version = VERSIONS.get(transfer.contractAddress?.toLowerCase() ?? "");
-      if (!version) continue;
-      for (const nft of transfer.nfts?.tokens ?? []) owners.set(`${version}:${BigInt(nft.tokenId)}`, transfer.to.toLowerCase());
-    }
-    const positions = [...owners].filter(([, owner]) => owner === wallet.address.toLowerCase()).map(([key]) => {
-      const [version, ...idParts] = key.split(":");
-      return { version, tokenId: idParts.join(":") };
-    });
-    const snapshots = [];
-    console.log("defi-sync current position candidates", positions.length);
-    const sourceBlock = Number(BigInt(await rpc(alchemyKey, "eth_blockNumber", [])));
-    const transfersAfterStart = (wallet.last_synced_at
-      ? allTransfers.filter((event) => event.blockTimestamp && event.blockTimestamp > wallet.last_synced_at!)
-      : []);
 
-    for (const { version, tokenId } of positions) {
+    let positions: Array<{ version: string; tokenId: string }>;
+    let cursor = Number(wallet.sync_cursor ?? 0);
+    let failedPositions = Number(wallet.sync_failed_count ?? 0);
+    let openPositions = Number(wallet.sync_open_count ?? 0);
+    if (wallet.sync_started_at) {
+      positions = Array.isArray(wallet.sync_positions) ? wallet.sync_positions : [];
+    } else {
+      positions = await currentPositionNfts(wallet.address);
+      const { error: startError } = await admin.from("defi_wallets").update({
+        sync_started_at: new Date().toISOString(), sync_positions: positions,
+        sync_cursor: 0, sync_failed_count: 0, sync_open_count: 0,
+      }).eq("id", wallet.id);
+      if (startError) throw startError;
+      cursor = 0;
+      failedPositions = 0;
+      openPositions = 0;
+    }
+    console.log("defi-sync position candidates", positions.length, "cursor", cursor);
+
+    const sourceBlock = Number(BigInt(await rpc(alchemyKey, "eth_blockNumber", [])));
+    const chunk = positions.slice(cursor, cursor + MAX_POSITIONS_PER_RUN);
+    const snapshots: Array<Record<string, unknown>> = [];
+    for (const { version, tokenId } of chunk) {
       const id = BigInt(tokenId);
       console.log("defi-sync reading position", version, tokenId);
       const manager = version === "v4" ? V4_POSITION_MANAGER : POSITION_MANAGER;
       let token0: string, token1: string, fee: bigint, tickLower: number, tickUpper: number;
       let liquidity: bigint, poolId: string | null = null, poolAddress: string | null = null;
       let sqrtPriceX96: bigint, feeAmount0 = 0n, feeAmount1 = 0n;
+      try {
       if (version === "v3") {
         const position = await call(alchemyKey, manager, `${selector("positions")}${encodeUint(id)}`);
         token0 = asAddress(word(position, 2));
@@ -322,7 +359,10 @@ Deno.serve(async (request) => {
         liquidity = BigInt(`0x${word(position, 7)}`);
         const poolData = `${encodeUint(BigInt(token0))}${encodeUint(BigInt(token1))}${encodeUint(fee)}`;
         poolAddress = asAddress(await call(alchemyKey, FACTORY, `${selector("getPool")}${poolData}`));
-        if (poolAddress === ZERO) continue;
+        if (poolAddress === ZERO) {
+          failedPositions++;
+          continue;
+        }
         const slot0 = await call(alchemyKey, poolAddress, selector("slot0"));
         sqrtPriceX96 = BigInt(`0x${word(slot0, 0)}`);
       } else {
@@ -370,6 +410,7 @@ Deno.serve(async (request) => {
       const feeValue = price0 == null || price1 == null ? null : fees0 * price0 + fees1 * price1;
       const principalValue = value0 == null || value1 == null ? null : value0 + value1;
       const positionValue = principalValue == null || (version === "v4" && feeValue == null) ? null : principalValue + (feeValue ?? 0);
+      const isOpen = liquidity > 0n || feeAmount0 > 0n || feeAmount1 > 0n;
       snapshots.push({
         user_id: wallet.user_id,
         wallet_id: wallet.id,
@@ -386,7 +427,7 @@ Deno.serve(async (request) => {
         amount1,
         liquidity_usd: positionValue,
         unclaimed_fees_usd: version === "v4" ? feeValue : null,
-        is_open: true,
+        is_open: isOpen,
         is_baseline: wallet.last_synced_at == null,
         source_block: sourceBlock,
         source_data: {
@@ -397,49 +438,67 @@ Deno.serve(async (request) => {
           unclaimedFees0: fees0, unclaimedFees1: fees1,
         },
       });
+      if (isOpen) openPositions++;
+      } catch (error) {
+        failedPositions++;
+        console.error("defi-sync position read failed", version, tokenId, error instanceof Error ? error.message : "erro RPC");
+      }
     }
 
     const now = new Date().toISOString();
-    const activeIds = new Set(snapshots.map((snapshot) => `${snapshot.protocol_version}:${snapshot.position_ref}`));
-    const closedSnapshots = priorSnapshots.filter((row) => !activeIds.has(`${row.protocol_version}:${row.position_ref}`)).map((row) => ({
-      ...row,
-      id: undefined,
-      user_id: wallet.user_id,
-      wallet_id: wallet.id,
-      chain_id: CHAIN_ID,
-      protocol: "uniswap",
-      protocol_version: row.protocol_version,
-      is_open: false,
-      is_baseline: false,
-      observed_at: now,
-    }));
-    snapshots.push(...closedSnapshots as typeof snapshots);
     if (snapshots.length) {
       const { error: snapshotError } = await admin.from("defi_position_snapshots").insert(snapshots);
       if (snapshotError) throw snapshotError;
     }
-    if (transfersAfterStart.length) {
-      const knownIds = new Set([
-        ...positions.map((position) => `${position.version}:${position.tokenId}`),
-        ...priorSnapshots.map((row) => `${row.protocol_version}:${row.position_ref}`),
-      ]);
-      const events = transfersAfterStart.flatMap((transfer) => (transfer.nfts?.tokens ?? []).flatMap((nft) => {
+    const nextCursor = cursor + chunk.length;
+    const syncComplete = nextCursor >= positions.length;
+    if (!syncComplete) {
+      const { error: progressError } = await admin.from("defi_wallets").update({
+        sync_cursor: nextCursor, sync_failed_count: failedPositions, sync_open_count: openPositions,
+      }).eq("id", wallet.id);
+      if (progressError) throw progressError;
+      return Response.json({ syncComplete: false, nextCursor, candidatePositions: positions.length, openPositions, failedPositions }, { headers: cors() });
+    }
+
+    const positionKeys = new Set(positions.map((position) => `${position.version}:${position.tokenId}`));
+    const { data: previousSnapshots, error: priorError } = await admin.from("defi_position_snapshots")
+      .select("position_ref,protocol_version,pool_address,token0_address,token0_symbol,token1_address,token1_symbol,amount0,amount1,liquidity_usd,unclaimed_fees_usd,source_block,source_data")
+      .eq("wallet_id", wallet.id).eq("chain_id", CHAIN_ID)
+      .in("protocol_version", ["v3", "v4"]).eq("is_open", true).order("observed_at", { ascending: false }).limit(2000);
+    if (priorError) throw priorError;
+    const priorUnique = new Map<string, Record<string, unknown>>();
+    for (const row of previousSnapshots ?? []) {
+      const key = `${row.protocol_version}:${row.position_ref}`;
+      if (!priorUnique.has(key)) priorUnique.set(key, row);
+    }
+    const closedSnapshots = [...priorUnique.entries()].filter(([key]) => !positionKeys.has(key)).map(([, row]) => ({
+      ...row, id: undefined, user_id: wallet.user_id, wallet_id: wallet.id, chain_id: CHAIN_ID,
+      protocol: "uniswap", is_open: false, is_baseline: false, observed_at: now,
+    }));
+    if (closedSnapshots.length) {
+      const { error: closeError } = await admin.from("defi_position_snapshots").insert(closedSnapshots);
+      if (closeError) throw closeError;
+    }
+
+    if (wallet.last_synced_at) {
+      const allTransfers = await transfersForWallet(alchemyKey, wallet.address, wallet.last_synced_at);
+      const knownIds = new Set([...positionKeys, ...priorUnique.keys()]);
+      const events = allTransfers.flatMap((transfer) => (transfer.nfts?.tokens ?? []).flatMap((nft) => {
         const version = VERSIONS.get(transfer.contractAddress?.toLowerCase() ?? "");
         if (!version) return [];
-        const tokenId = BigInt(nft.tokenId).toString();
-        if (!knownIds.has(`${version}:${tokenId}`)) return [];
+        const eventId = BigInt(nft.tokenId).toString();
+        if (!knownIds.has(`${version}:${eventId}`) || !transfer.blockTimestamp || transfer.blockTimestamp <= wallet.last_synced_at!) return [];
         const from = transfer.from.toLowerCase();
         const to = transfer.to.toLowerCase();
         const eventType = from === ZERO || to === wallet.address.toLowerCase() ? "opened"
           : to === ZERO || from === wallet.address.toLowerCase() ? "closed" : null;
         if (!eventType) return [];
-        const logIndex = Number(transfer.uniqueId?.match(/log:(\d+)/)?.[1] ?? 0);
         return [{
           user_id: wallet.user_id, wallet_id: wallet.id, chain_id: CHAIN_ID,
-          protocol: "uniswap", protocol_version: version, position_ref: tokenId,
-          event_type: eventType, transaction_hash: transfer.hash, log_index: logIndex,
-          block_number: Number(BigInt(transfer.blockNum)),
-          occurred_at: transfer.blockTimestamp ?? now,
+          protocol: "uniswap", protocol_version: version, position_ref: eventId,
+          event_type: eventType, transaction_hash: transfer.hash,
+          log_index: Number(transfer.uniqueId?.match(/log:(\d+)/)?.[1] ?? 0),
+          block_number: Number(BigInt(transfer.blockNum)), occurred_at: transfer.blockTimestamp,
           source_data: { from, to, source: "alchemy_transfers_by_wallet" },
         }];
       }));
@@ -449,14 +508,20 @@ Deno.serve(async (request) => {
         if (eventError) throw eventError;
       }
     }
-    const { error: updateError } = await admin.from("defi_wallets").update({ last_synced_at: now }).eq("id", wallet.id);
+
+    const { error: updateError } = await admin.from("defi_wallets").update({
+      last_synced_at: now, sync_started_at: null, sync_positions: [], sync_cursor: 0,
+      sync_failed_count: 0, sync_open_count: 0,
+    }).eq("id", wallet.id);
     if (updateError) throw updateError;
     return Response.json({
       chainId,
       wallet: wallet.address,
       candidatePositions: positions.length,
-      snapshotsWritten: snapshots.length,
-      transfersSinceLastSync: transfersAfterStart.length,
+      openPositions,
+      failedPositions,
+      snapshotsWritten: snapshots.length + closedSnapshots.length,
+      syncComplete: true,
       syncStatus: "v3_v4_positions_synced",
       updatedAt: now,
     }, { headers: cors() });
@@ -464,7 +529,9 @@ Deno.serve(async (request) => {
     const errorMessage = error instanceof Error ? error.message : "Falha ao sincronizar.";
     const safeErrorMessage = alchemyKey ? errorMessage.split(alchemyKey).join("[redacted]") : errorMessage;
     console.error("defi-sync error", safeErrorMessage);
-    return Response.json({ error: errorMessage }, { status: 502, headers: cors() });
+    const safeMessage = alchemyKey ? errorMessage.split(alchemyKey).join("[redacted]") : errorMessage;
+    const blockscoutKey = Deno.env.get("BLOCKSCOUT_API_KEY");
+    return Response.json({ error: safeMessage.split(blockscoutKey ?? "\0").join("[redacted]") }, { status: 502, headers: cors() });
   } finally {
     if (claimedWalletId) {
       await admin.from("defi_wallets").update({ sync_lock_until: null }).eq("id", claimedWalletId);

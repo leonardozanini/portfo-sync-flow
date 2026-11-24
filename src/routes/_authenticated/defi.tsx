@@ -1,5 +1,3 @@
-warning: in the working copy of 'src/routes/_authenticated/defi.tsx', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'supabase/functions/defi-sync/index.ts', LF will be replaced by CRLF the next time Git touches it
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Loader2, Plus, RefreshCw, ShieldCheck, Wallet, Waves } from "lucide-react";

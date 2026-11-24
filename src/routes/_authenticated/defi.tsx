@@ -74,6 +74,7 @@ function DefiPage() {
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ cursor: number; total: number } | null>(null);
   const syncLock = useRef(false);
   const syncWalletsRef = useRef<((force?: boolean) => Promise<void>) | null>(null);
 
@@ -86,7 +87,6 @@ function DefiPage() {
 
   const loadWallets = useCallback(async () => {
     if (!user) return;
-    setLoading(true);
     const [walletResult, positionResult] = await Promise.all([
       (supabase as any).from("defi_wallets")
       .select("id,address,tracking_started_at,last_synced_at")
@@ -127,27 +127,49 @@ function DefiPage() {
     try {
       let updatedCount = 0;
       let discoveredCount = 0;
+      let failedPositionCount = 0;
+      let alreadySyncedCount = 0;
       for (const wallet of due) {
-        const { data, error } = await supabase.functions.invoke("defi-sync", { body: { walletId: wallet.id } });
-        if (error) throw error;
-        if (data?.skipped) {
-          if (data.reason !== "sync_in_progress") toast.info("Esta carteira já foi atualizada na última hora.");
-          continue;
+        let previousCursor = -1;
+        let walletComplete = false;
+        while (!walletComplete) {
+          const { data, error } = await supabase.functions.invoke("defi-sync", { body: { walletId: wallet.id } });
+          if (error) throw error;
+          if (data?.skipped) {
+            if (data.reason !== "sync_in_progress") alreadySyncedCount += 1;
+            break;
+          }
+          discoveredCount = Math.max(discoveredCount, Number(data?.openPositions ?? data?.candidatePositions ?? 0));
+          failedPositionCount = Math.max(failedPositionCount, Number(data?.failedPositions ?? 0));
+          walletComplete = data?.syncComplete !== false;
+          const nextCursor = Number(data?.nextCursor ?? 0);
+          setSyncProgress(walletComplete ? null : { cursor: nextCursor, total: Number(data?.candidatePositions ?? 0) });
+          await loadWallets();
+          if (walletComplete) {
+            updatedCount += 1;
+            break;
+          }
+          if (!Number.isFinite(nextCursor) || nextCursor <= previousCursor) {
+            throw new Error("A leitura das posições não avançou. Tente atualizar novamente.");
+          }
+          previousCursor = nextCursor;
         }
-        updatedCount += 1;
-        discoveredCount += Number(data?.candidatePositions ?? 0);
       }
-      await loadWallets();
       if (updatedCount > 0 && discoveredCount === 0) {
         toast.info("Sincronização concluída. Nenhuma posição aberta da Uniswap foi encontrada nesta carteira.");
+      } else if (updatedCount > 0 && failedPositionCount > 0) {
+        toast.warning(`Monitoramento atualizado; ${failedPositionCount} posição(ões) não puderam ser lidas e serão tentadas na próxima atualização.`);
       } else if (updatedCount > 0) {
         toast.success("Posições DeFi atualizadas.");
+      } else if (alreadySyncedCount > 0 && force) {
+        toast.info("A carteira já foi atualizada em outra sessão.");
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível atualizar as posições DeFi.");
     } finally {
       syncLock.current = false;
       setSyncing(false);
+      setSyncProgress(null);
     }
   }, [wallets, loadWallets]);
 
@@ -213,7 +235,11 @@ function DefiPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5 text-primary" /> Carteiras monitoradas</CardTitle>
-              <CardDescription className="mt-1">Atualização automática a cada hora enquanto esta tela estiver aberta.</CardDescription>
+              <CardDescription className="mt-1">
+                {syncProgress
+                  ? `Lendo posições DeFi: ${Math.min(syncProgress.cursor, syncProgress.total)} de ${syncProgress.total}.`
+                  : "Atualização automática a cada hora enquanto esta tela estiver aberta."}
+              </CardDescription>
             </div>
             <Button variant="outline" size="sm" onClick={() => void syncWallets(true)} disabled={syncing || !wallets.length || wallets.every((wallet) => wallet.last_synced_at && Date.now() - new Date(wallet.last_synced_at).getTime() < 60 * 60 * 1000)}>
               {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}

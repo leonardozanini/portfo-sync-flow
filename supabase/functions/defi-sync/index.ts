@@ -25,6 +25,7 @@ const Q96 = 2 ** 96;
 const RPC_MIN_INTERVAL_MS = 500;
 let rpcQueue: Promise<void> = Promise.resolve();
 let lastRpcAt = 0;
+const tokenMetadataCache = new Map<string, { decimals: number; symbol: string }>();
 
 type Transfer = {
   hash: string;
@@ -126,6 +127,9 @@ async function call(apiKey: string, to: string, data: string) {
 
 async function tokenMetadata(apiKey: string, address: string) {
   if (address.toLowerCase() === ZERO) return { decimals: 18, symbol: "ETH" };
+  const cacheKey = address.toLowerCase();
+  const cached = tokenMetadataCache.get(cacheKey);
+  if (cached) return cached;
   const decimalsHex = await call(apiKey, address, selector("decimals"));
   const symbolHex = await call(apiKey, address, selector("symbol"));
   const decimals = Number(BigInt(decimalsHex));
@@ -137,7 +141,9 @@ async function tokenMetadata(apiKey: string, address: string) {
     const bytes = symbolHex.slice(start + 64, start + 64 + length * 2);
     symbol = new TextDecoder().decode(Uint8Array.from(bytes.match(/.{2}/g) ?? [], (b) => parseInt(b, 16)));
   } catch { /* Keep a safe display fallback for malformed metadata. */ }
-  return { decimals: Math.min(Math.max(decimals, 0), 36), symbol: symbol || "TOKEN" };
+  const metadata = { decimals: Math.min(Math.max(decimals, 0), 36), symbol: symbol || "TOKEN" };
+  tokenMetadataCache.set(cacheKey, metadata);
+  return metadata;
 }
 
 async function getUsdPrice(address: string) {
@@ -293,20 +299,16 @@ Deno.serve(async (request) => {
       return { version, tokenId: idParts.join(":") };
     });
     const snapshots = [];
+    console.log("defi-sync current position candidates", positions.length);
+    const sourceBlock = Number(BigInt(await rpc(alchemyKey, "eth_blockNumber", [])));
     const transfersAfterStart = (wallet.last_synced_at
       ? allTransfers.filter((event) => event.blockTimestamp && event.blockTimestamp > wallet.last_synced_at!)
       : []);
 
     for (const { version, tokenId } of positions) {
       const id = BigInt(tokenId);
+      console.log("defi-sync reading position", version, tokenId);
       const manager = version === "v4" ? V4_POSITION_MANAGER : POSITION_MANAGER;
-      let owner: string;
-      try {
-        owner = asAddress(await call(alchemyKey, manager, `${selector("ownerOf")}${encodeUint(id)}`));
-      } catch (error) {
-        throw new Error(`Não foi possível confirmar a titularidade da posição ${version} #${tokenId}: ${error instanceof Error ? error.message : "erro RPC"}`);
-      }
-      if (owner !== wallet.address.toLowerCase()) continue;
       let token0: string, token1: string, fee: bigint, tickLower: number, tickUpper: number;
       let liquidity: bigint, poolId: string | null = null, poolAddress: string | null = null;
       let sqrtPriceX96: bigint, feeAmount0 = 0n, feeAmount1 = 0n;
@@ -368,7 +370,6 @@ Deno.serve(async (request) => {
       const feeValue = price0 == null || price1 == null ? null : fees0 * price0 + fees1 * price1;
       const principalValue = value0 == null || value1 == null ? null : value0 + value1;
       const positionValue = principalValue == null || (version === "v4" && feeValue == null) ? null : principalValue + (feeValue ?? 0);
-      const sourceBlock = Number(BigInt(await rpc(alchemyKey, "eth_blockNumber", [])));
       snapshots.push({
         user_id: wallet.user_id,
         wallet_id: wallet.id,

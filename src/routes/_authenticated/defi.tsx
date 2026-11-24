@@ -145,6 +145,12 @@ function DefiPage() {
     wallets[0].tracking_started_at);
   }, [wallets]);
 
+  const nextSyncAt = wallets.length && wallets.every((wallet) =>
+    wallet.last_synced_at && Date.now() - Date.parse(wallet.last_synced_at) < 60 * 60 * 1000,
+  )
+    ? Math.min(...wallets.map((wallet) => Date.parse(wallet.last_synced_at!) + 60 * 60 * 1000))
+    : null;
+
   const loadWallets = useCallback(async () => {
     if (!user) return;
     const snapshotFields = "id,wallet_id,protocol_version,position_ref,token0_address,token0_symbol,token1_address,token1_symbol,amount0,amount1,liquidity_usd,unclaimed_fees_usd,observed_at,is_open,is_baseline,source_data";
@@ -314,9 +320,13 @@ function DefiPage() {
                   : "Atualização automática a cada hora enquanto esta tela estiver aberta."}
               </CardDescription>
             </div>
-            <Button variant="outline" size="sm" onClick={() => void syncWallets(true)} disabled={syncing || !wallets.length || wallets.every((wallet) => wallet.last_synced_at && Date.now() - new Date(wallet.last_synced_at).getTime() < 60 * 60 * 1000)}>
+            <Button variant="outline" size="sm" className="whitespace-nowrap" onClick={() => void syncWallets(true)} disabled={syncing || !wallets.length || nextSyncAt !== null}>
               {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-              Atualizar agora
+              {syncing
+                ? "Atualizando..."
+                : nextSyncAt
+                  ? `Próxima atualização às ${new Date(nextSyncAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
+                  : wallets.length ? "Atualizar agora" : "Sem carteira monitorada"}
             </Button>
           </div>
         </CardHeader>

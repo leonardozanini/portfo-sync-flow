@@ -315,6 +315,7 @@ Deno.serve(async (request) => {
     if (claimError) throw claimError;
     if (!claimed) return Response.json({ skipped: true, reason: "sync_in_progress" }, { headers: cors() });
     claimedWalletId = wallet.id;
+    tokenPriceCache.clear();
 
     const chainId = Number(BigInt(await rpc(alchemyKey, "eth_chainId", [])));
     if (chainId !== CHAIN_ID) throw new Error(`RPC retornou chainId inesperado: ${chainId}`);

@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/sheet";
 import {
   LayoutDashboard, ArrowRightLeft, Settings, Shield, LogOut, Sparkles, Wallet, Menu, TrendingUp,
-  Sun, Moon, Target, Brain, Calculator,
+  Sun, Moon, Target, Brain, Calculator, Waves,
 } from "lucide-react";
 import { CurrencySwitcher } from "./CurrencySwitcher";
 import { useTheme } from "@/hooks/useTheme";
@@ -29,6 +29,7 @@ const nav = [
   { to: "/valuation", label: "Valuation", shortLabel: "Valuat.", icon: Calculator },
   { to: "/analise", label: "Análise IA", shortLabel: "IA", icon: Brain },
   { to: "/settings", label: "Ajustes", shortLabel: "Ajustes", icon: Settings },
+  { to: "/defi", label: "Pools DeFi", shortLabel: "DeFi", icon: Waves },
 ] as const;
 
 // ── Sidebar — compacta por padrão, expande ao passar o mouse (desktop) ──────
@@ -266,4 +267,5 @@ export function AppShell({ children }: { children: ReactNode }) {
     </div>
   );
 }
+
 

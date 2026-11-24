@@ -17,6 +17,7 @@ import { Route as AuthenticatedTransactionsRouteImport } from './routes/_authent
 import { Route as AuthenticatedProventosRouteImport } from './routes/_authenticated/proventos'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedDefiRouteImport } from './routes/_authenticated/defi'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/_admin'
 import { Route as AuthenticatedAdminCatalogRouteImport } from './routes/_authenticated/_admin/catalog'
 import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/_admin/users'
@@ -63,6 +64,11 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedDefiRoute = AuthenticatedDefiRouteImport.update({
+  id: '/defi',
+  path: '/defi',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   id: '/_admin',
   getParentRoute: () => AuthenticatedRoute,
@@ -95,6 +101,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/defi': typeof AuthenticatedDefiRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/transactions': typeof AuthenticatedTransactionsRoute
   '/proventos': typeof AuthenticatedProventosRoute
@@ -108,6 +115,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/defi': typeof AuthenticatedDefiRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/transactions': typeof AuthenticatedTransactionsRoute
   '/transactions': typeof AuthenticatedTransactionsRoute
@@ -124,6 +132,7 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/_authenticated/_admin': typeof AuthenticatedAdminRouteWithChildren
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/defi': typeof AuthenticatedDefiRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/transactions': typeof AuthenticatedTransactionsRoute
   '/_authenticated/proventos': typeof AuthenticatedProventosRoute
@@ -139,6 +148,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/signup'
     | '/dashboard'
+    | '/defi'
     | '/settings'
     | '/transactions'
     | '/proventos'
@@ -151,6 +161,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/signup'
     | '/dashboard'
+    | '/defi'
     | '/settings'
     | '/transactions'
     | '/proventos'
@@ -165,6 +176,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/_authenticated/_admin'
     | '/_authenticated/dashboard'
+    | '/_authenticated/defi'
     | '/_authenticated/settings'
     | '/_authenticated/transactions'
     | '/_authenticated/proventos'
@@ -239,6 +251,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/defi': {
+      id: '/_authenticated/defi'
+      path: '/defi'
+      fullPath: '/defi'
+      preLoaderRoute: typeof AuthenticatedDefiRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/_admin': {
       id: '/_authenticated/_admin'
       path: ''
@@ -295,6 +314,7 @@ const AuthenticatedAdminRouteWithChildren =
 interface AuthenticatedRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRouteWithChildren
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedDefiRoute: typeof AuthenticatedDefiRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedTransactionsRoute: typeof AuthenticatedTransactionsRoute
   AuthenticatedProventosRoute: typeof AuthenticatedProventosRoute
@@ -303,6 +323,7 @@ interface AuthenticatedRouteChildren {
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRouteWithChildren,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedDefiRoute: AuthenticatedDefiRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedTransactionsRoute: AuthenticatedTransactionsRoute,
   AuthenticatedProventosRoute: AuthenticatedProventosRoute,
@@ -332,3 +353,4 @@ declare module '@tanstack/react-start' {
     config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }
+

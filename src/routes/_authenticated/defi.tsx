@@ -75,6 +75,7 @@ function DefiPage() {
   const [connecting, setConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const syncLock = useRef(false);
+  const syncWalletsRef = useRef<((force?: boolean) => Promise<void>) | null>(null);
 
   const trackingStart = useMemo(() => {
     if (!wallets.length) return null;
@@ -124,16 +125,24 @@ function DefiPage() {
     syncLock.current = true;
     setSyncing(true);
     try {
+      let updatedCount = 0;
+      let discoveredCount = 0;
       for (const wallet of due) {
         const { data, error } = await supabase.functions.invoke("defi-sync", { body: { walletId: wallet.id } });
         if (error) throw error;
         if (data?.skipped) {
-          toast.info("Esta carteira já foi atualizada na última hora.");
+          if (data.reason !== "sync_in_progress") toast.info("Esta carteira já foi atualizada na última hora.");
           continue;
         }
+        updatedCount += 1;
+        discoveredCount += Number(data?.candidatePositions ?? 0);
       }
       await loadWallets();
-      toast.success("Posições DeFi atualizadas.");
+      if (updatedCount > 0 && discoveredCount === 0) {
+        toast.info("Sincronização concluída. Nenhuma posição aberta da Uniswap foi encontrada nesta carteira.");
+      } else if (updatedCount > 0) {
+        toast.success("Posições DeFi atualizadas.");
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível atualizar as posições DeFi.");
     } finally {
@@ -142,18 +151,21 @@ function DefiPage() {
     }
   }, [wallets, loadWallets]);
 
+  useEffect(() => { syncWalletsRef.current = syncWallets; }, [syncWallets]);
+
   useEffect(() => {
-    void syncWallets();
-    const timer = window.setInterval(() => void syncWallets(), 60 * 60 * 1000);
+    if (loading || !wallets.length) return;
+    void syncWalletsRef.current?.();
+    const timer = window.setInterval(() => void syncWalletsRef.current?.(), 60 * 60 * 1000);
     const onVisible = () => {
-      if (document.visibilityState === "visible") void syncWallets();
+      if (document.visibilityState === "visible") void syncWalletsRef.current?.();
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [syncWallets]);
+  }, [loading, wallets.length]);
 
   async function connectRabby() {
     if (!user) return;
